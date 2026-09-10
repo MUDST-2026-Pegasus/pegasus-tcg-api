@@ -2,17 +2,14 @@ package com.pegasus.pegasustcgapi.exception;
 
 import org.springframework.http.HttpStatus;
 
-/**
- * Every failure the API reports on purpose. Clients branch on {@link #name()},
- * so the codes are part of the contract — rename with care.
- */
+
 public enum ErrorCode {
 
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Request payload failed validation"),
     MALFORMED_REQUEST(HttpStatus.BAD_REQUEST, "Request could not be read"),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "HTTP method is not supported here"),
 
-    INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Username or password is incorrect"),
+    INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect"),
     UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Authentication is required"),
     INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "Token is invalid, expired or already used"),
 

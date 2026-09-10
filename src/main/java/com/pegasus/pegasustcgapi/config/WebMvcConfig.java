@@ -1,6 +1,6 @@
 package com.pegasus.pegasustcgapi.config;
 
-import com.pegasus.pegasustcgapi.auth.security.AuthPrincipalArgumentResolver;
+import com.pegasus.pegasustcgapi.security.AuthPrincipalArgumentResolver;
 import java.util.List;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;

@@ -1,8 +1,8 @@
 package com.pegasus.pegasustcgapi.config;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
-import com.pegasus.pegasustcgapi.auth.security.AuthClaims;
-import com.pegasus.pegasustcgapi.auth.security.SecurityErrorHandler;
+import com.pegasus.pegasustcgapi.security.AuthClaims;
+import com.pegasus.pegasustcgapi.security.SecurityErrorHandler;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
