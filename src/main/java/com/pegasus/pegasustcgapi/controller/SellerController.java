@@ -129,30 +129,14 @@ public class SellerController {
         return ApiResponse.success("Shipping option deactivated", null);
     }
 
-    // ---------- payout accounts ----------
+    // ---------- payout account ----------
     //
-    // Read-only by design. An account appears when an admin approves a
-    // verification and never any other way, so a seller cannot verify one
-    // account and be paid into another. Changing bank means a new verification.
+    // Read-only, and singular. A seller has one account, it is the one their
+    // verification approved, and changing bank means verifying a new one — so
+    // there is nothing to add, choose between, or delete.
 
-    @GetMapping("/payout-accounts")
-    public ApiResponse<List<PayoutAccount>> payoutAccounts(AuthPrincipal principal) {
-        return ApiResponse.success(payoutAccounts.listMine(principal.userId()));
-    }
-
-    @PutMapping("/payout-accounts/{accountId}/default")
-    public ApiResponse<PayoutAccount> makeDefaultPayoutAccount(
-            @PathVariable long accountId, AuthPrincipal principal) {
-
-        return ApiResponse.success("Default payout account set",
-                payoutAccounts.makeDefault(principal.userId(), accountId));
-    }
-
-    @DeleteMapping("/payout-accounts/{accountId}")
-    public ApiResponse<Void> deletePayoutAccount(
-            @PathVariable long accountId, AuthPrincipal principal) {
-
-        payoutAccounts.delete(principal.userId(), accountId);
-        return ApiResponse.success("Payout account removed", null);
+    @GetMapping("/payout-account")
+    public ApiResponse<PayoutAccount> payoutAccount(AuthPrincipal principal) {
+        return ApiResponse.success(payoutAccounts.mine(principal.userId()));
     }
 }

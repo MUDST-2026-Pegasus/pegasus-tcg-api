@@ -185,29 +185,16 @@ public class SellerOnboardingService {
     }
 
     /**
-     * Registers the account that was just checked as where this seller gets paid.
+     * Points the seller's payouts at the account that was just checked.
      *
-     * <p>This is the only place a payout account is ever created, which is what
-     * guarantees a seller is only ever paid into an account somebody approved.
-     *
-     * <p>The insert is keyed on the verification, so approving the same request
-     * twice leaves one account rather than two.
+     * <p>The only place a payout account is ever written, which is what
+     * guarantees a seller is only paid into an account somebody approved. A
+     * seller who re-verifies to change bank has their one account replaced, so
+     * there is never a stale account left to be paid into by mistake.
      */
     private void registerVerifiedAccount(SellerVerification request) {
-        payoutAccounts.clearDefault(request.sellerProfileId(), 0L);
-
-        boolean created = payoutAccounts.insert(
-                request.sellerProfileId(), request.id(), request.bankCode(), request.bankName(),
-                request.legalName(), request.bankAccountNumber(), true).isPresent();
-
-        // Nothing new: this request had already been approved, so restore the
-        // default flag the clear above just removed.
-        if (!created) {
-            payoutAccounts.findBySellerProfileId(request.sellerProfileId()).stream()
-                    .filter(a -> a.verificationId() == request.id())
-                    .findFirst()
-                    .ifPresent(a -> payoutAccounts.makeDefault(a.id(), request.sellerProfileId()));
-        }
+        payoutAccounts.upsert(request.sellerProfileId(), request.id(), request.bankCode(),
+                request.bankName(), request.legalName(), request.bankAccountNumber());
     }
 
     /** The profile drops back to REJECTED; the seller may submit a new document afterwards. */

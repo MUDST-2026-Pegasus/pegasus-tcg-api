@@ -36,7 +36,6 @@ public enum ErrorCode {
     VERIFICATION_IN_REVIEW(HttpStatus.CONFLICT, "A verification request is already under review"),
     VERIFICATION_ALREADY_DECIDED(HttpStatus.CONFLICT, "This verification request was already decided"),
     BANK_ACCOUNT_ALREADY_USED(HttpStatus.CONFLICT, "This bank account is already registered to another seller"),
-    PAYOUT_ACCOUNT_REQUIRED(HttpStatus.CONFLICT, "A seller must keep at least one payout account"),
 
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error");
 
