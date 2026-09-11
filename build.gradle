@@ -71,6 +71,8 @@ flyway {
     password = dbPassword
     locations = ['filesystem:src/main/resources/db/migration']
     baselineOnMigrate = true
+    outOfOrder = true
+    validateMigrationNaming = true
 }
 
 jooq {
