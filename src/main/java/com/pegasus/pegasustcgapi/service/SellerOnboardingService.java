@@ -105,9 +105,6 @@ public class SellerOnboardingService {
 
         SellerProfile profile = startApplication(userId);
 
-        if (profile.status() == SellerStatus.VERIFIED) {
-            throw new ConflictException(ErrorCode.SELLER_ALREADY_VERIFIED);
-        }
         if (profile.status() == SellerStatus.SUSPENDED) {
             throw new ForbiddenException(ErrorCode.ACCESS_DENIED,
                     "A suspended seller cannot submit a new verification");
@@ -123,8 +120,11 @@ public class SellerOnboardingService {
         long id = verifications.insert(profile.id(), legalFirstName, legalLastName,
                 bankCode, bankName, bankAccountNumber);
 
-        // PENDING is what the seller sees while an admin has not looked yet.
-        profiles.updateStatus(profile.id(), SellerStatus.PENDING, null, null);
+        // An already-verified seller is changing bank, not reapplying: dropping them
+        // to PENDING would pull their listings down while they wait.
+        if (profile.status() != SellerStatus.VERIFIED) {
+            profiles.updateStatus(profile.id(), SellerStatus.PENDING, null, null);
+        }
 
         return verifications.findById(id).orElseThrow(
                 () -> new NotFoundException(ErrorCode.VERIFICATION_NOT_FOUND));
@@ -184,17 +184,30 @@ public class SellerOnboardingService {
         return approved;
     }
 
-    /** Skipped when the seller already has this account on file, so a re-approval is harmless. */
+    /**
+     * Registers the account that was just checked as where this seller gets paid.
+     *
+     * <p>This is the only place a payout account is ever created, which is what
+     * guarantees a seller is only ever paid into an account somebody approved.
+     *
+     * <p>The insert is keyed on the verification, so approving the same request
+     * twice leaves one account rather than two.
+     */
     private void registerVerifiedAccount(SellerVerification request) {
-        boolean alreadyThere = payoutAccounts.findBySellerProfileId(request.sellerProfileId()).stream()
-                .anyMatch(a -> a.accountNumber().equals(request.bankAccountNumber()));
-
-        if (alreadyThere) {
-            return;
-        }
         payoutAccounts.clearDefault(request.sellerProfileId(), 0L);
-        payoutAccounts.insert(request.sellerProfileId(), request.bankCode(), request.bankName(),
-                request.legalName(), request.bankAccountNumber(), true);
+
+        boolean created = payoutAccounts.insert(
+                request.sellerProfileId(), request.id(), request.bankCode(), request.bankName(),
+                request.legalName(), request.bankAccountNumber(), true).isPresent();
+
+        // Nothing new: this request had already been approved, so restore the
+        // default flag the clear above just removed.
+        if (!created) {
+            payoutAccounts.findBySellerProfileId(request.sellerProfileId()).stream()
+                    .filter(a -> a.verificationId() == request.id())
+                    .findFirst()
+                    .ifPresent(a -> payoutAccounts.makeDefault(a.id(), request.sellerProfileId()));
+        }
     }
 
     /** The profile drops back to REJECTED; the seller may submit a new document afterwards. */

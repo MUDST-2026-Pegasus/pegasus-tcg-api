@@ -34,8 +34,14 @@ public class PayoutAccountRepository {
                 .map(PayoutAccountRepository::toAccount);
     }
 
-    public long insert(long sellerProfileId, String bankCode, String bankName, String accountName,
-            String accountNumber, boolean isDefault) {
+    /**
+     * @param verificationId the approved request this account came from; the unique
+     *        index on it is what makes a retried approval a no-op
+     * @return the new id, or empty when this verification already produced an account
+     */
+    public Optional<Long> insert(long sellerProfileId, long verificationId,
+            String bankCode, String bankName, String accountName, String accountNumber,
+            boolean isDefault) {
 
         return dsl.insertInto(SELLER_PAYOUT_ACCOUNT)
                 .set(SELLER_PAYOUT_ACCOUNT.SELLER_PROFILE_ID, sellerProfileId)
@@ -43,9 +49,12 @@ public class PayoutAccountRepository {
                 .set(SELLER_PAYOUT_ACCOUNT.BANK_NAME, bankName)
                 .set(SELLER_PAYOUT_ACCOUNT.ACCOUNT_NAME, accountName)
                 .set(SELLER_PAYOUT_ACCOUNT.ACCOUNT_NUMBER, accountNumber)
+                .set(SELLER_PAYOUT_ACCOUNT.VERIFICATION_ID, verificationId)
                 .set(SELLER_PAYOUT_ACCOUNT.IS_DEFAULT, isDefault)
+                .onConflict(SELLER_PAYOUT_ACCOUNT.VERIFICATION_ID)
+                .doNothing()
                 .returningResult(SELLER_PAYOUT_ACCOUNT.ID)
-                .fetchSingle(SELLER_PAYOUT_ACCOUNT.ID);
+                .fetchOptional(SELLER_PAYOUT_ACCOUNT.ID);
     }
 
     /** Paired with the partial unique index, which is what really keeps "default" singular. */
@@ -81,6 +90,7 @@ public class PayoutAccountRepository {
                 r.getBankName(),
                 r.getAccountName(),
                 r.getAccountNumber(),
+                r.getVerificationId(),
                 r.getIsDefault(),
                 r.getVerifiedAt(),
                 r.getCreatedAt());

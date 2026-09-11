@@ -2,7 +2,6 @@ package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResponse;
-import com.pegasus.pegasustcgapi.dto.PayoutAccountRequest;
 import com.pegasus.pegasustcgapi.dto.SellerProfileResponse;
 import com.pegasus.pegasustcgapi.dto.SellerSettingsRequest;
 import com.pegasus.pegasustcgapi.dto.ShippingOptionRequest;
@@ -131,22 +130,14 @@ public class SellerController {
     }
 
     // ---------- payout accounts ----------
+    //
+    // Read-only by design. An account appears when an admin approves a
+    // verification and never any other way, so a seller cannot verify one
+    // account and be paid into another. Changing bank means a new verification.
 
     @GetMapping("/payout-accounts")
     public ApiResponse<List<PayoutAccount>> payoutAccounts(AuthPrincipal principal) {
         return ApiResponse.success(payoutAccounts.listMine(principal.userId()));
-    }
-
-    @PostMapping("/payout-accounts")
-    public ResponseEntity<ApiResponse<PayoutAccount>> createPayoutAccount(
-            @Valid @RequestBody PayoutAccountRequest request, AuthPrincipal principal) {
-
-        PayoutAccount created = payoutAccounts.create(principal.userId(), request.bankCode(),
-                request.bankName(), request.accountName(), request.normalisedAccountNumber(),
-                request.wantsDefault());
-
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Payout account added", created));
     }
 
     @PutMapping("/payout-accounts/{accountId}/default")

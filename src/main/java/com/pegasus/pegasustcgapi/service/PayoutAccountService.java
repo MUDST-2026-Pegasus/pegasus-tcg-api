@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service;
 
+import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.PayoutAccount;
@@ -11,9 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Where a seller's money goes.
  *
- * <p>Approval already copies across the account from the verification, so most
- * sellers never call any of this. It exists for the seller who later changes
- * bank, or keeps more than one account.
+ * <p>There is deliberately no way to add an account here. An account appears
+ * only when an admin approves a verification, so every account a seller can be
+ * paid into is one somebody checked. Changing bank means submitting a new
+ * verification and going through the same review.
  */
 @Service
 public class PayoutAccountService {
@@ -30,27 +32,7 @@ public class PayoutAccountService {
         return accounts.findBySellerProfileId(sellers.requireProfile(userId).id());
     }
 
-    /** The first account a seller adds becomes the default, so a payout always has a target. */
-    @Transactional
-    public PayoutAccount create(long userId, String bankCode, String bankName,
-            String accountName, String accountNumber, boolean makeDefault) {
-
-        long sellerProfileId = sellers.requireVerifiedSeller(userId).id();
-        boolean first = accounts.findBySellerProfileId(sellerProfileId).isEmpty();
-        boolean isDefault = makeDefault || first;
-
-        if (isDefault) {
-            // Clear the old default first: the partial unique index rejects two.
-            accounts.clearDefault(sellerProfileId, 0L);
-        }
-
-        long id = accounts.insert(
-                sellerProfileId, bankCode, bankName, accountName, accountNumber, isDefault);
-
-        return accounts.findByIdAndSeller(id, sellerProfileId).orElseThrow(
-                () -> new NotFoundException(ErrorCode.PAYOUT_ACCOUNT_NOT_FOUND));
-    }
-
+    /** Picks which verified account payouts go to, when a seller has more than one. */
     @Transactional
     public PayoutAccount makeDefault(long userId, long accountId) {
         long sellerProfileId = sellers.requireProfile(userId).id();
@@ -63,9 +45,20 @@ public class PayoutAccountService {
                 () -> new NotFoundException(ErrorCode.PAYOUT_ACCOUNT_NOT_FOUND));
     }
 
+    /**
+     * Removes an old account a seller no longer uses.
+     *
+     * <p>The last one cannot go: a verified seller with nowhere to be paid would
+     * have to be re-verified to get an account back, and until then their
+     * earnings have no destination.
+     */
     @Transactional
     public void delete(long userId, long accountId) {
         long sellerProfileId = sellers.requireProfile(userId).id();
+
+        if (accounts.findBySellerProfileId(sellerProfileId).size() <= 1) {
+            throw new ConflictException(ErrorCode.PAYOUT_ACCOUNT_REQUIRED);
+        }
         if (!accounts.delete(accountId, sellerProfileId)) {
             throw new NotFoundException(ErrorCode.PAYOUT_ACCOUNT_NOT_FOUND);
         }
