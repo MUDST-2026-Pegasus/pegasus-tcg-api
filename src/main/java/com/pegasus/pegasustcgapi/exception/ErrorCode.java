@@ -18,13 +18,24 @@ public enum ErrorCode {
     ACCOUNT_DEACTIVATED(HttpStatus.FORBIDDEN, "Account is deactivated"),
     EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Email address is not verified"),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "Not allowed to perform this action"),
+    SELLER_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Seller profile is not verified"),
 
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found"),
     ROLE_NOT_FOUND(HttpStatus.NOT_FOUND, "Role not found"),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "No such endpoint"),
+    ADDRESS_NOT_FOUND(HttpStatus.NOT_FOUND, "Address not found"),
+    SELLER_NOT_FOUND(HttpStatus.NOT_FOUND, "Seller profile not found"),
+    VERIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "Verification request not found"),
+    SHIPPING_OPTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Shipping option not found"),
+    PAYOUT_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "Payout account not found"),
+    SETTING_NOT_FOUND(HttpStatus.NOT_FOUND, "Setting not found"),
 
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email address is already registered"),
     USERNAME_ALREADY_USED(HttpStatus.CONFLICT, "Username is already taken"),
+    SELLER_ALREADY_VERIFIED(HttpStatus.CONFLICT, "Seller profile is already verified"),
+    VERIFICATION_IN_REVIEW(HttpStatus.CONFLICT, "A verification request is already under review"),
+    VERIFICATION_ALREADY_DECIDED(HttpStatus.CONFLICT, "This verification request was already decided"),
+    BANK_ACCOUNT_ALREADY_USED(HttpStatus.CONFLICT, "This bank account is already registered to another seller"),
 
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error");
 
