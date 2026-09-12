@@ -10,6 +10,8 @@ public final class ApiPaths {
     /** The signed-in seller's own settings; the public profile stays at /u/{username}. */
     public static final String SELLERS_ME = API_V1 + "/sellers/me";
     public static final String ADMIN = API_V1 + "/admin";
+    /** Presigned upload tickets; the files themselves never pass through this API. */
+    public static final String UPLOADS = API_V1 + "/uploads";
 
     private ApiPaths() {
     }

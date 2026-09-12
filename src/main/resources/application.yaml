@@ -36,3 +36,16 @@ pegasus:
 
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+  storage:
+    # Where the app reaches MinIO. Inside a container this is http://minio:9000.
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    # Where the browser reaches it. Presigned URLs are signed for this host, so
+    # signing with the internal name would hand the browser a URL it cannot open.
+    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:${MINIO_ENDPOINT:http://localhost:9000}}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:pegasus}
+    # Long enough to pick a file and upload it, short enough that a leaked link is worthless.
+    upload-url-ttl: 5m
+    download-url-ttl: 15m
