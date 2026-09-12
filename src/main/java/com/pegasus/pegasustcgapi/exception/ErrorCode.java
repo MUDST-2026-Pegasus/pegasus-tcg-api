@@ -29,6 +29,10 @@ public enum ErrorCode {
     SHIPPING_OPTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Shipping option not found"),
     PAYOUT_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "Payout account not found"),
     SETTING_NOT_FOUND(HttpStatus.NOT_FOUND, "Setting not found"),
+    GAME_NOT_FOUND(HttpStatus.NOT_FOUND, "Game not found"),
+    ATTRIBUTE_NOT_FOUND(HttpStatus.NOT_FOUND, "Game attribute not found"),
+    CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "Category not found"),
+    CARD_SET_NOT_FOUND(HttpStatus.NOT_FOUND, "Card set not found"),
 
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email address is already registered"),
     USERNAME_ALREADY_USED(HttpStatus.CONFLICT, "Username is already taken"),
@@ -36,6 +40,12 @@ public enum ErrorCode {
     VERIFICATION_IN_REVIEW(HttpStatus.CONFLICT, "A verification request is already under review"),
     VERIFICATION_ALREADY_DECIDED(HttpStatus.CONFLICT, "This verification request was already decided"),
     BANK_ACCOUNT_ALREADY_USED(HttpStatus.CONFLICT, "This bank account is already registered to another seller"),
+    GAME_CODE_ALREADY_USED(HttpStatus.CONFLICT, "Another game already uses this code"),
+    ATTRIBUTE_KEY_ALREADY_USED(HttpStatus.CONFLICT, "This game already has an attribute with that key"),
+    CATEGORY_CODE_ALREADY_USED(HttpStatus.CONFLICT, "Another category already uses this code"),
+    CARD_SET_CODE_ALREADY_USED(HttpStatus.CONFLICT, "This game already has a set with that code"),
+
+    INVALID_ATTRIBUTE_DEFINITION(HttpStatus.BAD_REQUEST, "Attribute definition is not usable"),
 
     UNSUPPORTED_FILE_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "File type is not allowed for this upload"),
     FILE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "File is larger than this upload allows"),
