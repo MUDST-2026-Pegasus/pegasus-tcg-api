@@ -33,6 +33,9 @@ public enum ErrorCode {
     ATTRIBUTE_NOT_FOUND(HttpStatus.NOT_FOUND, "Game attribute not found"),
     CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "Category not found"),
     CARD_SET_NOT_FOUND(HttpStatus.NOT_FOUND, "Card set not found"),
+    PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "Product not found"),
+    VARIANT_NOT_FOUND(HttpStatus.NOT_FOUND, "Variant not found"),
+    IMAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "Image not found"),
 
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email address is already registered"),
     USERNAME_ALREADY_USED(HttpStatus.CONFLICT, "Username is already taken"),
@@ -44,8 +47,11 @@ public enum ErrorCode {
     ATTRIBUTE_KEY_ALREADY_USED(HttpStatus.CONFLICT, "This game already has an attribute with that key"),
     CATEGORY_CODE_ALREADY_USED(HttpStatus.CONFLICT, "Another category already uses this code"),
     CARD_SET_CODE_ALREADY_USED(HttpStatus.CONFLICT, "This game already has a set with that code"),
+    SKU_ALREADY_USED(HttpStatus.CONFLICT, "Another variant already uses this SKU"),
+    VARIANT_ALREADY_EXISTS(HttpStatus.CONFLICT, "This product already has a variant with that identity"),
 
     INVALID_ATTRIBUTE_DEFINITION(HttpStatus.BAD_REQUEST, "Attribute definition is not usable"),
+    INVALID_PRODUCT_ATTRIBUTES(HttpStatus.BAD_REQUEST, "Product attributes do not match this game"),
 
     UNSUPPORTED_FILE_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "File type is not allowed for this upload"),
     FILE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "File is larger than this upload allows"),

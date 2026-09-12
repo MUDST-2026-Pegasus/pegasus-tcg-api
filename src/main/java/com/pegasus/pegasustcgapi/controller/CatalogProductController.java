@@ -1,0 +1,66 @@
+package com.pegasus.pegasustcgapi.controller;
+
+import com.pegasus.pegasustcgapi.common.ApiPaths;
+import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
+import com.pegasus.pegasustcgapi.dto.ProductDetailResponse;
+import com.pegasus.pegasustcgapi.model.CatalogProduct;
+import com.pegasus.pegasustcgapi.model.CatalogVariant;
+import com.pegasus.pegasustcgapi.service.CatalogImageService;
+import com.pegasus.pegasustcgapi.service.CatalogProductService;
+import com.pegasus.pegasustcgapi.service.CatalogVariantService;
+import java.util.List;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * Reading the catalogue. Open to anyone, like the rest of it.
+ *
+ * <p>A product is addressable by id or by slug, because a URL carries the slug
+ * and an admin screen carries the id, and neither should have to translate.
+ */
+@RestController
+@RequestMapping(ApiPaths.CATALOG)
+public class CatalogProductController {
+
+    private final CatalogProductService products;
+    private final CatalogVariantService variants;
+    private final CatalogImageService images;
+
+    public CatalogProductController(CatalogProductService products, CatalogVariantService variants,
+            CatalogImageService images) {
+
+        this.products = products;
+        this.variants = variants;
+        this.images = images;
+    }
+
+    /** The card page: the concept, its printings and its art in one read. */
+    @GetMapping("/products/{idOrSlug}")
+    public ApiResponse<ProductDetailResponse> product(@PathVariable String idOrSlug) {
+        CatalogProduct product = products.requireByIdOrSlug(idOrSlug);
+
+        return ApiResponse.success(new ProductDetailResponse(
+                product,
+                variants.listOfProduct(product.id(), false),
+                images.listOfProduct(product.id())));
+    }
+
+    @GetMapping("/products/{productId}/variants")
+    public ApiResponse<List<CatalogVariant>> variants(@PathVariable long productId) {
+        return ApiResponse.success(variants.listOfProduct(productId, false));
+    }
+
+    /** What a listing, a wishlist entry and a market statistic all point at [RQ-5]. */
+    @GetMapping("/variants/{variantId}")
+    public ApiResponse<CatalogVariant> variant(@PathVariable long variantId) {
+        return ApiResponse.success(variants.require(variantId));
+    }
+
+    @GetMapping("/products/{productId}/images")
+    public ApiResponse<List<CatalogImageResponse>> images(@PathVariable long productId) {
+        return ApiResponse.success(images.listOfProduct(productId));
+    }
+}

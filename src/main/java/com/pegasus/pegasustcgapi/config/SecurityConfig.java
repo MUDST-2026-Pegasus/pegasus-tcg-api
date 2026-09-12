@@ -67,6 +67,7 @@ public class SecurityConfig {
         ApiPaths.GAMES + "/**",
         ApiPaths.CATEGORIES + "/**",
         ApiPaths.CARD_SETS + "/**",
+        ApiPaths.CATALOG + "/**",
     };
 
     @Bean
