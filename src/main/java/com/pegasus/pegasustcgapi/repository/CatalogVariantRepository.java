@@ -6,7 +6,9 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.CatalogVariantRecord;
 import com.pegasus.pegasustcgapi.model.CardEdition;
 import com.pegasus.pegasustcgapi.model.CardFinish;
 import com.pegasus.pegasustcgapi.model.CatalogVariant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -39,6 +41,22 @@ public class CatalogVariantRepository {
                 .orderBy(CATALOG_VARIANT.LANGUAGE_CODE.asc(), CATALOG_VARIANT.FINISH.asc(),
                         CATALOG_VARIANT.EDITION.asc(), CATALOG_VARIANT.ID.asc())
                 .fetch(CatalogVariantRepository::toVariant);
+    }
+
+    /**
+     * How many live printings each of these products has, so a browse tile can
+     * say "3 versions" without a request per row.
+     */
+    public Map<Long, Integer> activeCountsOf(Collection<Long> productIds) {
+        if (productIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(CATALOG_VARIANT.CATALOG_PRODUCT_ID, DSL.count())
+                .from(CATALOG_VARIANT)
+                .where(CATALOG_VARIANT.CATALOG_PRODUCT_ID.in(productIds))
+                .and(CATALOG_VARIANT.IS_ACTIVE.isTrue())
+                .groupBy(CATALOG_VARIANT.CATALOG_PRODUCT_ID)
+                .fetchMap(CATALOG_VARIANT.CATALOG_PRODUCT_ID, DSL.count());
     }
 
     public boolean skuTaken(String sku, Long exceptId) {

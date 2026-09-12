@@ -2,17 +2,23 @@ package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.dto.ProductDetailResponse;
+import com.pegasus.pegasustcgapi.dto.ProductSummaryResponse;
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.CatalogVariant;
+import com.pegasus.pegasustcgapi.model.ProductType;
 import com.pegasus.pegasustcgapi.service.CatalogImageService;
 import com.pegasus.pegasustcgapi.service.CatalogProductService;
+import com.pegasus.pegasustcgapi.service.CatalogSearchService;
 import com.pegasus.pegasustcgapi.service.CatalogVariantService;
 import java.util.List;
+import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -28,13 +34,42 @@ public class CatalogProductController {
     private final CatalogProductService products;
     private final CatalogVariantService variants;
     private final CatalogImageService images;
+    private final CatalogSearchService search;
 
     public CatalogProductController(CatalogProductService products, CatalogVariantService variants,
-            CatalogImageService images) {
+            CatalogImageService images, CatalogSearchService search) {
 
         this.products = products;
         this.variants = variants;
         this.images = images;
+        this.search = search;
+    }
+
+    /**
+     * Browsing and searching.
+     *
+     * <p>Attribute filters arrive as {@code attr.<key>=<value>} — {@code attr.hp=200},
+     * {@code attr.card_type=Lightning} — which is why the whole parameter map is
+     * taken as well as the named ones: which keys exist depends on the game, and
+     * only its registry knows them.
+     *
+     * @param gameId worth sending: the browse index starts with it, and attribute
+     *               filters need it to know what {@code attr.hp} means
+     */
+    @GetMapping("/products")
+    public ApiResponse<PageResponse<ProductSummaryResponse>> browse(
+            @RequestParam(required = false) Short gameId,
+            @RequestParam(required = false) Integer categoryId,
+            @RequestParam(required = false) Integer cardSetId,
+            @RequestParam(required = false) ProductType productType,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam Map<String, String> allParameters) {
+
+        return ApiResponse.success(search.search(
+                gameId, categoryId, cardSetId, productType, q, allParameters, sort, page, size));
     }
 
     /** The card page: the concept, its printings and its art in one read. */

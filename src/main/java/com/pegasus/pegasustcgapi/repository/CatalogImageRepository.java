@@ -4,7 +4,9 @@ import static com.pegasus.pegasustcgapi.jooq.tables.CatalogImage.CATALOG_IMAGE;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.CatalogImageRecord;
 import com.pegasus.pegasustcgapi.model.CatalogImage;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -32,6 +34,24 @@ public class CatalogImageRepository {
                 .where(CATALOG_IMAGE.ID.eq(id))
                 .fetchOptional()
                 .map(CatalogImageRepository::toImage);
+    }
+
+    /**
+     * The primary image key of each product named, for drawing a page of tiles.
+     *
+     * <p>One query for the page rather than one per row, and a lookup rather than
+     * a join, since joining images to products multiplies the rows a search just
+     * finished counting.
+     */
+    public Map<Long, String> primaryKeysOf(Collection<Long> productIds) {
+        if (productIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(CATALOG_IMAGE.CATALOG_PRODUCT_ID, CATALOG_IMAGE.IMAGE_KEY)
+                .from(CATALOG_IMAGE)
+                .where(CATALOG_IMAGE.CATALOG_PRODUCT_ID.in(productIds))
+                .and(CATALOG_IMAGE.IS_PRIMARY.isTrue())
+                .fetchMap(CATALOG_IMAGE.CATALOG_PRODUCT_ID, CATALOG_IMAGE.IMAGE_KEY);
     }
 
     public boolean hasAny(long productId) {

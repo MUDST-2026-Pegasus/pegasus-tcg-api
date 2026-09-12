@@ -5,10 +5,14 @@ import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODU
 import com.pegasus.pegasustcgapi.jooq.tables.records.CatalogProductRecord;
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.ProductType;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
+import org.jooq.OrderField;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -52,6 +56,85 @@ public class CatalogProductRepository {
     public boolean slugTaken(String slug) {
         return dsl.fetchExists(dsl.selectOne().from(CATALOG_PRODUCT)
                 .where(CATALOG_PRODUCT.SLUG.eq(slug)));
+    }
+
+    /** One page of the browse result, ordered as asked. */
+    public List<CatalogProduct> search(ProductSearchQuery query) {
+        return dsl.selectFrom(CATALOG_PRODUCT)
+                .where(conditions(query))
+                .orderBy(ordering(query.sort()))
+                .limit(query.limit())
+                .offset(query.offset())
+                .fetch(this::toProduct);
+    }
+
+    /** The total behind that page, which is what makes a page count possible. */
+    public long count(ProductSearchQuery query) {
+        return dsl.fetchCount(CATALOG_PRODUCT, conditions(query));
+    }
+
+    private Condition conditions(ProductSearchQuery query) {
+        Condition condition = query.activeOnly() ? CATALOG_PRODUCT.IS_ACTIVE.isTrue() : DSL.noCondition();
+
+        if (query.gameId() != null) {
+            condition = condition.and(CATALOG_PRODUCT.GAME_ID.eq(query.gameId()));
+        }
+        if (query.categoryId() != null) {
+            condition = condition.and(CATALOG_PRODUCT.CATEGORY_ID.eq(query.categoryId()));
+        }
+        if (query.cardSetId() != null) {
+            condition = condition.and(CATALOG_PRODUCT.CARD_SET_ID.eq(query.cardSetId()));
+        }
+        if (query.productType() != null) {
+            condition = condition.and(CATALOG_PRODUCT.PRODUCT_TYPE.eq(query.productType().name()));
+        }
+        if (query.nameQuery() != null && !query.nameQuery().isBlank()) {
+            condition = condition.and(nameMatches(query.nameQuery()));
+        }
+        if (!query.attributes().isEmpty()) {
+            condition = condition.and(attributesContain(query.attributes()));
+        }
+        return condition;
+    }
+
+    /**
+     * Emitted as a real {@code ILIKE} rather than jOOQ's {@code lower(x) like lower(?)},
+     * because the trigram indexes are on the columns themselves: wrapping them in
+     * {@code lower()} would put the search back on a sequential scan.
+     */
+    private static Condition nameMatches(String text) {
+        String pattern = "%" + text.trim()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_") + "%";
+
+        return DSL.condition("{0} ILIKE {1} ESCAPE '\\'", CATALOG_PRODUCT.NAME, DSL.val(pattern))
+                .or(DSL.condition("{0} ILIKE {1} ESCAPE '\\'",
+                        CATALOG_PRODUCT.NAME_LOCAL, DSL.val(pattern)));
+    }
+
+    /**
+     * Containment, so the whole filter is one indexed test against
+     * {@code ix_catalog_product_attributes} however many attributes are asked for.
+     *
+     * <p>It compares JSON types as well as values, which is why the caller types
+     * the map first: {@code {"hp":200}} does not contain {@code {"hp":"200"}}.
+     */
+    private Condition attributesContain(Map<String, Object> attributes) {
+        return DSL.condition("{0} @> {1}",
+                CATALOG_PRODUCT.ATTRIBUTES,
+                DSL.val(JSONB.valueOf(json.writeValueAsString(attributes))));
+    }
+
+    private static OrderField<?>[] ordering(ProductSearchQuery.Sort sort) {
+        return switch (sort) {
+            case NEWEST -> new OrderField<?>[] {
+                CATALOG_PRODUCT.CREATED_AT.desc(), CATALOG_PRODUCT.ID.desc() };
+            case CARD_NUMBER -> new OrderField<?>[] {
+                CATALOG_PRODUCT.CARD_NUMBER.asc().nullsLast(), CATALOG_PRODUCT.NAME.asc() };
+            case NAME -> new OrderField<?>[] {
+                CATALOG_PRODUCT.NAME.asc(), CATALOG_PRODUCT.ID.asc() };
+        };
     }
 
     public long insert(ProductFields fields, Long createdBy) {
