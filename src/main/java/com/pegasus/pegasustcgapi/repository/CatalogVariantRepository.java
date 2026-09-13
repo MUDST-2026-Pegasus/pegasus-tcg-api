@@ -43,6 +43,16 @@ public class CatalogVariantRepository {
                 .fetch(CatalogVariantRepository::toVariant);
     }
 
+    /** The printings behind a page of rows, in one query rather than one per row. */
+    public Map<Long, CatalogVariant> findByIds(Collection<Long> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.selectFrom(CATALOG_VARIANT)
+                .where(CATALOG_VARIANT.ID.in(ids))
+                .fetchMap(CATALOG_VARIANT.ID, CatalogVariantRepository::toVariant);
+    }
+
     /**
      * How many live printings each of these products has, so a browse tile can
      * say "3 versions" without a request per row.

@@ -27,6 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class CatalogTaxonomyService {
 
+    /** {@code catalog_category.slug} is varchar(120). */
+    private static final int SLUG_WIDTH = 120;
+
     private final CatalogCategoryRepository categories;
     private final CardSetRepository cardSets;
     private final GameService games;
@@ -143,7 +146,7 @@ public class CatalogTaxonomyService {
     private static CategoryFields fields(CategoryFields requested, String code, String existingSlug) {
         String slug = existingSlug != null
                 ? existingSlug
-                : Slugs.unique(requested.slug(), unused -> false, requested.name());
+                : Slugs.unique(requested.slug(), SLUG_WIDTH, unused -> false, requested.name());
 
         return new CategoryFields(requested.gameId(), requested.parentId(), code,
                 requested.name().trim(), slug, requested.displayOrder(), requested.active());

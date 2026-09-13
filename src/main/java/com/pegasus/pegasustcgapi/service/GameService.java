@@ -31,6 +31,9 @@ public class GameService {
 
     private static final Logger log = LoggerFactory.getLogger(GameService.class);
 
+    /** {@code game.slug} is varchar(100). */
+    private static final int SLUG_WIDTH = 100;
+
     private final GameRepository games;
     private final GameAttributeRepository attributes;
 
@@ -61,7 +64,7 @@ public class GameService {
             throw new ConflictException(ErrorCode.GAME_CODE_ALREADY_USED);
         }
 
-        String slug = Slugs.unique(requested.slug(), games::slugTaken, requested.name());
+        String slug = Slugs.unique(requested.slug(), SLUG_WIDTH, games::slugTaken, requested.name());
         GameFields fields = new GameFields(code, requested.name().trim(), blankToNull(requested.nameLocal()),
                 slug, blankToNull(requested.logoUrl()), requested.displayOrder(), requested.active());
 

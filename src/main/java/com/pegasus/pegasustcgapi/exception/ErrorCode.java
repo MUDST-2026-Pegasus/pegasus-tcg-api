@@ -7,6 +7,7 @@ public enum ErrorCode {
 
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Request payload failed validation"),
     MALFORMED_REQUEST(HttpStatus.BAD_REQUEST, "Request could not be read"),
+    UNSUPPORTED_CONTENT_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Send the request body as application/json"),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "HTTP method is not supported here"),
 
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect"),
@@ -36,6 +37,7 @@ public enum ErrorCode {
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "Product not found"),
     VARIANT_NOT_FOUND(HttpStatus.NOT_FOUND, "Variant not found"),
     IMAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "Image not found"),
+    COLLECTION_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "Collection card not found"),
 
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email address is already registered"),
     USERNAME_ALREADY_USED(HttpStatus.CONFLICT, "Username is already taken"),
@@ -49,6 +51,9 @@ public enum ErrorCode {
     CARD_SET_CODE_ALREADY_USED(HttpStatus.CONFLICT, "This game already has a set with that code"),
     SKU_ALREADY_USED(HttpStatus.CONFLICT, "Another variant already uses this SKU"),
     VARIANT_ALREADY_EXISTS(HttpStatus.CONFLICT, "This product already has a variant with that identity"),
+    VARIANT_INACTIVE(HttpStatus.CONFLICT, "This card printing is no longer offered in the catalogue"),
+    COLLECTION_ITEM_FROM_PURCHASE(HttpStatus.CONFLICT, "A purchased card keeps the printing and quantity it was sold as"),
+    IMAGE_KEY_IN_USE(HttpStatus.CONFLICT, "This photo already belongs to another collector's card"),
 
     INVALID_ATTRIBUTE_DEFINITION(HttpStatus.BAD_REQUEST, "Attribute definition is not usable"),
     INVALID_PRODUCT_ATTRIBUTES(HttpStatus.BAD_REQUEST, "Product attributes do not match this game"),

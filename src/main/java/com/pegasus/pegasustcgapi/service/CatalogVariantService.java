@@ -32,6 +32,12 @@ public class CatalogVariantService {
 
     private static final Logger log = LoggerFactory.getLogger(CatalogVariantService.class);
 
+    /**
+     * {@code catalog_variant.sku} is varchar(64). A long card number plus a printing
+     * note builds a code past that, so generation has to stop at the column width.
+     */
+    private static final int SKU_WIDTH = 64;
+
     private final CatalogVariantRepository variants;
     private final CatalogProductService products;
     private final GameService games;
@@ -149,7 +155,7 @@ public class CatalogVariantService {
                 .filter(part -> part != null && !part.isBlank())
                 .toArray(String[]::new);
 
-        String generated = Slugs.unique(null, candidate -> variants.skuTaken(candidate, null), parts);
+        String generated = Slugs.unique(null, SKU_WIDTH, candidate -> variants.skuTaken(candidate, null), parts);
         return generated.toUpperCase(Locale.ROOT);
     }
 

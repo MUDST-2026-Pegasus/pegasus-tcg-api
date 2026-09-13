@@ -29,6 +29,12 @@ public class CatalogProductService {
 
     private static final Logger log = LoggerFactory.getLogger(CatalogProductService.class);
 
+    /**
+     * Shorter than the varchar(300) column on purpose: this is a URL people read
+     * and paste, and nothing past 120 characters helps anyone recognise the card.
+     */
+    private static final int SLUG_WIDTH = 120;
+
     private final CatalogProductRepository products;
     private final GameService games;
     private final CatalogTaxonomyService taxonomy;
@@ -76,7 +82,7 @@ public class CatalogProductService {
         Map<String, Object> attributes = attributeValidator.validate(
                 games.attributesOf(requested.gameId()), requested.attributes());
 
-        String slug = Slugs.unique(requested.slug(), products::slugTaken,
+        String slug = Slugs.unique(requested.slug(), SLUG_WIDTH, products::slugTaken,
                 requested.name(), requested.cardNumber() == null ? "" : requested.cardNumber());
 
         long id = products.insert(withDerived(requested, slug, attributes), createdBy);

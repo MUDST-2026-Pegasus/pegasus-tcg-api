@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.service;
 
 import com.pegasus.pegasustcgapi.common.PageResponse;
+import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.dto.ProductSummaryResponse;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -39,10 +40,6 @@ public class CatalogSearchService {
     /** Query parameters shaped {@code attr.<key>=<value>} are attribute filters. */
     public static final String ATTRIBUTE_PREFIX = "attr.";
 
-    /** Enough for a grid; beyond this a client is pulling the catalogue, not browsing it. */
-    private static final int MAX_PAGE_SIZE = 100;
-    private static final int DEFAULT_PAGE_SIZE = 20;
-
     private final CatalogProductRepository products;
     private final CatalogVariantRepository variants;
     private final CatalogImageRepository images;
@@ -80,20 +77,17 @@ public class CatalogSearchService {
             int page,
             int size) {
 
+        Paging paging = Paging.of(page, size);
         ProductSearchQuery query = new ProductSearchQuery(
                 gameId, categoryId, cardSetId, productType, nameQuery,
                 typedAttributes(gameId, rawParameters),
                 activeOnly,
                 parseSort(sort),
-                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
-                Math.max(page, 0) * Math.min(Math.max(size, 1), MAX_PAGE_SIZE));
+                paging.size(),
+                paging.offset());
 
         List<CatalogProduct> found = products.search(query);
-        return PageResponse.of(
-                summarise(found),
-                Math.max(page, 0),
-                query.limit(),
-                products.count(query));
+        return PageResponse.of(summarise(found), paging.page(), paging.size(), products.count(query));
     }
 
     /** One lookup of images and one of variant counts for the whole page, not one per row. */

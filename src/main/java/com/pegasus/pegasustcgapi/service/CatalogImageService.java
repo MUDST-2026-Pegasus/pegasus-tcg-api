@@ -1,12 +1,14 @@
 package com.pegasus.pegasustcgapi.service;
 
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
+import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.CatalogImage;
 import com.pegasus.pegasustcgapi.repository.CatalogImageRepository;
 import com.pegasus.pegasustcgapi.repository.CatalogImageRepository.ImageFields;
 import com.pegasus.pegasustcgapi.storage.StorageService;
+import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,7 +64,8 @@ public class CatalogImageService {
             variants.requireOfProduct(productId, fields.catalogVariantId());
         }
 
-        // Proves the upload happened, and that the key is one of ours.
+        requireCatalogUpload(fields.imageKey());
+        // Proves the upload happened.
         storage.requireUploaded(fields.imageKey());
 
         // The first image of a product is its primary one; somebody has to be.
@@ -116,6 +119,19 @@ public class CatalogImageService {
         return images.findById(imageId)
                 .filter(image -> image.catalogProductId() == productId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.IMAGE_NOT_FOUND));
+    }
+
+    /**
+     * The key has to come from a CATALOG_IMAGE upload. Every purpose shares one
+     * bucket, so without this an existing key from another feature — a buyer's
+     * payment slip, say — could be attached here and served on a public card page.
+     */
+    private static void requireCatalogUpload(String imageKey) {
+        String prefix = UploadPurpose.CATALOG_IMAGE.prefix() + "/";
+        if (!imageKey.trim().startsWith(prefix)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "imageKey must come from a CATALOG_IMAGE upload (" + prefix + "...)");
+        }
     }
 
     private static ImageFields withPrimary(ImageFields fields, boolean primary) {

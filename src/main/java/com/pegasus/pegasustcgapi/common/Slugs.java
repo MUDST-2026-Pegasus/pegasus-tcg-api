@@ -15,13 +15,11 @@ import java.util.function.Predicate;
  */
 public final class Slugs {
 
-    private static final int MAX_LENGTH = 120;
-
     private Slugs() {
     }
 
-    /** @return lower case, ASCII, words joined by single hyphens. */
-    public static String slugify(String text) {
+    /** @return lower case, ASCII, words joined by single hyphens, at most {@code maxLength} long. */
+    public static String slugify(String text, int maxLength) {
         if (text == null) {
             return "";
         }
@@ -31,19 +29,24 @@ public final class Slugs {
                 .replaceAll("[^a-z0-9]+", "-")
                 .replaceAll("(^-+)|(-+$)", "");
 
-        return folded.length() <= MAX_LENGTH ? folded : trimAtHyphen(folded);
+        return fit(folded, maxLength);
     }
 
     /**
      * The slug a caller asked for, or one built from the parts, with {@code -2},
      * {@code -3}… appended until nothing else holds it.
      *
-     * @param taken answers whether a slug is already in use
+     * <p>The result never exceeds {@code maxLength}, suffix included. The column
+     * it lands in has a fixed width, and a name that fits on its own can stop
+     * fitting the moment a second product with the same name needs {@code -2}.
+     *
+     * @param maxLength the width of the column the slug is stored in
+     * @param taken     answers whether a slug is already in use
      */
-    public static String unique(String preferred, Predicate<String> taken, String... parts) {
+    public static String unique(String preferred, int maxLength, Predicate<String> taken, String... parts) {
         String base = preferred == null || preferred.isBlank()
-                ? slugify(String.join(" ", parts))
-                : slugify(preferred);
+                ? slugify(String.join(" ", parts), maxLength)
+                : slugify(preferred, maxLength);
 
         if (base.isEmpty()) {
             base = "item";
@@ -53,7 +56,8 @@ public final class Slugs {
         }
         // Two cards can legitimately share a name; the suffix is what keeps both.
         for (int suffix = 2; suffix < 1000; suffix++) {
-            String candidate = base + "-" + suffix;
+            String tail = "-" + suffix;
+            String candidate = fit(base, maxLength - tail.length()) + tail;
             if (!taken.test(candidate)) {
                 return candidate;
             }
@@ -61,9 +65,12 @@ public final class Slugs {
         throw new IllegalStateException("Could not find a free slug for " + base);
     }
 
-    /** Cuts on a word boundary so a truncated slug does not end mid-word. */
-    private static String trimAtHyphen(String slug) {
-        String cut = slug.substring(0, MAX_LENGTH);
+    /** Cuts on a word boundary where there is one, so a shortened slug does not end mid-word. */
+    private static String fit(String slug, int maxLength) {
+        if (slug.length() <= maxLength) {
+            return slug;
+        }
+        String cut = slug.substring(0, maxLength);
         int lastHyphen = cut.lastIndexOf('-');
         return lastHyphen > 0 ? cut.substring(0, lastHyphen) : cut;
     }

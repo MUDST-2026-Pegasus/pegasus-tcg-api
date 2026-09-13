@@ -12,6 +12,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
+import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.CatalogImage;
@@ -77,6 +78,19 @@ class CatalogImageServiceTest {
         verify(images).insert(eq(PRODUCT_ID), saved.capture());
         assertThat(saved.getValue().primary()).isTrue();
         assertThat(added.url()).isEqualTo("http://localhost:9000/signed");
+    }
+
+    @Test
+    @DisplayName("a key from another upload purpose cannot become public catalogue art")
+    void keyMustComeFromACatalogueUpload() {
+        ImageFields paymentSlip = new ImageFields(null, "payments/2026/09/slip.png", null, (short) 0, false);
+
+        assertThatThrownBy(() -> service.add(PRODUCT_ID, paymentSlip))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("CATALOG_IMAGE upload");
+
+        verify(storage, never()).requireUploaded(anyString());
+        verify(images, never()).insert(anyLong(), any());
     }
 
     @Test

@@ -40,7 +40,7 @@ public record ProductRequest(
         @Size(max = 255)
         String nameLocal,
 
-        @Size(max = 300)
+        @Size(max = 120)
         @Pattern(regexp = "^[a-z0-9-]*$", message = "may only contain lower case letters, digits and hyphens")
         String slug,
 

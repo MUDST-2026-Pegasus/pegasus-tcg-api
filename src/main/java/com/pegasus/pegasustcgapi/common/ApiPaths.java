@@ -14,6 +14,8 @@ public final class ApiPaths {
     public static final String CATEGORIES = API_V1 + "/categories";
     public static final String CARD_SETS = API_V1 + "/card-sets";
     public static final String CATALOG = API_V1 + "/catalog";
+    /** The signed-in user's own collection; the public view lives at /users/{username}/collection. */
+    public static final String COLLECTION = API_V1 + "/collection";
     /** Presigned upload tickets; the files themselves never pass through this API. */
     public static final String UPLOADS = API_V1 + "/uploads";
 

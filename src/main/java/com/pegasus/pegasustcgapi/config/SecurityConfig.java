@@ -68,6 +68,8 @@ public class SecurityConfig {
         ApiPaths.CATEGORIES + "/**",
         ApiPaths.CARD_SETS + "/**",
         ApiPaths.CATALOG + "/**",
+        // A profile's shown cards; the owner's own list stays behind sign-in.
+        ApiPaths.USERS + "/*/collection",
     };
 
     @Bean

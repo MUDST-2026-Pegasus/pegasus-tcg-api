@@ -5,6 +5,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODU
 import com.pegasus.pegasustcgapi.jooq.tables.records.CatalogProductRecord;
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.ProductType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,6 +44,16 @@ public class CatalogProductRepository {
                 .where(CATALOG_PRODUCT.ID.eq(id))
                 .fetchOptional()
                 .map(this::toProduct);
+    }
+
+    /** The cards behind a page of rows, in one query rather than one per row. */
+    public Map<Long, CatalogProduct> findByIds(Collection<Long> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.selectFrom(CATALOG_PRODUCT)
+                .where(CATALOG_PRODUCT.ID.in(ids))
+                .fetchMap(CATALOG_PRODUCT.ID, this::toProduct);
     }
 
     /** The slug is what URLs carry, so it is a lookup key in its own right. */
