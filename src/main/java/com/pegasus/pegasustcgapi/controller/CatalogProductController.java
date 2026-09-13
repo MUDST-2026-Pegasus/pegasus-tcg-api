@@ -6,6 +6,7 @@ import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.dto.ProductDetailResponse;
 import com.pegasus.pegasustcgapi.dto.ProductSummaryResponse;
+import com.pegasus.pegasustcgapi.dto.VariantLookupResponse;
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.CatalogVariant;
 import com.pegasus.pegasustcgapi.model.ProductType;
@@ -69,7 +70,20 @@ public class CatalogProductController {
             @RequestParam Map<String, String> allParameters) {
 
         return ApiResponse.success(search.search(
-                gameId, categoryId, cardSetId, productType, q, allParameters, sort, page, size));
+                gameId, categoryId, cardSetId, productType, q, allParameters, sort, true, page, size));
+    }
+
+    /**
+     * Finds one printing by the code on it — a SKU quoted between people, or a
+     * barcode from a scanner.
+     *
+     * <p>Here rather than behind the seller-side endpoints because the codes
+     * belong to the catalogue: a seller about to list a card needs to resolve the
+     * code to the variant everyone else's listings already point at [RQ-5].
+     */
+    @GetMapping("/variants/by-code/{code}")
+    public ApiResponse<VariantLookupResponse> variantByCode(@PathVariable String code) {
+        return ApiResponse.success(variants.lookupByCode(code));
     }
 
     /** The card page: the concept, its printings and its art in one read. */

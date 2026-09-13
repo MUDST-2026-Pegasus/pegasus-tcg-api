@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.service;
 
 import com.pegasus.pegasustcgapi.common.Slugs;
+import com.pegasus.pegasustcgapi.dto.VariantLookupResponse;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -51,6 +52,18 @@ public class CatalogVariantService {
     public List<CatalogVariant> listOfProduct(long productId, boolean includeInactive) {
         products.require(productId);
         return variants.findByProductId(productId, includeInactive);
+    }
+
+    /**
+     * Resolves a SKU or barcode to the printing it names, with enough of the card
+     * attached to show a person what was matched.
+     */
+    public VariantLookupResponse lookupByCode(String code) {
+        CatalogVariant variant = variants.findByCode(code.trim())
+                .orElseThrow(() -> new NotFoundException(ErrorCode.VARIANT_NOT_FOUND,
+                        "No variant carries the code " + code));
+
+        return VariantLookupResponse.of(variant, products.require(variant.catalogProductId()));
     }
 
     public CatalogVariant require(long variantId) {

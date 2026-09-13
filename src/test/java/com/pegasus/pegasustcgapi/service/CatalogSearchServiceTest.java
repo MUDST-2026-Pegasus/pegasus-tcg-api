@@ -78,7 +78,7 @@ class CatalogSearchServiceTest {
     private PageResponse<ProductSummaryResponse> searchWith(
             Short gameId, Map<String, String> parameters, String sort, int page, int size) {
 
-        return service.search(gameId, null, null, null, null, parameters, sort, page, size);
+        return service.search(gameId, null, null, null, null, parameters, sort, true, page, size);
     }
 
     private ProductSearchQuery capturedQuery() {
@@ -208,6 +208,26 @@ class CatalogSearchServiceTest {
             assertThat(item.primaryImageUrl()).isEqualTo("http://localhost:9000/signed");
             assertThat(item.variantCount()).isEqualTo(2);
         });
+    }
+
+    @Test
+    @DisplayName("an admin browse asks for the deactivated rows too")
+    void adminSeesInactiveProducts() {
+        given(products.search(any())).willReturn(List.of());
+
+        service.search(POKEMON, null, null, null, null, Map.of(), null, false, 0, 20);
+
+        assertThat(capturedQuery().activeOnly()).isFalse();
+    }
+
+    @Test
+    @DisplayName("the public browse only ever sees what is active")
+    void publicBrowseIsActiveOnly() {
+        given(products.search(any())).willReturn(List.of());
+
+        searchWith(POKEMON, Map.of(), null, 0, 20);
+
+        assertThat(capturedQuery().activeOnly()).isTrue();
     }
 
     @Test

@@ -154,6 +154,30 @@ class CatalogVariantServiceTest {
     }
 
     @Test
+    @DisplayName("a SKU or barcode resolves to the printing, with the card attached")
+    void lookupByCodeCarriesTheCard() {
+        given(variants.findByCode("POKEMON-SV8A-025-187-EN-NORMAL"))
+                .willReturn(Optional.of(englishNormal()));
+        given(products.require(PRODUCT_ID)).willReturn(pikachu());
+
+        var found = service.lookupByCode("  POKEMON-SV8A-025-187-EN-NORMAL  ");
+
+        assertThat(found.productName()).isEqualTo("Pikachu ex");
+        assertThat(found.productSlug()).isEqualTo("pikachu-ex-025-187");
+        assertThat(found.variantLabel()).isEqualTo("EN / NORMAL / UNLIMITED");
+    }
+
+    @Test
+    @DisplayName("a code nothing carries is 404, with the code echoed back")
+    void lookupByUnknownCode() {
+        given(variants.findByCode("NOPE")).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.lookupByCode("NOPE"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("NOPE");
+    }
+
+    @Test
     @DisplayName("a variant of another product is not found through this one")
     void variantOfAnotherProductIsNotFound() {
         CatalogVariant otherCard = new CatalogVariant(902L, 777L, "OTHER", "EN", CardFinish.NORMAL,

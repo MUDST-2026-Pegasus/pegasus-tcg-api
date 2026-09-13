@@ -63,6 +63,11 @@ public class CatalogSearchService {
         this.storage = storage;
     }
 
+    /**
+     * @param activeOnly true for the public catalogue. An admin passes false,
+     *                   because a product that was deactivated by mistake is
+     *                   otherwise findable only by someone who already knows its id
+     */
     public PageResponse<ProductSummaryResponse> search(
             Short gameId,
             Integer categoryId,
@@ -71,13 +76,14 @@ public class CatalogSearchService {
             String nameQuery,
             Map<String, String> rawParameters,
             String sort,
+            boolean activeOnly,
             int page,
             int size) {
 
         ProductSearchQuery query = new ProductSearchQuery(
                 gameId, categoryId, cardSetId, productType, nameQuery,
                 typedAttributes(gameId, rawParameters),
-                true,
+                activeOnly,
                 parseSort(sort),
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Math.max(page, 0) * Math.min(Math.max(size, 1), MAX_PAGE_SIZE));

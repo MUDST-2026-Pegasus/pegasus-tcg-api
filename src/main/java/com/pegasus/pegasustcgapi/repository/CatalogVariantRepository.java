@@ -59,6 +59,22 @@ public class CatalogVariantRepository {
                 .fetchMap(CATALOG_VARIANT.CATALOG_PRODUCT_ID, DSL.count());
     }
 
+    /**
+     * One printing by the code printed on it or quoted for it.
+     *
+     * <p>SKU is matched case-insensitively because people type it; a barcode is
+     * matched exactly because a scanner does.
+     */
+    public Optional<CatalogVariant> findByCode(String code) {
+        return dsl.selectFrom(CATALOG_VARIANT)
+                .where(CATALOG_VARIANT.SKU.equalIgnoreCase(code)
+                        .or(CATALOG_VARIANT.BARCODE.eq(code)))
+                .orderBy(CATALOG_VARIANT.ID.asc())
+                .limit(1)
+                .fetchOptional()
+                .map(CatalogVariantRepository::toVariant);
+    }
+
     public boolean skuTaken(String sku, Long exceptId) {
         return dsl.fetchExists(dsl.selectOne().from(CATALOG_VARIANT)
                 .where(CATALOG_VARIANT.SKU.equalIgnoreCase(sku))
