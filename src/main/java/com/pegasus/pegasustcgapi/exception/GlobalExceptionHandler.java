@@ -13,6 +13,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -76,6 +77,22 @@ public class GlobalExceptionHandler {
 
         List<ApiError.FieldViolation> violations =
                 List.of(new ApiError.FieldViolation(ex.getName(), "is not a valid value"));
+
+        return build(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(),
+                request, violations);
+    }
+
+    /**
+     * A required query parameter that was left out, e.g. {@code GET /card-sets}
+     * without {@code gameId}. That is the caller's mistake, so it is a 400 naming
+     * the parameter — without this it fell through to the catch-all as a 500.
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiResponse<ApiError>> handleMissingParameter(
+            MissingServletRequestParameterException ex, HttpServletRequest request) {
+
+        List<ApiError.FieldViolation> violations =
+                List.of(new ApiError.FieldViolation(ex.getParameterName(), "is required"));
 
         return build(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(),
                 request, violations);
