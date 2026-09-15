@@ -213,20 +213,16 @@ public class CollectionService {
     }
 
     /**
-     * A photo has to come from a collection upload, actually be there, and not
-     * already belong to someone else's card. The last one matters because a public
-     * page hands out a signed URL with the key readable inside it.
+     * A photo has to be a finished collection upload of a size and type that
+     * purpose allows, and not already belong to someone else's card. Both matter
+     * because the photo can end up on a public page, and that page hands out a
+     * signed URL with the key readable inside it.
      */
     private void requirePhotoUsable(long userId, String imageKey) {
         if (imageKey == null) {
             return;
         }
-        String prefix = UploadPurpose.COLLECTION_IMAGE.prefix() + "/";
-        if (!imageKey.startsWith(prefix)) {
-            throw new ApiException(ErrorCode.VALIDATION_FAILED,
-                    "imageKey must come from a COLLECTION_IMAGE upload (" + prefix + "...)");
-        }
-        storage.requireUploaded(imageKey);
+        storage.requireUploadedFor(UploadPurpose.COLLECTION_IMAGE, imageKey);
         if (items.imageKeyUsedByAnother(imageKey, userId)) {
             throw new ConflictException(ErrorCode.IMAGE_KEY_IN_USE);
         }

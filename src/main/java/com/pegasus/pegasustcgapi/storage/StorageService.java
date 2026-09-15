@@ -54,9 +54,8 @@ public class StorageService {
      * one bucket, and expires.
      *
      * <p>Note what it does not do. MinIO signs the key, not the bytes, so a client
-     * can send a different size or type than it declared — which is why
-     * {@link #describe(String)} exists and why the feature calls it before saving
-     * the key.
+     * can send a different size or type than it declared — which is why the
+     * feature calls {@link #requireUploadedFor} before saving the key.
      */
     public String presignUpload(String objectKey) {
         return presign(Method.PUT, objectKey, properties.uploadUrlTtl());
@@ -100,6 +99,42 @@ public class StorageService {
     public StoredObject requireUploaded(String objectKey) {
         return describe(objectKey).orElseThrow(() -> new NotFoundException(
                 ErrorCode.FILE_NOT_FOUND, "Nothing was uploaded to " + objectKey));
+    }
+
+    /**
+     * What a feature calls before writing a key to a row: the object has to be a
+     * finished upload for {@code purpose}, and fit it.
+     *
+     * <p>The key has to carry the purpose's prefix, because every purpose shares one
+     * bucket and a buyer's payment slip could otherwise be attached as public card
+     * art. Then the object has to be there, and within the size and types the
+     * purpose allows: the URL was issued for what the client declared, but the
+     * upload itself could have sent anything.
+     *
+     * <p>The size is what storage measured. The type is the one the client sent
+     * with the upload, so this catches mistakes and oversized files, not a file
+     * deliberately labelled as something it is not.
+     */
+    public StoredObject requireUploadedFor(UploadPurpose purpose, String objectKey) {
+        String prefix = purpose.prefix() + "/";
+        if (!objectKey.startsWith(prefix)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "The key must come from a " + purpose + " upload (" + prefix + "...)");
+        }
+
+        StoredObject object = requireUploaded(objectKey);
+
+        if (object.sizeBytes() > purpose.maxBytes()) {
+            throw new ApiException(ErrorCode.FILE_TOO_LARGE,
+                    "The upload is " + object.sizeBytes() + " bytes; " + purpose + " allows at most "
+                            + purpose.maxBytes() / (1024 * 1024) + "MB");
+        }
+        if (!purpose.allows(object.contentType())) {
+            throw new ApiException(ErrorCode.UNSUPPORTED_FILE_TYPE,
+                    "The upload was sent as " + object.contentType() + ", which " + purpose
+                            + " does not allow; use one of " + purpose.allowedContentTypes());
+        }
+        return object;
     }
 
     /** Silent about a key that is already gone: deleting twice is not an error. */

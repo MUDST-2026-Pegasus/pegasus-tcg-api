@@ -20,6 +20,7 @@ import com.pegasus.pegasustcgapi.repository.CatalogImageRepository;
 import com.pegasus.pegasustcgapi.repository.CatalogImageRepository.ImageFields;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.StoredObject;
+import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,7 +67,8 @@ class CatalogImageServiceTest {
     @Test
     @DisplayName("the first image of a product becomes its primary one")
     void firstImageIsPrimary() {
-        given(storage.requireUploaded(KEY)).willReturn(new StoredObject(KEY, 1000, "image/png"));
+        given(storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, KEY))
+                .willReturn(new StoredObject(KEY, 1000, "image/png"));
         given(images.hasAny(PRODUCT_ID)).willReturn(false);
         given(images.insert(eq(PRODUCT_ID), any())).willReturn(1L);
         given(images.findById(1L)).willReturn(Optional.of(image(1L, true)));
@@ -81,15 +83,16 @@ class CatalogImageServiceTest {
     }
 
     @Test
-    @DisplayName("a key from another upload purpose cannot become public catalogue art")
-    void keyMustComeFromACatalogueUpload() {
-        ImageFields paymentSlip = new ImageFields(null, "payments/2026/09/slip.png", null, (short) 0, false);
+    @DisplayName("art is checked as a CATALOG_IMAGE upload, and nothing is saved when it does not fit")
+    void artMustFitACatalogueUpload() {
+        willThrow(new ApiException(ErrorCode.UNSUPPORTED_FILE_TYPE))
+                .given(storage).requireUploadedFor(UploadPurpose.CATALOG_IMAGE, KEY);
 
-        assertThatThrownBy(() -> service.add(PRODUCT_ID, paymentSlip))
+        assertThatThrownBy(() -> service.add(PRODUCT_ID, fields(false)))
                 .isInstanceOf(ApiException.class)
-                .hasMessageContaining("CATALOG_IMAGE upload");
+                .extracting(e -> ((ApiException) e).errorCode())
+                .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
 
-        verify(storage, never()).requireUploaded(anyString());
         verify(images, never()).insert(anyLong(), any());
     }
 
@@ -97,7 +100,7 @@ class CatalogImageServiceTest {
     @DisplayName("a key nothing was uploaded to is refused instead of stored as a broken image")
     void requiresTheUploadToHaveHappened() {
         willThrow(new NotFoundException(ErrorCode.FILE_NOT_FOUND))
-                .given(storage).requireUploaded(KEY);
+                .given(storage).requireUploadedFor(UploadPurpose.CATALOG_IMAGE, KEY);
 
         assertThatThrownBy(() -> service.add(PRODUCT_ID, fields(false)))
                 .isInstanceOf(NotFoundException.class)
@@ -170,6 +173,6 @@ class CatalogImageServiceTest {
         assertThatThrownBy(() -> service.add(PRODUCT_ID, ofAnotherVariant))
                 .isInstanceOf(NotFoundException.class);
 
-        verify(storage, never()).requireUploaded(anyString());
+        verify(storage, never()).requireUploadedFor(any(), anyString());
     }
 }

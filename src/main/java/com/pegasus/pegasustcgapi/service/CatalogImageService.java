@@ -1,7 +1,6 @@
 package com.pegasus.pegasustcgapi.service;
 
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
-import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.CatalogImage;
@@ -20,8 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>The file itself never passes through here: the client uploads it with a
  * presigned URL and sends back the key. What this class does is confirm the
- * upload actually landed before the key is stored — a presigned URL only promises
- * where a file may be put, not that anything was — and turn stored keys back into
+ * upload actually landed, and is an image this purpose allows, before the key is
+ * stored — a presigned URL only promises where a file may be put, not what was
+ * put or that anything was — and turn stored keys back into
  * short-lived URLs on the way out, so the bucket itself stays private.
  */
 @Service
@@ -69,9 +69,8 @@ public class CatalogImageService {
             variants.requireOfProduct(productId, fields.catalogVariantId());
         }
 
-        requireCatalogUpload(fields.imageKey());
-        // Proves the upload happened.
-        storage.requireUploaded(fields.imageKey());
+        // Official art is served on a public page: only a finished CATALOG_IMAGE upload will do.
+        storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, fields.imageKey().trim());
 
         // The first image of a product is its primary one; somebody has to be.
         boolean primary = fields.primary() || !images.hasAny(productId);
@@ -124,19 +123,6 @@ public class CatalogImageService {
         return images.findById(imageId)
                 .filter(image -> image.catalogProductId() == productId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.IMAGE_NOT_FOUND));
-    }
-
-    /**
-     * The key has to come from a CATALOG_IMAGE upload. Every purpose shares one
-     * bucket, so without this an existing key from another feature — a buyer's
-     * payment slip, say — could be attached here and served on a public card page.
-     */
-    private static void requireCatalogUpload(String imageKey) {
-        String prefix = UploadPurpose.CATALOG_IMAGE.prefix() + "/";
-        if (!imageKey.trim().startsWith(prefix)) {
-            throw new ApiException(ErrorCode.VALIDATION_FAILED,
-                    "imageKey must come from a CATALOG_IMAGE upload (" + prefix + "...)");
-        }
     }
 
     private static ImageFields withPrimary(ImageFields fields, boolean primary) {

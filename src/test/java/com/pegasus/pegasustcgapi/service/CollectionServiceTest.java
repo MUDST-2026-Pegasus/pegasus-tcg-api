@@ -36,6 +36,7 @@ import com.pegasus.pegasustcgapi.repository.CollectionItemRepository.CollectionI
 import com.pegasus.pegasustcgapi.repository.CollectionItemRepository.CollectionQuery;
 import com.pegasus.pegasustcgapi.repository.UserRepository;
 import com.pegasus.pegasustcgapi.storage.StorageService;
+import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.lang.reflect.RecordComponent;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -199,22 +200,26 @@ class CollectionServiceTest {
         }
 
         @Test
-        @DisplayName("a photo key from another upload purpose is refused before storage is asked")
-        void photoMustBeACollectionUpload() {
+        @DisplayName("a photo is checked as a COLLECTION_IMAGE upload, and nothing is saved when it does not fit")
+        void photoMustFitACollectionUpload() {
             given(variants.findById(VARIANT)).willReturn(Optional.of(variant(VARIANT, true)));
+            willThrow(new ApiException(ErrorCode.FILE_TOO_LARGE))
+                    .given(storage).requireUploadedFor(UploadPurpose.COLLECTION_IMAGE, PHOTO);
 
-            assertThatThrownBy(() -> service.add(OWNER, withPhoto("payments/2026/09/slip.png")))
+            assertThatThrownBy(() -> service.add(OWNER, withPhoto(PHOTO)))
                     .isInstanceOf(ApiException.class)
-                    .hasMessageContaining("COLLECTION_IMAGE");
+                    .extracting(e -> ((ApiException) e).errorCode())
+                    .isEqualTo(ErrorCode.FILE_TOO_LARGE);
 
-            verifyNoInteractions(storage);
+            verify(items, never()).insertManual(anyLong(), any());
         }
 
         @Test
         @DisplayName("a photo that was never uploaded is refused")
         void photoMustExist() {
             given(variants.findById(VARIANT)).willReturn(Optional.of(variant(VARIANT, true)));
-            willThrow(new NotFoundException(ErrorCode.FILE_NOT_FOUND)).given(storage).requireUploaded(PHOTO);
+            willThrow(new NotFoundException(ErrorCode.FILE_NOT_FOUND))
+                    .given(storage).requireUploadedFor(UploadPurpose.COLLECTION_IMAGE, PHOTO);
 
             assertThatThrownBy(() -> service.add(OWNER, withPhoto(PHOTO)))
                     .isInstanceOf(NotFoundException.class)
@@ -302,7 +307,7 @@ class CollectionServiceTest {
 
             service.update(OWNER, 11L, withPhoto(PHOTO));
 
-            verify(storage, never()).requireUploaded(anyString());
+            verify(storage, never()).requireUploadedFor(any(), anyString());
             verify(items, never()).imageKeyUsedByAnother(anyString(), anyLong());
         }
 
