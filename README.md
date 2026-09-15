@@ -75,11 +75,6 @@ The seed is safe to rerun and does not create an admin user.
 ## Build and Run with Docker (full stack)
 
 You can run the entire backend infrastructure — PostgreSQL, MinIO, **and** the Spring Boot application — with a single command using Docker Compose. The Dockerfile performs a multi-stage build that runs Gradle inside an isolated build container, so **you do not need Java or Gradle installed on your host machine**.
-This is the backend API for Pegasus TCG.
-
-## Build and Run with Docker
-
-You can easily build and run the entire backend infrastructure, including the database (PostgreSQL), object storage (MinIO), and the backend application itself using Docker Compose.
 
 ### Prerequisites
 
@@ -110,15 +105,6 @@ docker compose up -d --build
 - **PostgreSQL:** `localhost:5432`
 
 ### Checking logs
-The Dockerfile is configured to perform a multi-stage build, which runs Gradle inside an isolated build container, eliminating the need to install Java or Gradle on your host machine.
-
-### Accessing the Services
-
-- **Backend API:** `http://localhost:8080` (or the port you defined in `.env` as `BACKEND_PORT`)
-- **MinIO Console:** `http://localhost:9001` (Login with your `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY`)
-- **PostgreSQL Database:** `localhost:5432`
-
-### Checking Logs
 
 To check the logs of the backend service to verify it started successfully:
 
