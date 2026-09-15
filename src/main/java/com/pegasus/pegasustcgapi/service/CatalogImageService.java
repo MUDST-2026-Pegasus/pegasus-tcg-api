@@ -46,8 +46,13 @@ public class CatalogImageService {
         this.storage = storage;
     }
 
-    public List<CatalogImageResponse> listOfProduct(long productId) {
-        products.require(productId);
+    /** @param includeInactive false is the public view, where a retired product has no art to show */
+    public List<CatalogImageResponse> listOfProduct(long productId, boolean includeInactive) {
+        if (includeInactive) {
+            products.require(productId);
+        } else {
+            products.requireActive(productId);
+        }
         return images.findByProductId(productId).stream()
                 .map(image -> CatalogImageResponse.of(image, storage.presignDownload(image.imageKey())))
                 .toList();

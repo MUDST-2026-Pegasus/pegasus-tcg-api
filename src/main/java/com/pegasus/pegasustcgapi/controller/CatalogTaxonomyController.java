@@ -40,12 +40,13 @@ public class CatalogTaxonomyController {
 
     @GetMapping(ApiPaths.GAMES + "/{gameId}")
     public ApiResponse<Game> game(@PathVariable short gameId) {
-        return ApiResponse.success(games.require(gameId));
+        return ApiResponse.success(games.requireActive(gameId));
     }
 
     /** The filter sidebar is built from this, so a new game brings its own filters. */
     @GetMapping(ApiPaths.GAMES + "/{gameId}/attributes")
     public ApiResponse<List<GameAttribute>> attributes(@PathVariable short gameId) {
+        games.requireActive(gameId);
         return ApiResponse.success(games.attributesOf(gameId));
     }
 

@@ -27,6 +27,9 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>A product is addressable by id or by slug, because a URL carries the slug
  * and an admin screen carries the id, and neither should have to translate.
+ *
+ * <p>Retired products and printings are not found here, by id or slug any more
+ * than by browsing; admins read them through {@link AdminCatalogProductController}.
  */
 @RestController
 @RequestMapping(ApiPaths.CATALOG)
@@ -89,12 +92,12 @@ public class CatalogProductController {
     /** The card page: the concept, its printings and its art in one read. */
     @GetMapping("/products/{idOrSlug}")
     public ApiResponse<ProductDetailResponse> product(@PathVariable String idOrSlug) {
-        CatalogProduct product = products.requireByIdOrSlug(idOrSlug);
+        CatalogProduct product = products.requireActiveByIdOrSlug(idOrSlug);
 
         return ApiResponse.success(new ProductDetailResponse(
                 product,
                 variants.listOfProduct(product.id(), false),
-                images.listOfProduct(product.id())));
+                images.listOfProduct(product.id(), false)));
     }
 
     @GetMapping("/products/{productId}/variants")
@@ -105,11 +108,11 @@ public class CatalogProductController {
     /** What a listing, a wishlist entry and a market statistic all point at [RQ-5]. */
     @GetMapping("/variants/{variantId}")
     public ApiResponse<CatalogVariant> variant(@PathVariable long variantId) {
-        return ApiResponse.success(variants.require(variantId));
+        return ApiResponse.success(variants.requireActive(variantId));
     }
 
     @GetMapping("/products/{productId}/images")
     public ApiResponse<List<CatalogImageResponse>> images(@PathVariable long productId) {
-        return ApiResponse.success(images.listOfProduct(productId));
+        return ApiResponse.success(images.listOfProduct(productId, false));
     }
 }

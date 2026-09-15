@@ -108,6 +108,21 @@ class GameServiceTest {
     }
 
     @Test
+    @DisplayName("a retired game is not found publicly, but admins still read it")
+    void retiredGameIsHiddenFromPublicReads() {
+        Game retired = new Game(POKEMON, "POKEMON", "Pokemon TCG", null, "pokemon-tcg",
+                null, (short) 1, false, 9L, OffsetDateTime.now());
+        given(games.findById(POKEMON)).willReturn(Optional.of(retired));
+
+        assertThatThrownBy(() -> service.requireActive(POKEMON))
+                .isInstanceOf(NotFoundException.class)
+                .extracting(e -> ((NotFoundException) e).errorCode())
+                .isEqualTo(ErrorCode.GAME_NOT_FOUND);
+
+        assertThat(service.require(POKEMON).active()).isFalse();
+    }
+
+    @Test
     @DisplayName("an unknown game is 404 rather than an empty list of attributes")
     void attributesOfUnknownGame() {
         given(games.findById(POKEMON)).willReturn(Optional.empty());

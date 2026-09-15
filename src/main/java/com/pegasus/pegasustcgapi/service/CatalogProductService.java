@@ -74,6 +74,26 @@ public class CatalogProductService {
         }
     }
 
+    /**
+     * For public reads. A retired product is not found, the same as browse leaving
+     * it out; knowing its id or slug is not a way round that. Admins read it
+     * through {@link #requireByIdOrSlug}.
+     */
+    public CatalogProduct requireActive(long productId) {
+        return active(require(productId));
+    }
+
+    public CatalogProduct requireActiveByIdOrSlug(String idOrSlug) {
+        return active(requireByIdOrSlug(idOrSlug));
+    }
+
+    private static CatalogProduct active(CatalogProduct product) {
+        if (!product.active()) {
+            throw new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
+        return product;
+    }
+
     @Transactional
     public CatalogProduct create(ProductFields requested, Long createdBy) {
         games.require(requested.gameId());

@@ -190,4 +190,42 @@ class CatalogVariantServiceTest {
                 .extracting(e -> ((NotFoundException) e).errorCode())
                 .isEqualTo(ErrorCode.VARIANT_NOT_FOUND);
     }
+
+    @Test
+    @DisplayName("a retired printing is not found publicly")
+    void retiredVariantIsHiddenFromPublicReads() {
+        CatalogVariant retired = new CatalogVariant(901L, PRODUCT_ID, "POKEMON-SV8A-025-187-EN-NORMAL", "EN",
+                CardFinish.NORMAL, CardEdition.UNLIMITED, null, null, null, false, OffsetDateTime.now());
+        given(variants.findById(901L)).willReturn(Optional.of(retired));
+
+        assertThatThrownBy(() -> service.requireActive(901L))
+                .isInstanceOf(NotFoundException.class)
+                .extracting(e -> ((NotFoundException) e).errorCode())
+                .isEqualTo(ErrorCode.VARIANT_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("a live printing of a retired product is not found publicly either")
+    void variantOfRetiredProductIsHiddenFromPublicReads() {
+        CatalogProduct retiredProduct = new CatalogProduct(PRODUCT_ID, POKEMON, 201, 301, ProductType.SINGLE_CARD,
+                "Pikachu ex", null, "pikachu-ex-025-187", "025/187", "RR", null, Map.of(), false,
+                9L, OffsetDateTime.now(), OffsetDateTime.now());
+        given(variants.findById(901L)).willReturn(Optional.of(englishNormal()));
+        given(products.require(PRODUCT_ID)).willReturn(retiredProduct);
+
+        assertThatThrownBy(() -> service.requireActive(901L))
+                .isInstanceOf(NotFoundException.class)
+                .extracting(e -> ((NotFoundException) e).errorCode())
+                .isEqualTo(ErrorCode.VARIANT_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("the public list of printings needs a live product; the admin list does not")
+    void publicListNeedsALiveProduct() {
+        service.listOfProduct(PRODUCT_ID, false);
+        service.listOfProduct(PRODUCT_ID, true);
+
+        verify(products).requireActive(PRODUCT_ID);
+        verify(products).require(PRODUCT_ID);
+    }
 }

@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.common.ApiResponse;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CatalogImageRequest;
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
+import com.pegasus.pegasustcgapi.dto.ProductDetailResponse;
 import com.pegasus.pegasustcgapi.dto.ProductRequest;
 import com.pegasus.pegasustcgapi.dto.ProductSummaryResponse;
 import com.pegasus.pegasustcgapi.dto.VariantRequest;
@@ -83,6 +84,21 @@ public class AdminCatalogProductController {
 
         return ApiResponse.success(search.search(gameId, categoryId, cardSetId, productType, q,
                 allParameters, sort, activeOnly, page, size));
+    }
+
+    /**
+     * The card page as an admin needs it: found even when retired, with retired
+     * printings included. An update replaces the whole row, so an edit form has
+     * to load everything first, and the public page no longer finds a retired one.
+     */
+    @GetMapping("/products/{idOrSlug}")
+    public ApiResponse<ProductDetailResponse> product(@PathVariable String idOrSlug) {
+        CatalogProduct product = products.requireByIdOrSlug(idOrSlug);
+
+        return ApiResponse.success(new ProductDetailResponse(
+                product,
+                variants.listOfProduct(product.id(), true),
+                images.listOfProduct(product.id(), true)));
     }
 
     @PostMapping("/products")

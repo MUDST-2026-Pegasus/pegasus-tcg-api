@@ -179,4 +179,23 @@ class CatalogProductServiceTest {
 
         verify(products, never()).findById(anyLong());
     }
+
+    @Test
+    @DisplayName("a retired product is not found publicly by id or slug, but admins still read it")
+    void retiredProductIsHiddenFromPublicReads() {
+        CatalogProduct retired = new CatalogProduct(501L, POKEMON, 201, 301, ProductType.SINGLE_CARD,
+                "Pikachu ex", null, "pikachu-ex-025-187", "025/187", "RR", null, Map.of(), false,
+                9L, OffsetDateTime.now(), OffsetDateTime.now());
+        given(products.findById(501L)).willReturn(Optional.of(retired));
+        given(products.findBySlug("pikachu-ex-025-187")).willReturn(Optional.of(retired));
+
+        assertThatThrownBy(() -> service.requireActiveByIdOrSlug("pikachu-ex-025-187"))
+                .isInstanceOf(NotFoundException.class)
+                .extracting(e -> ((NotFoundException) e).errorCode())
+                .isEqualTo(ErrorCode.PRODUCT_NOT_FOUND);
+        assertThatThrownBy(() -> service.requireActive(501L))
+                .isInstanceOf(NotFoundException.class);
+
+        assertThat(service.requireByIdOrSlug("pikachu-ex-025-187").active()).isFalse();
+    }
 }

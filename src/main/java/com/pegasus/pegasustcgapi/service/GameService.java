@@ -53,6 +53,13 @@ public class GameService {
                 .orElseThrow(() -> new NotFoundException(ErrorCode.GAME_NOT_FOUND));
     }
 
+    /** For public reads: a retired game is not found, as it is left out of the public list. */
+    public Game requireActive(short gameId) {
+        return games.findById(gameId)
+                .filter(Game::active)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.GAME_NOT_FOUND));
+    }
+
     /**
      * @param slug optional; left out, it is built from the name, and a clash picks
      *             up a numeric suffix rather than failing

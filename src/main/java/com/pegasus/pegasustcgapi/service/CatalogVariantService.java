@@ -55,8 +55,16 @@ public class CatalogVariantService {
         this.taxonomy = taxonomy;
     }
 
+    /**
+     * @param includeInactive false is the public view: retired printings are left
+     *                        out, and a retired product has none to show at all
+     */
     public List<CatalogVariant> listOfProduct(long productId, boolean includeInactive) {
-        products.require(productId);
+        if (includeInactive) {
+            products.require(productId);
+        } else {
+            products.requireActive(productId);
+        }
         return variants.findByProductId(productId, includeInactive);
     }
 
@@ -75,6 +83,18 @@ public class CatalogVariantService {
     public CatalogVariant require(long variantId) {
         return variants.findById(variantId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.VARIANT_NOT_FOUND));
+    }
+
+    /**
+     * For public reads: a printing that is retired, or belongs to a retired
+     * product, is not found, as the public list of printings leaves both out.
+     */
+    public CatalogVariant requireActive(long variantId) {
+        CatalogVariant variant = require(variantId);
+        if (!variant.active() || !products.require(variant.catalogProductId()).active()) {
+            throw new NotFoundException(ErrorCode.VARIANT_NOT_FOUND);
+        }
+        return variant;
     }
 
     /** Reads the variant through its product, so an id from another card is simply not found. */
