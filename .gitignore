@@ -38,3 +38,5 @@ out/
 
 ### Local env ###
 .env
+/graphify-out
+INSTRUCTION.md
