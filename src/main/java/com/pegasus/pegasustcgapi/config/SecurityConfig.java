@@ -59,6 +59,19 @@ public class SecurityConfig {
         ApiPaths.AUTH + "/password/reset",
     };
 
+    /**
+     * Readable without an account. Someone deciding whether to sign up is exactly
+     * who needs to see the catalogue first, and none of it is anybody's data.
+     */
+    private static final String[] PUBLIC_GET_ENDPOINTS = {
+        ApiPaths.GAMES + "/**",
+        ApiPaths.CATEGORIES + "/**",
+        ApiPaths.CARD_SETS + "/**",
+        ApiPaths.CATALOG + "/**",
+        // A profile's shown cards; the owner's own list stays behind sign-in.
+        ApiPaths.USERS + "/*/collection",
+    };
+
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
@@ -76,6 +89,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_ENDPOINTS).permitAll()
+                        .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
