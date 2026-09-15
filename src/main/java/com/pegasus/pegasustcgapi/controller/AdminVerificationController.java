@@ -1,13 +1,17 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.RejectVerificationRequest;
 import com.pegasus.pegasustcgapi.dto.VerificationResponse;
 import com.pegasus.pegasustcgapi.model.VerificationStatus;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.SellerOnboardingService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Approving is the one action that grants the SELLER role, so this is the
  * narrow gate everything on the selling side sits behind.
  */
+@Tag(name = "Seller Verification Queue (Admin)", description = "KYC review queue, approval and rejection actions (Admin only)")
 @RestController
 @RequestMapping(ApiPaths.ADMIN + "/verifications")
 @PreAuthorize("hasRole('ADMIN')")
@@ -37,46 +42,68 @@ public class AdminVerificationController {
     }
 
     /** Oldest first, so nobody waits behind a later submission. */
+    @Operation(summary = "List verification review queue", description = "Retrieves a paginated list of KYC verification submissions filtered by status.")
+    @ApiResponse(responseCode = "200", description = "Queue page retrieved")
     @GetMapping
-    public ApiResponse<PageResponse<VerificationResponse>> queue(
-            @RequestParam(defaultValue = "SUBMITTED") VerificationStatus status,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+    public com.pegasus.pegasustcgapi.common.ApiResponse<PageResponse<VerificationResponse>> queue(
+            @Parameter(description = "Verification review status") @RequestParam(defaultValue = "SUBMITTED") VerificationStatus status,
+            @Parameter(description = "Zero-indexed page number", example = "0") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Page size", example = "20") @RequestParam(defaultValue = "20") int size) {
 
         List<VerificationResponse> items = onboarding.queue(status, page, size).stream()
                 .map(VerificationResponse::from)
                 .toList();
 
-        return ApiResponse.success(
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success(
                 PageResponse.of(items, page, size, onboarding.queueSize(status)));
     }
 
     /** Claims the request, so a second admin opening the queue sees it is taken. */
+    @Operation(summary = "Start reviewing verification", description = "Claims a verification submission and marks it as IN_REVIEW.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Review started"),
+            @ApiResponse(responseCode = "400", description = "Submission not in SUBMITTED state"),
+            @ApiResponse(responseCode = "404", description = "Verification submission not found")
+    })
     @PostMapping("/{verificationId}/start-review")
-    public ApiResponse<VerificationResponse> startReview(
-            @PathVariable long verificationId, AuthPrincipal principal) {
+    public com.pegasus.pegasustcgapi.common.ApiResponse<VerificationResponse> startReview(
+            @Parameter(description = "Verification ID", example = "1") @PathVariable long verificationId,
+            AuthPrincipal principal) {
 
-        return ApiResponse.success("Review started", VerificationResponse.from(
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Review started", VerificationResponse.from(
                 onboarding.startReview(verificationId, principal.userId())));
     }
 
     /** Grants the SELLER role and marks the profile VERIFIED, in one transaction. */
+    @Operation(summary = "Approve verification", description = "Approves a seller KYC submission and automatically grants the SELLER role.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Seller verified"),
+            @ApiResponse(responseCode = "400", description = "Submission not in valid state for approval"),
+            @ApiResponse(responseCode = "404", description = "Verification submission not found")
+    })
     @PostMapping("/{verificationId}/approve")
-    public ApiResponse<VerificationResponse> approve(
-            @PathVariable long verificationId, AuthPrincipal principal) {
+    public com.pegasus.pegasustcgapi.common.ApiResponse<VerificationResponse> approve(
+            @Parameter(description = "Verification ID", example = "1") @PathVariable long verificationId,
+            AuthPrincipal principal) {
 
-        return ApiResponse.success("Seller verified", VerificationResponse.from(
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Seller verified", VerificationResponse.from(
                 onboarding.approve(verificationId, principal.userId())));
     }
 
     /** The seller can submit a new document afterwards; the reason tells them what to fix. */
+    @Operation(summary = "Reject verification", description = "Rejects a seller KYC submission with a human-readable reason.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Verification rejected"),
+            @ApiResponse(responseCode = "400", description = "Validation failed or submission not in review"),
+            @ApiResponse(responseCode = "404", description = "Verification submission not found")
+    })
     @PostMapping("/{verificationId}/reject")
-    public ApiResponse<VerificationResponse> reject(
-            @PathVariable long verificationId,
+    public com.pegasus.pegasustcgapi.common.ApiResponse<VerificationResponse> reject(
+            @Parameter(description = "Verification ID", example = "1") @PathVariable long verificationId,
             @Valid @RequestBody RejectVerificationRequest request,
             AuthPrincipal principal) {
 
-        return ApiResponse.success("Verification rejected", VerificationResponse.from(
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Verification rejected", VerificationResponse.from(
                 onboarding.reject(verificationId, principal.userId(), request.reason())));
     }
 }

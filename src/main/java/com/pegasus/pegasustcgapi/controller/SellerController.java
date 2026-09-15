@@ -1,7 +1,6 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
 import com.pegasus.pegasustcgapi.dto.SellerProfileResponse;
 import com.pegasus.pegasustcgapi.dto.SellerSettingsRequest;
 import com.pegasus.pegasustcgapi.dto.ShippingOptionRequest;
@@ -13,6 +12,11 @@ import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.PayoutAccountService;
 import com.pegasus.pegasustcgapi.service.SellerOnboardingService;
 import com.pegasus.pegasustcgapi.service.ShippingOptionService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -34,6 +38,7 @@ import org.springframework.web.bind.annotation.RestController;
  * point of one profile being both buyer and seller [RQ-2] — and the endpoints
  * that genuinely need a verified seller say so themselves.
  */
+@Tag(name = "Seller Profile & Settings", description = "Seller onboarding, identity verification submissions, shipping options, and payout accounts")
 @RestController
 @RequestMapping(ApiPaths.SELLERS_ME)
 public class SellerController {
@@ -51,39 +56,58 @@ public class SellerController {
 
     // ---------- profile ----------
 
+    @Operation(summary = "Get current seller profile", description = "Retrieves seller onboarding profile, status, and settings for the authenticated user.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Seller profile retrieved"),
+            @ApiResponse(responseCode = "404", description = "Seller profile not yet created")
+    })
     @GetMapping
-    public ApiResponse<SellerProfileResponse> me(AuthPrincipal principal) {
-        return ApiResponse.success(
+    public com.pegasus.pegasustcgapi.common.ApiResponse<SellerProfileResponse> me(AuthPrincipal principal) {
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success(
                 SellerProfileResponse.from(onboarding.requireProfile(principal.userId())));
     }
 
     /** Creates the profile in NOT_APPLIED. Calling it again returns the same one. */
+    @Operation(summary = "Start seller application", description = "Initializes seller onboarding profile in NOT_APPLIED status.")
+    @ApiResponse(responseCode = "200", description = "Application started or existing profile returned")
     @PostMapping("/apply")
-    public ApiResponse<SellerProfileResponse> apply(AuthPrincipal principal) {
-        return ApiResponse.success("Seller application started",
+    public com.pegasus.pegasustcgapi.common.ApiResponse<SellerProfileResponse> apply(AuthPrincipal principal) {
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Seller application started",
                 SellerProfileResponse.from(onboarding.startApplication(principal.userId())));
     }
 
+    @Operation(summary = "Update seller settings", description = "Updates handling days, vacation mode, and automatic order acceptance.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Settings updated successfully"),
+            @ApiResponse(responseCode = "400", description = "Validation failed")
+    })
     @PutMapping("/settings")
-    public ApiResponse<SellerProfileResponse> updateSettings(
+    public com.pegasus.pegasustcgapi.common.ApiResponse<SellerProfileResponse> updateSettings(
             @Valid @RequestBody SellerSettingsRequest request, AuthPrincipal principal) {
 
-        return ApiResponse.success("Settings saved",
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Settings saved",
                 SellerProfileResponse.from(onboarding.updateSettings(principal.userId(),
                         request.handlingDays(), request.onVacation(), request.acceptsOrdersAutomatically())));
     }
 
     // ---------- identity documents ----------
 
+    @Operation(summary = "List seller verification submissions", description = "Retrieves all KYC verification documents submitted by the authenticated seller.")
+    @ApiResponse(responseCode = "200", description = "Verifications listed")
     @GetMapping("/verifications")
-    public ApiResponse<List<VerificationResponse>> myVerifications(AuthPrincipal principal) {
-        return ApiResponse.success(onboarding.myVerifications(principal.userId()).stream()
+    public com.pegasus.pegasustcgapi.common.ApiResponse<List<VerificationResponse>> myVerifications(AuthPrincipal principal) {
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success(onboarding.myVerifications(principal.userId()).stream()
                 .map(VerificationResponse::from)
                 .toList());
     }
 
+    @Operation(summary = "Submit KYC verification", description = "Submits legal identity and bank account details for seller verification review.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Verification submitted for review"),
+            @ApiResponse(responseCode = "400", description = "Validation failed or verification already pending review")
+    })
     @PostMapping("/verifications")
-    public ResponseEntity<ApiResponse<VerificationResponse>> submitVerification(
+    public ResponseEntity<com.pegasus.pegasustcgapi.common.ApiResponse<VerificationResponse>> submitVerification(
             @Valid @RequestBody VerificationRequest request, AuthPrincipal principal) {
 
         VerificationResponse created = VerificationResponse.from(onboarding.submitVerification(
@@ -91,42 +115,61 @@ public class SellerController {
                 request.bankCode(), request.bankName(), request.normalisedAccountNumber()));
 
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Submitted for review", created));
+                .body(com.pegasus.pegasustcgapi.common.ApiResponse.success("Submitted for review", created));
     }
 
     // ---------- shipping ----------
 
+    @Operation(summary = "List shipping options", description = "Retrieves all shipping and delivery options configured by the authenticated seller.")
+    @ApiResponse(responseCode = "200", description = "Shipping options listed")
     @GetMapping("/shipping-options")
-    public ApiResponse<List<ShippingOption>> shippingOptions(AuthPrincipal principal) {
-        return ApiResponse.success(shipping.listMine(principal.userId()));
+    public com.pegasus.pegasustcgapi.common.ApiResponse<List<ShippingOption>> shippingOptions(AuthPrincipal principal) {
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success(shipping.listMine(principal.userId()));
     }
 
+    @Operation(summary = "Create shipping option", description = "Creates a new shipping option with courier name and rates.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Shipping option added"),
+            @ApiResponse(responseCode = "400", description = "Validation failed")
+    })
     @PostMapping("/shipping-options")
-    public ResponseEntity<ApiResponse<ShippingOption>> createShippingOption(
+    public ResponseEntity<com.pegasus.pegasustcgapi.common.ApiResponse<ShippingOption>> createShippingOption(
             @Valid @RequestBody ShippingOptionRequest request, AuthPrincipal principal) {
 
         ShippingOption created = shipping.create(principal.userId(), request.toFields());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Shipping option added", created));
+                .body(com.pegasus.pegasustcgapi.common.ApiResponse.success("Shipping option added", created));
     }
 
+    @Operation(summary = "Update shipping option", description = "Updates an existing shipping option's name, cost, or configuration.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Shipping option updated"),
+            @ApiResponse(responseCode = "400", description = "Validation failed"),
+            @ApiResponse(responseCode = "404", description = "Shipping option not found")
+    })
     @PutMapping("/shipping-options/{optionId}")
-    public ApiResponse<ShippingOption> updateShippingOption(
-            @PathVariable long optionId,
+    public com.pegasus.pegasustcgapi.common.ApiResponse<ShippingOption> updateShippingOption(
+            @Parameter(description = "Shipping option ID", example = "1") @PathVariable long optionId,
             @Valid @RequestBody ShippingOptionRequest request,
             AuthPrincipal principal) {
 
-        return ApiResponse.success("Shipping option updated",
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Shipping option updated",
                 shipping.update(principal.userId(), optionId, request.toFields()));
     }
 
     /** Deactivated, not deleted: orders already shipped under it still point here. */
+    @Operation(summary = "Deactivate shipping option", description = "Deactivates a shipping option so it cannot be selected for new orders.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Shipping option deactivated"),
+            @ApiResponse(responseCode = "404", description = "Shipping option not found")
+    })
     @DeleteMapping("/shipping-options/{optionId}")
-    public ApiResponse<Void> deactivateShippingOption(
-            @PathVariable long optionId, AuthPrincipal principal) {
+    public com.pegasus.pegasustcgapi.common.ApiResponse<Void> deactivateShippingOption(
+            @Parameter(description = "Shipping option ID", example = "1") @PathVariable long optionId,
+            AuthPrincipal principal) {
 
         shipping.deactivate(principal.userId(), optionId);
-        return ApiResponse.success("Shipping option deactivated", null);
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Shipping option deactivated", null);
     }
 
     // ---------- payout account ----------
@@ -135,8 +178,13 @@ public class SellerController {
     // verification approved, and changing bank means verifying a new one — so
     // there is nothing to add, choose between, or delete.
 
+    @Operation(summary = "Get payout account", description = "Retrieves the verified seller's active bank payout account.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Payout account retrieved"),
+            @ApiResponse(responseCode = "404", description = "Payout account not found")
+    })
     @GetMapping("/payout-account")
-    public ApiResponse<PayoutAccount> payoutAccount(AuthPrincipal principal) {
-        return ApiResponse.success(payoutAccounts.mine(principal.userId()));
+    public com.pegasus.pegasustcgapi.common.ApiResponse<PayoutAccount> payoutAccount(AuthPrincipal principal) {
+        return com.pegasus.pegasustcgapi.common.ApiResponse.success(payoutAccounts.mine(principal.userId()));
     }
 }
