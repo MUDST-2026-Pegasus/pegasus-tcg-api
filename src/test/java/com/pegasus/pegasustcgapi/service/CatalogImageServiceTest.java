@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verify;
 
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.exception.ApiException;
+import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.CatalogImage;
@@ -92,6 +93,19 @@ class CatalogImageServiceTest {
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).errorCode())
                 .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
+
+        verify(images, never()).insert(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("a file already attached to an image cannot be attached again, since deleting either would break the other")
+    void fileAttachesToOneImageOnly() {
+        given(images.keyInUse(KEY)).willReturn(true);
+
+        assertThatThrownBy(() -> service.add(PRODUCT_ID, fields(false)))
+                .isInstanceOf(ConflictException.class)
+                .extracting(e -> ((ConflictException) e).errorCode())
+                .isEqualTo(ErrorCode.IMAGE_KEY_IN_USE);
 
         verify(images, never()).insert(anyLong(), any());
     }

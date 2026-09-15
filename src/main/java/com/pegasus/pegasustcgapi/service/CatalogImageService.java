@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.service;
 
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
+import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.CatalogImage;
@@ -69,8 +70,14 @@ public class CatalogImageService {
             variants.requireOfProduct(productId, fields.catalogVariantId());
         }
 
+        String imageKey = fields.imageKey().trim();
         // Official art is served on a public page: only a finished CATALOG_IMAGE upload will do.
-        storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, fields.imageKey().trim());
+        storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, imageKey);
+        // Deleting an image deletes its file, so a second row on the same file would break.
+        if (images.keyInUse(imageKey)) {
+            throw new ConflictException(ErrorCode.IMAGE_KEY_IN_USE,
+                    "This file is already attached to a catalogue image; upload it again to use it twice");
+        }
 
         // The first image of a product is its primary one; somebody has to be.
         boolean primary = fields.primary() || !images.hasAny(productId);

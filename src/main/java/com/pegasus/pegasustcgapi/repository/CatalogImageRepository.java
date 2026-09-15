@@ -54,6 +54,12 @@ public class CatalogImageRepository {
                 .fetchMap(CATALOG_IMAGE.CATALOG_PRODUCT_ID, CATALOG_IMAGE.IMAGE_KEY);
     }
 
+    /** Whether any catalogue image, of any product, already holds this key. */
+    public boolean keyInUse(String imageKey) {
+        return dsl.fetchExists(dsl.selectOne().from(CATALOG_IMAGE)
+                .where(CATALOG_IMAGE.IMAGE_KEY.eq(imageKey)));
+    }
+
     public boolean hasAny(long productId) {
         return dsl.fetchExists(dsl.selectOne().from(CATALOG_IMAGE)
                 .where(CATALOG_IMAGE.CATALOG_PRODUCT_ID.eq(productId)));
