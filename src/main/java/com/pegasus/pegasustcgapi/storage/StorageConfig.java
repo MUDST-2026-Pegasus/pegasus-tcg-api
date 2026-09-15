@@ -5,6 +5,7 @@ import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,6 +14,9 @@ import org.springframework.context.annotation.Configuration;
  * Two clients, because the app and the browser reach MinIO by different names.
  * The first one talks to it; the second only ever signs URLs, and signs them for
  * the host the browser can actually open.
+ *
+ * <p>Both are {@code MinioClient}, so every injection point names the one it
+ * wants. Leaving that to the parameter name works only until someone renames it.
  */
 @Configuration
 public class StorageConfig {
@@ -25,7 +29,8 @@ public class StorageConfig {
     }
 
     @Bean
-    public MinioClient presignedUrlClient(StorageProperties properties, MinioClient minioClient) {
+    public MinioClient presignedUrlClient(
+            StorageProperties properties, @Qualifier("minioClient") MinioClient minioClient) {
         return properties.sharesEndpoint()
                 ? minioClient
                 : client(properties, properties.publicEndpoint());
@@ -38,7 +43,8 @@ public class StorageConfig {
      * uploads, not stop the whole API from booting.
      */
     @Bean
-    public ApplicationRunner storageBucketInitializer(MinioClient minioClient, StorageProperties properties) {
+    public ApplicationRunner storageBucketInitializer(
+            @Qualifier("minioClient") MinioClient minioClient, StorageProperties properties) {
         return args -> {
             try {
                 boolean exists = minioClient.bucketExists(

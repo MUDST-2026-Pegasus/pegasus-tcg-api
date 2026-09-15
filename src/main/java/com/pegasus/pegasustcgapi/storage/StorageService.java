@@ -40,7 +40,7 @@ public class StorageService {
     private final StorageProperties properties;
 
     public StorageService(
-            MinioClient minioClient,
+            @Qualifier("minioClient") MinioClient minioClient,
             @Qualifier("presignedUrlClient") MinioClient presignedUrlClient,
             StorageProperties properties) {
 
