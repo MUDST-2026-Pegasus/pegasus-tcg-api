@@ -132,6 +132,49 @@ class CatalogTaxonomyServiceTest {
     }
 
     @Test
+    @DisplayName("a parent from another game is refused, since that game's tree would not show it")
+    void parentOfAnotherGameIsRejected() {
+        CatalogCategory magicSingles = new CatalogCategory(301, (short) 2, null, "SINGLES",
+                "Single cards", "magic-single-cards", (short) 1, true);
+        given(categories.findById(301)).willReturn(Optional.of(magicSingles));
+
+        assertThatThrownBy(() -> service.createCategory(new CategoryFields(POKEMON, 301,
+                "PROMO", "Promos", null, (short) 0, true)))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("same game");
+
+        verify(categories, never()).insert(any());
+    }
+
+    @Test
+    @DisplayName("a cross-game category cannot sit under one game's category")
+    void crossGameChildOfAGameCategoryIsRejected() {
+        given(categories.findById(201)).willReturn(Optional.of(singles()));
+
+        assertThatThrownBy(() -> service.createCategory(new CategoryFields(null, 201,
+                "SLEEVES", "Sleeves", null, (short) 0, true)))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("same game");
+    }
+
+    @Test
+    @DisplayName("a game's category may sit under a cross-game one")
+    void crossGameParentIsAllowed() {
+        CatalogCategory accessories = new CatalogCategory(203, null, null, "ACCESSORY",
+                "Accessories", "accessories", (short) 9, true);
+        given(categories.findById(203)).willReturn(Optional.of(accessories));
+        given(categories.codeTaken(POKEMON, "PLAYMATS", null)).willReturn(false);
+        given(categories.insert(any())).willReturn(204);
+        given(categories.findById(204)).willReturn(Optional.of(new CatalogCategory(204, POKEMON, 203,
+                "PLAYMATS", "Playmats", "playmats", (short) 0, true)));
+
+        CatalogCategory created = service.createCategory(new CategoryFields(POKEMON, 203,
+                "PLAYMATS", "Playmats", null, (short) 0, true));
+
+        assertThat(created.parentId()).isEqualTo(203);
+    }
+
+    @Test
     @DisplayName("editing a category keeps the slug it was created with")
     void updateCategoryKeepsSlug() {
         given(categories.findById(201)).willReturn(Optional.of(singles()));

@@ -62,7 +62,7 @@ public class CatalogTaxonomyService {
         if (requested.gameId() != null) {
             games.require(requested.gameId());
         }
-        requireParentUsable(requested.parentId(), null);
+        requireParentUsable(requested.parentId(), null, requested.gameId());
 
         String code = normaliseCode(requested.code());
         if (categories.codeTaken(requested.gameId(), code, null)) {
@@ -76,7 +76,7 @@ public class CatalogTaxonomyService {
     @Transactional
     public CatalogCategory updateCategory(int categoryId, CategoryFields requested) {
         CatalogCategory existing = requireCategory(categoryId);
-        requireParentUsable(requested.parentId(), categoryId);
+        requireParentUsable(requested.parentId(), categoryId, existing.gameId());
 
         String code = normaliseCode(requested.code());
         if (categories.codeTaken(existing.gameId(), code, categoryId)) {
@@ -126,20 +126,33 @@ public class CatalogTaxonomyService {
     }
 
     /**
-     * A parent has to exist, and cannot be the category itself.
+     * A parent has to exist, cannot be the category itself, and has to be either
+     * cross-game or of the child's own game.
+     *
+     * <p>The last rule is because a game's category list is its own categories plus
+     * the cross-game ones. A parent from another game is not in that list, so the
+     * child would hang under nothing; a cross-game child under one game's parent
+     * would do the same in every other game. The game is fixed at creation, so
+     * checking here is enough.
      *
      * <p>Only one level is checked, so a deeper loop is still possible in theory.
      * Categories are a short, admin-curated list, and the check that would rule it
      * out reads the whole chain on every save.
+     *
+     * @param gameId the child's game; null for a cross-game category
      */
-    private void requireParentUsable(Integer parentId, Integer categoryId) {
+    private void requireParentUsable(Integer parentId, Integer categoryId, Short gameId) {
         if (parentId == null) {
             return;
         }
         if (categoryId != null && parentId.equals(categoryId)) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, "A category cannot be its own parent");
         }
-        requireCategory(parentId);
+        CatalogCategory parent = requireCategory(parentId);
+        if (!parent.isCrossGame() && !parent.gameId().equals(gameId)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "A parent category must be cross-game or belong to the same game");
+        }
     }
 
     /** Keeps the existing slug on update: it is in URLs, so it is set once. */
