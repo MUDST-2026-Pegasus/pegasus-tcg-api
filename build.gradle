@@ -39,7 +39,10 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-jooq'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.82'
+    // Object storage. Talks S3 to MinIO in compose.yaml.
+    implementation 'io.minio:minio:8.5.17'
 
     runtimeOnly 'org.flywaydb:flyway-database-postgresql'
     runtimeOnly 'org.postgresql:postgresql'
