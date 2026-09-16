@@ -72,6 +72,60 @@ docker exec -i pegasus-tcg-postgres psql -U postgres -d pegasus_tcg \
 
 The seed is safe to rerun and does not create an admin user.
 
+## Build and Run with Docker (full stack)
+
+You can run the entire backend infrastructure — PostgreSQL, MinIO, **and** the Spring Boot application — with a single command using Docker Compose. The Dockerfile performs a multi-stage build that runs Gradle inside an isolated build container, so **you do not need Java or Gradle installed on your host machine**.
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) installed.
+- [Docker Compose](https://docs.docker.com/compose/install/) installed.
+
+### Setup
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+2. Open `.env` and fill in any required secrets such as `JWT_SECRET`, `MINIO_ACCESS_KEY`, and `MINIO_SECRET_KEY`.
+
+### Running the Application
+
+To build the Spring Boot backend image and start all services (Backend, PostgreSQL, MinIO) in the background, run:
+
+```bash
+docker compose up -d --build
+```
+
+### Accessing the services
+
+- **Backend API:** `http://localhost:8080` (or `BACKEND_PORT` in `.env`)
+- **Swagger UI:** `http://localhost:8080/swagger-ui.html`
+- **MinIO Console:** `http://localhost:9001` (login with `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY`)
+- **PostgreSQL:** `localhost:5432`
+
+### Checking logs
+
+To check the logs of the backend service to verify it started successfully:
+
+```bash
+docker compose logs -f backend
+```
+
+### Stopping the application
+
+Stop services while keeping data volumes:
+
+```bash
+docker compose stop
+```
+
+Stop and remove containers (data volumes are retained):
+
+```bash
+docker compose down
+```
+
 ## Authentication and roles
 
 Most endpoints expect a bearer token:
@@ -252,7 +306,8 @@ src/main/java/.../service      application rules
 src/main/java/.../repository   jOOQ database access
 src/main/resources/db/migration Flyway migrations
 src/test/resources/db/dev_seed.sql optional local catalogue seed
-docker-compose.yaml            PostgreSQL and MinIO
+docker-compose.yaml            PostgreSQL, MinIO, and backend
+Dockerfile                     multi-stage build for the backend image
 ```
 
 ## Common problems
