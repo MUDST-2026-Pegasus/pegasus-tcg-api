@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.SettingUpdateRequest;
 import com.pegasus.pegasustcgapi.repository.PlatformSettingRepository.Setting;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
@@ -36,22 +36,22 @@ public class AdminSettingController {
     }
 
     @GetMapping
-    public ApiResponse<List<Setting>> list() {
-        return ApiResponse.success(settings.list());
+    public ApiResult<List<Setting>> list() {
+        return ApiResult.success(settings.list());
     }
 
     @GetMapping("/{key}")
-    public ApiResponse<Setting> get(@PathVariable String key) {
-        return ApiResponse.success(settings.get(key));
+    public ApiResult<Setting> get(@PathVariable String key) {
+        return ApiResult.success(settings.get(key));
     }
 
     @PutMapping("/{key}")
-    public ApiResponse<Setting> update(
+    public ApiResult<Setting> update(
             @PathVariable String key,
             @Valid @RequestBody SettingUpdateRequest request,
             AuthPrincipal principal) {
 
-        return ApiResponse.success("Setting updated",
+        return ApiResult.success("Setting updated",
                 settings.update(key, request.value(), principal.userId()));
     }
 }

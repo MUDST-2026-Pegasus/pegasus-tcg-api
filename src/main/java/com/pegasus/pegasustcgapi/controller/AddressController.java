@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.AddressRequest;
 import com.pegasus.pegasustcgapi.model.Address;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
@@ -34,38 +34,38 @@ public class AddressController {
     }
 
     @GetMapping
-    public ApiResponse<List<Address>> list(AuthPrincipal principal) {
-        return ApiResponse.success(addresses.list(principal.userId()));
+    public ApiResult<List<Address>> list(AuthPrincipal principal) {
+        return ApiResult.success(addresses.list(principal.userId()));
     }
 
     @GetMapping("/{addressId}")
-    public ApiResponse<Address> get(@PathVariable long addressId, AuthPrincipal principal) {
-        return ApiResponse.success(addresses.get(principal.userId(), addressId));
+    public ApiResult<Address> get(@PathVariable long addressId, AuthPrincipal principal) {
+        return ApiResult.success(addresses.get(principal.userId(), addressId));
     }
 
     @PostMapping
-    public ResponseEntity<ApiResponse<Address>> create(
+    public ResponseEntity<ApiResult<Address>> create(
             @Valid @RequestBody AddressRequest request, AuthPrincipal principal) {
 
         Address created = addresses.create(principal.userId(), request.toFields());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Address added", created));
+                .body(ApiResult.success("Address added", created));
     }
 
     @PutMapping("/{addressId}")
-    public ApiResponse<Address> update(
+    public ApiResult<Address> update(
             @PathVariable long addressId,
             @Valid @RequestBody AddressRequest request,
             AuthPrincipal principal) {
 
-        return ApiResponse.success(
+        return ApiResult.success(
                 "Address updated", addresses.update(principal.userId(), addressId, request.toFields()));
     }
 
     /** Removed from the book, kept in the database: past orders still point here. */
     @DeleteMapping("/{addressId}")
-    public ApiResponse<Void> delete(@PathVariable long addressId, AuthPrincipal principal) {
+    public ApiResult<Void> delete(@PathVariable long addressId, AuthPrincipal principal) {
         addresses.delete(principal.userId(), addressId);
-        return ApiResponse.success("Address removed", null);
+        return ApiResult.success("Address removed", null);
     }
 }

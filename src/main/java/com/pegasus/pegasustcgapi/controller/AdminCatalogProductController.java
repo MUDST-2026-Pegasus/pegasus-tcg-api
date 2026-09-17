@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CatalogImageRequest;
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
@@ -70,7 +70,7 @@ public class AdminCatalogProductController {
      * someone who already knows its id.
      */
     @GetMapping("/products")
-    public ApiResponse<PageResponse<ProductSummaryResponse>> browse(
+    public ApiResult<PageResponse<ProductSummaryResponse>> browse(
             @RequestParam(required = false) Short gameId,
             @RequestParam(required = false) Integer categoryId,
             @RequestParam(required = false) Integer cardSetId,
@@ -82,7 +82,7 @@ public class AdminCatalogProductController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam Map<String, String> allParameters) {
 
-        return ApiResponse.success(search.search(gameId, categoryId, cardSetId, productType, q,
+        return ApiResult.success(search.search(gameId, categoryId, cardSetId, productType, q,
                 allParameters, sort, activeOnly, page, size));
     }
 
@@ -92,56 +92,56 @@ public class AdminCatalogProductController {
      * to load everything first, and the public page no longer finds a retired one.
      */
     @GetMapping("/products/{idOrSlug}")
-    public ApiResponse<ProductDetailResponse> product(@PathVariable String idOrSlug) {
+    public ApiResult<ProductDetailResponse> product(@PathVariable String idOrSlug) {
         CatalogProduct product = products.requireByIdOrSlug(idOrSlug);
 
-        return ApiResponse.success(new ProductDetailResponse(
+        return ApiResult.success(new ProductDetailResponse(
                 product,
                 variants.listOfProduct(product.id(), true),
                 images.listOfProduct(product.id(), true)));
     }
 
     @PostMapping("/products")
-    public ResponseEntity<ApiResponse<CatalogProduct>> createProduct(
+    public ResponseEntity<ApiResult<CatalogProduct>> createProduct(
             @Valid @RequestBody ProductRequest request, AuthPrincipal principal) {
 
         CatalogProduct created = products.create(request.toFields(), principal.userId());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Product catalogued", created));
+                .body(ApiResult.success("Product catalogued", created));
     }
 
     /** The game and the slug are fixed at creation; everything else is editable. */
     @PutMapping("/products/{productId}")
-    public ApiResponse<CatalogProduct> updateProduct(
+    public ApiResult<CatalogProduct> updateProduct(
             @PathVariable long productId, @Valid @RequestBody ProductRequest request) {
 
-        return ApiResponse.success("Product updated", products.update(productId, request.toFields()));
+        return ApiResult.success("Product updated", products.update(productId, request.toFields()));
     }
 
     // ---------- variants ----------
 
     /** Unlike the public list, this one shows retired printings too. */
     @GetMapping("/products/{productId}/variants")
-    public ApiResponse<List<CatalogVariant>> variants(@PathVariable long productId) {
-        return ApiResponse.success(variants.listOfProduct(productId, true));
+    public ApiResult<List<CatalogVariant>> variants(@PathVariable long productId) {
+        return ApiResult.success(variants.listOfProduct(productId, true));
     }
 
     @PostMapping("/products/{productId}/variants")
-    public ResponseEntity<ApiResponse<CatalogVariant>> createVariant(
+    public ResponseEntity<ApiResult<CatalogVariant>> createVariant(
             @PathVariable long productId, @Valid @RequestBody VariantRequest request) {
 
         CatalogVariant created = variants.create(productId, request.toFields());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Variant added", created));
+                .body(ApiResult.success("Variant added", created));
     }
 
     @PutMapping("/products/{productId}/variants/{variantId}")
-    public ApiResponse<CatalogVariant> updateVariant(
+    public ApiResult<CatalogVariant> updateVariant(
             @PathVariable long productId,
             @PathVariable long variantId,
             @Valid @RequestBody VariantRequest request) {
 
-        return ApiResponse.success("Variant updated",
+        return ApiResult.success("Variant updated",
                 variants.update(productId, variantId, request.toFields()));
     }
 
@@ -153,25 +153,25 @@ public class AdminCatalogProductController {
      * that never arrived is refused rather than saved as a broken image.
      */
     @PostMapping("/products/{productId}/images")
-    public ResponseEntity<ApiResponse<CatalogImageResponse>> addImage(
+    public ResponseEntity<ApiResult<CatalogImageResponse>> addImage(
             @PathVariable long productId, @Valid @RequestBody CatalogImageRequest request) {
 
         CatalogImageResponse created = images.add(productId, request.toFields());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Image added", created));
+                .body(ApiResult.success("Image added", created));
     }
 
     @PutMapping("/products/{productId}/images/{imageId}/primary")
-    public ApiResponse<CatalogImageResponse> makePrimary(
+    public ApiResult<CatalogImageResponse> makePrimary(
             @PathVariable long productId, @PathVariable long imageId) {
 
-        return ApiResponse.success("Primary image set", images.makePrimary(productId, imageId));
+        return ApiResult.success("Primary image set", images.makePrimary(productId, imageId));
     }
 
     /** Removes the row and the object behind it; the next image takes over as primary. */
     @DeleteMapping("/products/{productId}/images/{imageId}")
-    public ApiResponse<Void> deleteImage(@PathVariable long productId, @PathVariable long imageId) {
+    public ApiResult<Void> deleteImage(@PathVariable long productId, @PathVariable long imageId) {
         images.delete(productId, imageId);
-        return ApiResponse.success("Image deleted", null);
+        return ApiResult.success("Image deleted", null);
     }
 }

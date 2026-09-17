@@ -2,7 +2,7 @@ package com.pegasus.pegasustcgapi.exception;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import java.util.List;
@@ -23,7 +23,7 @@ class GlobalExceptionHandlerTest {
     void missingParameterIsABadRequest() {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/card-sets");
 
-        ResponseEntity<ApiResponse<ApiError>> response = handler.handleMissingParameter(
+        ResponseEntity<ApiResult<ApiError>> response = handler.handleMissingParameter(
                 new MissingServletRequestParameterException("gameId", "short"), request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -46,7 +46,7 @@ class GlobalExceptionHandlerTest {
     void unsupportedContentTypeIs415() {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/auth/register");
 
-        ResponseEntity<ApiResponse<ApiError>> response = handler.handleUnsupportedMediaType(
+        ResponseEntity<ApiResult<ApiError>> response = handler.handleUnsupportedMediaType(
                 new HttpMediaTypeNotSupportedException(MediaType.TEXT_PLAIN, List.of(MediaType.APPLICATION_JSON)),
                 request);
 
@@ -59,7 +59,7 @@ class GlobalExceptionHandlerTest {
     void notAcceptableHasNoBody() {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/games");
 
-        ResponseEntity<ApiResponse<ApiError>> response = handler.handleNotAcceptable(
+        ResponseEntity<ApiResult<ApiError>> response = handler.handleNotAcceptable(
                 new HttpMediaTypeNotAcceptableException(List.of(MediaType.APPLICATION_JSON)), request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_ACCEPTABLE);

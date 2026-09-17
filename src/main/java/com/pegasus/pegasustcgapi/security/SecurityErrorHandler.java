@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.security;
 
 import tools.jackson.databind.ObjectMapper;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.exception.ApiError;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
@@ -57,6 +57,6 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
         objectMapper.writeValue(
-                response.getOutputStream(), ApiResponse.error(code.defaultMessage(), detail));
+                response.getOutputStream(), ApiResult.error(code.defaultMessage(), detail));
     }
 }

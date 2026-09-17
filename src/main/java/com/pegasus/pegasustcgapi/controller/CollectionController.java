@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CollectionItemRequest;
 import com.pegasus.pegasustcgapi.dto.CollectionItemResponse;
@@ -40,7 +40,7 @@ public class CollectionController {
 
     /** Newest first. {@code publicItem} narrows to the cards shown, or the ones kept private. */
     @GetMapping
-    public ApiResponse<PageResponse<CollectionItemResponse>> list(
+    public ApiResult<PageResponse<CollectionItemResponse>> list(
             @RequestParam(required = false) Short gameId,
             @RequestParam(required = false) Long variantId,
             @RequestParam(required = false) Boolean publicItem,
@@ -48,44 +48,44 @@ public class CollectionController {
             @RequestParam(defaultValue = "20") int size,
             AuthPrincipal principal) {
 
-        return ApiResponse.success(
+        return ApiResult.success(
                 collection.mine(principal.userId(), gameId, variantId, publicItem, page, size));
     }
 
     @GetMapping("/summary")
-    public ApiResponse<CollectionSummaryResponse> summary(AuthPrincipal principal) {
-        return ApiResponse.success(collection.summary(principal.userId()));
+    public ApiResult<CollectionSummaryResponse> summary(AuthPrincipal principal) {
+        return ApiResult.success(collection.summary(principal.userId()));
     }
 
     @GetMapping("/{itemId}")
-    public ApiResponse<CollectionItemResponse> get(@PathVariable long itemId, AuthPrincipal principal) {
-        return ApiResponse.success(collection.get(principal.userId(), itemId));
+    public ApiResult<CollectionItemResponse> get(@PathVariable long itemId, AuthPrincipal principal) {
+        return ApiResult.success(collection.get(principal.userId(), itemId));
     }
 
     /** Adding the same printing again makes a new row, each with its own price and note. */
     @PostMapping
-    public ResponseEntity<ApiResponse<CollectionItemResponse>> add(
+    public ResponseEntity<ApiResult<CollectionItemResponse>> add(
             @Valid @RequestBody CollectionItemRequest request, AuthPrincipal principal) {
 
         CollectionItemResponse created = collection.add(principal.userId(), request.toFields());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Card added to collection", created));
+                .body(ApiResult.success("Card added to collection", created));
     }
 
     @PutMapping("/{itemId}")
-    public ApiResponse<CollectionItemResponse> update(
+    public ApiResult<CollectionItemResponse> update(
             @PathVariable long itemId,
             @Valid @RequestBody CollectionItemRequest request,
             AuthPrincipal principal) {
 
-        return ApiResponse.success("Collection card updated",
+        return ApiResult.success("Collection card updated",
                 collection.update(principal.userId(), itemId, request.toFields()));
     }
 
     /** Gone from the collection; the row is kept, see {@link CollectionService#remove}. */
     @DeleteMapping("/{itemId}")
-    public ApiResponse<Void> remove(@PathVariable long itemId, AuthPrincipal principal) {
+    public ApiResult<Void> remove(@PathVariable long itemId, AuthPrincipal principal) {
         collection.remove(principal.userId(), itemId);
-        return ApiResponse.success("Card removed from collection", null);
+        return ApiResult.success("Card removed from collection", null);
     }
 }

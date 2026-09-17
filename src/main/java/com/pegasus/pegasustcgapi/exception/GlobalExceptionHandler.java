@@ -1,6 +1,6 @@
 package com.pegasus.pegasustcgapi.exception;
 
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -29,12 +29,12 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(ApiException.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleApiException(ApiException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleApiException(ApiException ex, HttpServletRequest request) {
         return build(ex.errorCode(), ex.getMessage(), request, List.of());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleValidation(
+    public ResponseEntity<ApiResult<ApiError>> handleValidation(
             MethodArgumentNotValidException ex, HttpServletRequest request) {
 
         List<ApiError.FieldViolation> violations = ex.getBindingResult().getFieldErrors().stream()
@@ -49,7 +49,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleUnreadable(
+    public ResponseEntity<ApiResult<ApiError>> handleUnreadable(
             HttpMessageNotReadableException ex, HttpServletRequest request) {
         return build(ErrorCode.MALFORMED_REQUEST, ErrorCode.MALFORMED_REQUEST.defaultMessage(),
                 request, List.of());
@@ -60,14 +60,14 @@ public class GlobalExceptionHandler {
      * dispatcher. They only reach here when thrown from inside a controller or service.
      */
     @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleAuthentication(
+    public ResponseEntity<ApiResult<ApiError>> handleAuthentication(
             AuthenticationException ex, HttpServletRequest request) {
         return build(ErrorCode.UNAUTHENTICATED, ErrorCode.UNAUTHENTICATED.defaultMessage(),
                 request, List.of());
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleAccessDenied(
+    public ResponseEntity<ApiResult<ApiError>> handleAccessDenied(
             AccessDeniedException ex, HttpServletRequest request) {
         return build(ErrorCode.ACCESS_DENIED, ErrorCode.ACCESS_DENIED.defaultMessage(),
                 request, List.of());
@@ -75,7 +75,7 @@ public class GlobalExceptionHandler {
 
     /** A path variable or query parameter that could not be converted, e.g. an unknown role name. */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleTypeMismatch(
+    public ResponseEntity<ApiResult<ApiError>> handleTypeMismatch(
             MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
 
         List<ApiError.FieldViolation> violations =
@@ -91,7 +91,7 @@ public class GlobalExceptionHandler {
      * the parameter — without this it fell through to the catch-all as a 500.
      */
     @ExceptionHandler(MissingServletRequestParameterException.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleMissingParameter(
+    public ResponseEntity<ApiResult<ApiError>> handleMissingParameter(
             MissingServletRequestParameterException ex, HttpServletRequest request) {
 
         List<ApiError.FieldViolation> violations =
@@ -106,7 +106,7 @@ public class GlobalExceptionHandler {
      * usual way to get here. Without this it was a 500.
      */
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleUnsupportedMediaType(
+    public ResponseEntity<ApiResult<ApiError>> handleUnsupportedMediaType(
             HttpMediaTypeNotSupportedException ex, HttpServletRequest request) {
         return build(ErrorCode.UNSUPPORTED_CONTENT_TYPE, ErrorCode.UNSUPPORTED_CONTENT_TYPE.defaultMessage(),
                 request, List.of());
@@ -120,28 +120,28 @@ public class GlobalExceptionHandler {
      * second time and ended up as a 401 from the error page.
      */
     @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleNotAcceptable(
+    public ResponseEntity<ApiResult<ApiError>> handleNotAcceptable(
             HttpMediaTypeNotAcceptableException ex, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).build();
     }
 
     /** Without this an unmapped path would fall through to the catch-all below as a 500. */
     @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleNoResource(
+    public ResponseEntity<ApiResult<ApiError>> handleNoResource(
             NoResourceFoundException ex, HttpServletRequest request) {
         return build(ErrorCode.RESOURCE_NOT_FOUND, ErrorCode.RESOURCE_NOT_FOUND.defaultMessage(),
                 request, List.of());
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleMethodNotSupported(
+    public ResponseEntity<ApiResult<ApiError>> handleMethodNotSupported(
             HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
         return build(ErrorCode.METHOD_NOT_ALLOWED, ErrorCode.METHOD_NOT_ALLOWED.defaultMessage(),
                 request, List.of());
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<ApiError>> handleUnexpected(Exception ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleUnexpected(Exception ex, HttpServletRequest request) {
         // The cause is logged but never returned: it can carry internals.
         log.error("Unhandled exception on {} {}", request.getMethod(), request.getRequestURI(), ex);
         return build(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.defaultMessage(),
@@ -153,7 +153,7 @@ public class GlobalExceptionHandler {
         return new ApiError.FieldViolation(error.getField(), message);
     }
 
-    private static ResponseEntity<ApiResponse<ApiError>> build(
+    private static ResponseEntity<ApiResult<ApiError>> build(
             ErrorCode code,
             String message,
             HttpServletRequest request,
@@ -165,6 +165,6 @@ public class GlobalExceptionHandler {
                 OffsetDateTime.now(),
                 violations);
 
-        return ResponseEntity.status(code.status()).body(ApiResponse.error(message, detail));
+        return ResponseEntity.status(code.status()).body(ApiResult.error(message, detail));
     }
 }

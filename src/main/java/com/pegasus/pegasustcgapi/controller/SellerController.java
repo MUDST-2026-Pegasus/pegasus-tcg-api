@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.SellerProfileResponse;
 import com.pegasus.pegasustcgapi.dto.SellerSettingsRequest;
 import com.pegasus.pegasustcgapi.dto.ShippingOptionRequest;
@@ -52,23 +52,23 @@ public class SellerController {
     // ---------- profile ----------
 
     @GetMapping
-    public ApiResponse<SellerProfileResponse> me(AuthPrincipal principal) {
-        return ApiResponse.success(
+    public ApiResult<SellerProfileResponse> me(AuthPrincipal principal) {
+        return ApiResult.success(
                 SellerProfileResponse.from(onboarding.requireProfile(principal.userId())));
     }
 
     /** Creates the profile in NOT_APPLIED. Calling it again returns the same one. */
     @PostMapping("/apply")
-    public ApiResponse<SellerProfileResponse> apply(AuthPrincipal principal) {
-        return ApiResponse.success("Seller application started",
+    public ApiResult<SellerProfileResponse> apply(AuthPrincipal principal) {
+        return ApiResult.success("Seller application started",
                 SellerProfileResponse.from(onboarding.startApplication(principal.userId())));
     }
 
     @PutMapping("/settings")
-    public ApiResponse<SellerProfileResponse> updateSettings(
+    public ApiResult<SellerProfileResponse> updateSettings(
             @Valid @RequestBody SellerSettingsRequest request, AuthPrincipal principal) {
 
-        return ApiResponse.success("Settings saved",
+        return ApiResult.success("Settings saved",
                 SellerProfileResponse.from(onboarding.updateSettings(principal.userId(),
                         request.handlingDays(), request.onVacation(), request.acceptsOrdersAutomatically())));
     }
@@ -76,14 +76,14 @@ public class SellerController {
     // ---------- identity documents ----------
 
     @GetMapping("/verifications")
-    public ApiResponse<List<VerificationResponse>> myVerifications(AuthPrincipal principal) {
-        return ApiResponse.success(onboarding.myVerifications(principal.userId()).stream()
+    public ApiResult<List<VerificationResponse>> myVerifications(AuthPrincipal principal) {
+        return ApiResult.success(onboarding.myVerifications(principal.userId()).stream()
                 .map(VerificationResponse::from)
                 .toList());
     }
 
     @PostMapping("/verifications")
-    public ResponseEntity<ApiResponse<VerificationResponse>> submitVerification(
+    public ResponseEntity<ApiResult<VerificationResponse>> submitVerification(
             @Valid @RequestBody VerificationRequest request, AuthPrincipal principal) {
 
         VerificationResponse created = VerificationResponse.from(onboarding.submitVerification(
@@ -91,42 +91,42 @@ public class SellerController {
                 request.bankCode(), request.bankName(), request.normalisedAccountNumber()));
 
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Submitted for review", created));
+                .body(ApiResult.success("Submitted for review", created));
     }
 
     // ---------- shipping ----------
 
     @GetMapping("/shipping-options")
-    public ApiResponse<List<ShippingOption>> shippingOptions(AuthPrincipal principal) {
-        return ApiResponse.success(shipping.listMine(principal.userId()));
+    public ApiResult<List<ShippingOption>> shippingOptions(AuthPrincipal principal) {
+        return ApiResult.success(shipping.listMine(principal.userId()));
     }
 
     @PostMapping("/shipping-options")
-    public ResponseEntity<ApiResponse<ShippingOption>> createShippingOption(
+    public ResponseEntity<ApiResult<ShippingOption>> createShippingOption(
             @Valid @RequestBody ShippingOptionRequest request, AuthPrincipal principal) {
 
         ShippingOption created = shipping.create(principal.userId(), request.toFields());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Shipping option added", created));
+                .body(ApiResult.success("Shipping option added", created));
     }
 
     @PutMapping("/shipping-options/{optionId}")
-    public ApiResponse<ShippingOption> updateShippingOption(
+    public ApiResult<ShippingOption> updateShippingOption(
             @PathVariable long optionId,
             @Valid @RequestBody ShippingOptionRequest request,
             AuthPrincipal principal) {
 
-        return ApiResponse.success("Shipping option updated",
+        return ApiResult.success("Shipping option updated",
                 shipping.update(principal.userId(), optionId, request.toFields()));
     }
 
     /** Deactivated, not deleted: orders already shipped under it still point here. */
     @DeleteMapping("/shipping-options/{optionId}")
-    public ApiResponse<Void> deactivateShippingOption(
+    public ApiResult<Void> deactivateShippingOption(
             @PathVariable long optionId, AuthPrincipal principal) {
 
         shipping.deactivate(principal.userId(), optionId);
-        return ApiResponse.success("Shipping option deactivated", null);
+        return ApiResult.success("Shipping option deactivated", null);
     }
 
     // ---------- payout account ----------
@@ -136,7 +136,7 @@ public class SellerController {
     // there is nothing to add, choose between, or delete.
 
     @GetMapping("/payout-account")
-    public ApiResponse<PayoutAccount> payoutAccount(AuthPrincipal principal) {
-        return ApiResponse.success(payoutAccounts.mine(principal.userId()));
+    public ApiResult<PayoutAccount> payoutAccount(AuthPrincipal principal) {
+        return ApiResult.success(payoutAccounts.mine(principal.userId()));
     }
 }

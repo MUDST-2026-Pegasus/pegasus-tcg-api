@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.RejectVerificationRequest;
 import com.pegasus.pegasustcgapi.dto.VerificationResponse;
@@ -38,7 +38,7 @@ public class AdminVerificationController {
 
     /** Oldest first, so nobody waits behind a later submission. */
     @GetMapping
-    public ApiResponse<PageResponse<VerificationResponse>> queue(
+    public ApiResult<PageResponse<VerificationResponse>> queue(
             @RequestParam(defaultValue = "SUBMITTED") VerificationStatus status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -47,36 +47,36 @@ public class AdminVerificationController {
                 .map(VerificationResponse::from)
                 .toList();
 
-        return ApiResponse.success(
+        return ApiResult.success(
                 PageResponse.of(items, page, size, onboarding.queueSize(status)));
     }
 
     /** Claims the request, so a second admin opening the queue sees it is taken. */
     @PostMapping("/{verificationId}/start-review")
-    public ApiResponse<VerificationResponse> startReview(
+    public ApiResult<VerificationResponse> startReview(
             @PathVariable long verificationId, AuthPrincipal principal) {
 
-        return ApiResponse.success("Review started", VerificationResponse.from(
+        return ApiResult.success("Review started", VerificationResponse.from(
                 onboarding.startReview(verificationId, principal.userId())));
     }
 
     /** Grants the SELLER role and marks the profile VERIFIED, in one transaction. */
     @PostMapping("/{verificationId}/approve")
-    public ApiResponse<VerificationResponse> approve(
+    public ApiResult<VerificationResponse> approve(
             @PathVariable long verificationId, AuthPrincipal principal) {
 
-        return ApiResponse.success("Seller verified", VerificationResponse.from(
+        return ApiResult.success("Seller verified", VerificationResponse.from(
                 onboarding.approve(verificationId, principal.userId())));
     }
 
     /** The seller can submit a new document afterwards; the reason tells them what to fix. */
     @PostMapping("/{verificationId}/reject")
-    public ApiResponse<VerificationResponse> reject(
+    public ApiResult<VerificationResponse> reject(
             @PathVariable long verificationId,
             @Valid @RequestBody RejectVerificationRequest request,
             AuthPrincipal principal) {
 
-        return ApiResponse.success("Verification rejected", VerificationResponse.from(
+        return ApiResult.success("Verification rejected", VerificationResponse.from(
                 onboarding.reject(verificationId, principal.userId(), request.reason())));
     }
 }

@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.PublicListingDetailResponse;
 import com.pegasus.pegasustcgapi.dto.PublicListingResponse;
@@ -28,7 +28,7 @@ public class PublicListingController {
 
     /** Cheapest first by default; {@code sort} is price, price_desc or newest. */
     @GetMapping(ApiPaths.LISTINGS)
-    public ApiResponse<PageResponse<PublicListingResponse>> market(
+    public ApiResult<PageResponse<PublicListingResponse>> market(
             @RequestParam(required = false) Long variantId,
             @RequestParam(required = false) Long productId,
             @RequestParam(required = false) Short gameId,
@@ -39,17 +39,17 @@ public class PublicListingController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        return ApiResponse.success(browse.market(
+        return ApiResult.success(browse.market(
                 variantId, productId, gameId, condition, minPrice, maxPrice, sort, page, size));
     }
 
     @GetMapping(ApiPaths.LISTINGS + "/{listingId}")
-    public ApiResponse<PublicListingDetailResponse> get(@PathVariable long listingId) {
-        return ApiResponse.success(browse.get(listingId));
+    public ApiResult<PublicListingDetailResponse> get(@PathVariable long listingId) {
+        return ApiResult.success(browse.get(listingId));
     }
 
     @GetMapping(ApiPaths.PROFILES + "/{username}/listings")
-    public ApiResponse<PageResponse<PublicListingResponse>> storefront(
+    public ApiResult<PageResponse<PublicListingResponse>> storefront(
             @PathVariable String username,
             @RequestParam(required = false) Long variantId,
             @RequestParam(required = false) CardCondition condition,
@@ -57,6 +57,6 @@ public class PublicListingController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        return ApiResponse.success(browse.storefront(username, variantId, condition, sort, page, size));
+        return ApiResult.success(browse.storefront(username, variantId, condition, sort, page, size));
     }
 }
