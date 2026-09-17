@@ -16,6 +16,10 @@ public final class ApiPaths {
     public static final String CATALOG = API_V1 + "/catalog";
     /** The signed-in user's own collection; the public view lives at /users/{username}/collection. */
     public static final String COLLECTION = API_V1 + "/collection";
+    /** The market: every listing on sale, whoever sells it. A seller's own are under /sellers/me/listings. */
+    public static final String LISTINGS = API_V1 + "/listings";
+    /** A profile, which is also the storefront — there is no separate shop [RQ-2]. */
+    public static final String PROFILES = API_V1 + "/u";
     /** Presigned upload tickets; the files themselves never pass through this API. */
     public static final String UPLOADS = API_V1 + "/uploads";
 

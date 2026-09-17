@@ -38,6 +38,8 @@ public enum ErrorCode {
     VARIANT_NOT_FOUND(HttpStatus.NOT_FOUND, "Variant not found"),
     IMAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "Image not found"),
     COLLECTION_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "Collection card not found"),
+    LISTING_NOT_FOUND(HttpStatus.NOT_FOUND, "Listing not found"),
+    LISTING_UNIT_NOT_FOUND(HttpStatus.NOT_FOUND, "Card not found in this seller's stock"),
 
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email address is already registered"),
     USERNAME_ALREADY_USED(HttpStatus.CONFLICT, "Username is already taken"),
@@ -54,6 +56,14 @@ public enum ErrorCode {
     VARIANT_INACTIVE(HttpStatus.CONFLICT, "This card printing is no longer offered in the catalogue"),
     COLLECTION_ITEM_FROM_PURCHASE(HttpStatus.CONFLICT, "A purchased card keeps the printing and quantity it was sold as"),
     IMAGE_KEY_IN_USE(HttpStatus.CONFLICT, "This photo already belongs to another collector's card"),
+    LISTING_PHOTO_IN_USE(HttpStatus.CONFLICT, "This photo already belongs to another seller's listing"),
+    LISTING_STATUS_TRANSITION(HttpStatus.CONFLICT, "This listing cannot move to that status"),
+    LISTING_CLOSED(HttpStatus.CONFLICT, "This listing is closed to changes"),
+    LISTING_HAS_NO_STOCK(HttpStatus.CONFLICT, "Put at least one card on the listing before publishing it"),
+    LISTING_HAS_RESERVATIONS(HttpStatus.CONFLICT, "Cards on this listing are held by an order that is still open"),
+    LISTING_UNIT_MISMATCH(HttpStatus.CONFLICT, "This card is a different printing, condition or seller than the listing"),
+    LISTING_UNIT_STATE(HttpStatus.CONFLICT, "The card is not in a state that allows this"),
+    INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "Not enough cards left on this listing"),
 
     INVALID_ATTRIBUTE_DEFINITION(HttpStatus.BAD_REQUEST, "Attribute definition is not usable"),
     INVALID_PRODUCT_ATTRIBUTES(HttpStatus.BAD_REQUEST, "Product attributes do not match this game"),
