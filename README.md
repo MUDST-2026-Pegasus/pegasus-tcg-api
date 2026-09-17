@@ -316,3 +316,101 @@ Dockerfile                     multi-stage build for the backend image
 - MinIO refuses to start: set `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY` in `.env`.
 - The API rejects a token: make sure `JWT_SECRET` did not change after the token was issued.
 - Browser image upload fails: `MINIO_PUBLIC_ENDPOINT` must be reachable from the browser and `CORS_ALLOWED_ORIGINS` must include the web app's origin.
+
+
+## Local Development with Makefile
+
+The project includes a `Makefile` that wraps common Gradle and Docker Compose commands into short, memorable targets. Run `make help` to list every target with its description.
+
+### Windows prerequisites
+
+The Makefile uses GNU Make, which is not bundled with Windows. Pick **one** of these options:
+
+- **winget** (recommended): `winget install GnuWin32.Make` — then run `make` from any terminal.
+- **Git Bash**: ships with `make` out of the box. Open Git Bash and run targets from there.
+- **IntelliJ IDEA**: install the **Makefile Language** plugin (Settings → Plugins → Marketplace). It adds a run-gutter icon next to each target and a Makefile tool window.
+
+On Windows the Makefile automatically selects `gradlew.bat` instead of `./gradlew`; no manual configuration is needed.
+
+### Target reference
+
+#### General
+
+| Target | Description |
+| --- | --- |
+| `make help` | Print all available targets with descriptions |
+| `make env` | Create `.env` from `.env.example` (will not overwrite an existing file) |
+| `make check` | Full pipeline: start containers → migrate → codegen → build |
+
+#### Build and run
+
+| Target | Description |
+| --- | --- |
+| `make build` | Build the project, skipping tests (`./gradlew build -x test`) |
+| `make run` | Start the application via Spring Boot (`./gradlew bootRun`) |
+| `make test` | Run the full test suite with JUnit Platform (`./gradlew test`) |
+| `make clean` | Remove build artifacts (`./gradlew clean`) |
+| `make compile` | Compile Java sources; triggers jOOQ codegen (`./gradlew compileJava`) |
+| `make bootjar` | Package the app as an executable JAR (`./gradlew bootJar`) |
+| `make deps` | Display the runtime dependency tree |
+
+#### Docker Compose
+
+| Target | Description |
+| --- | --- |
+| `make up` | Start PostgreSQL and MinIO in detached mode (`docker compose up -d`) |
+| `make down` | Stop and remove containers (`docker compose down`) |
+| `make restart` | Shortcut for `down` then `up` |
+| `make logs` | Tail container logs (`docker compose logs -f`) |
+| `make ps` | List running containers |
+| `make docker-build` | Build the backend Docker image |
+| `make docker-run` | Build and start the full stack — Postgres, MinIO, backend |
+| `make docker-stop` | Stop all containers **and remove volumes** (`docker compose down -v`) |
+
+#### Database
+
+| Target | Description |
+| --- | --- |
+| `make db-migrate` | Run pending Flyway migrations (`./gradlew flywayMigrate`) |
+| `make db-clean` | Drop all Flyway-managed objects — **destructive** (`./gradlew flywayClean`) |
+| `make db-repair` | Repair the Flyway schema history table |
+| `make db-info` | Show current migration status |
+| `make db-validate` | Validate applied migrations against available ones |
+| `make codegen` | Generate jOOQ sources from the database schema |
+| `make seed-catalog` | Load sample Pokemon catalogue data into the local DB (`dev_seed.sql`) |
+
+#### OpenAPI / Swagger
+
+| Target | Description |
+| --- | --- |
+| `make swagger` | Open Swagger UI in the default browser (`http://localhost:8080/swagger-ui.html`) |
+| `make api-docs` | Download the OpenAPI 3 JSON spec to stdout via `curl` |
+| `make test-swagger` | Run the OpenAPI / Swagger smoke tests only |
+
+### Typical workflows
+
+**First-time setup:**
+
+```bash
+make env          # create .env from template
+# edit .env — set JWT_SECRET, MinIO keys, etc.
+make check        # start DB, migrate, codegen, build
+make run          # start the API on port 8080
+```
+
+**Day-to-day development:**
+
+```bash
+make up           # ensure containers are running
+make run          # start the API
+make test         # run tests after changes
+make swagger      # open Swagger UI to explore endpoints
+```
+
+**Reset and reseed the database:**
+
+```bash
+make db-clean     # wipe the schema
+make db-migrate   # reapply all migrations
+make seed-catalog # load sample catalogue data
+```
