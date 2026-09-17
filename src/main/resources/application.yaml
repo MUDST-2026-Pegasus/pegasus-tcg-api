@@ -37,6 +37,13 @@ pegasus:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
 
+  pricing:
+    # The nightly market run: the day's median per printing and condition, then
+    # AUTO_MEDIAN prices moved to it [RQ-5]. Safe to run twice, or on two instances.
+    market-job-cron: ${PRICING_MARKET_JOB_CRON:0 0 3 * * *}
+    # 03:00 above, and the date a day's statistics belong to, are Thai time.
+    zone: Asia/Bangkok
+
   storage:
     # Where the app reaches MinIO. Inside a container this is http://minio:9000.
     endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
