@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.PublicCollectionItemResponse;
 import com.pegasus.pegasustcgapi.service.CollectionService;
@@ -25,12 +25,12 @@ public class PublicCollectionController {
     }
 
     @GetMapping(ApiPaths.USERS + "/{username}/collection")
-    public ApiResponse<PageResponse<PublicCollectionItemResponse>> collection(
+    public ApiResult<PageResponse<PublicCollectionItemResponse>> collection(
             @PathVariable String username,
             @RequestParam(required = false) Short gameId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        return ApiResponse.success(collection.publicCollection(username, gameId, page, size));
+        return ApiResult.success(collection.publicCollection(username, gameId, page, size));
     }
 }

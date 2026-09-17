@@ -9,7 +9,7 @@ import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.security.ClientInfo;
 import com.pegasus.pegasustcgapi.service.PasswordService;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,19 +30,19 @@ public class PasswordController {
 
 
     @PostMapping("/reset")
-    public ApiResponse<Void> reset(@Valid @RequestBody ResetPasswordRequest request) {
+    public ApiResult<Void> reset(@Valid @RequestBody ResetPasswordRequest request) {
         passwordService.reset(request);
-        return ApiResponse.success("Password reset; sign in again", null);
+        return ApiResult.success("Password reset; sign in again", null);
     }
 
     /** Returns a fresh token pair, since changing the password drops the old sessions. */
     @PostMapping("/change")
-    public ApiResponse<AuthResponse> change(
+    public ApiResult<AuthResponse> change(
             AuthPrincipal principal,
             @Valid @RequestBody ChangePasswordRequest request,
             HttpServletRequest http) {
 
-        return ApiResponse.success(
+        return ApiResult.success(
                 "Password changed",
                 passwordService.change(principal.userId(), request, ClientInfo.from(http)));
     }

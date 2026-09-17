@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.InventoryMovementResponse;
 import com.pegasus.pegasustcgapi.dto.ListingUnitResponse;
@@ -47,7 +47,7 @@ public class SellerInventoryController {
 
     /** Every card; {@code status=IN_STOCK} is the ones in hand and on no listing. */
     @GetMapping("/units")
-    public ApiResponse<PageResponse<ListingUnitResponse>> list(
+    public ApiResult<PageResponse<ListingUnitResponse>> list(
             @RequestParam(required = false) Long listingId,
             @RequestParam(required = false) ListingUnitStatus status,
             @RequestParam(required = false) Long variantId,
@@ -56,29 +56,29 @@ public class SellerInventoryController {
             @RequestParam(defaultValue = "20") int size,
             AuthPrincipal principal) {
 
-        return ApiResponse.success(units.mine(principal.userId(), listingId, status, variantId, condition, page, size));
+        return ApiResult.success(units.mine(principal.userId(), listingId, status, variantId, condition, page, size));
     }
 
     /** Cards coming in — kept in hand, or straight onto a listing when one is named. */
     @PostMapping("/units")
-    public ResponseEntity<ApiResponse<List<ListingUnitResponse>>> stockIn(
+    public ResponseEntity<ApiResult<List<ListingUnitResponse>>> stockIn(
             @Valid @RequestBody StockInRequest request, AuthPrincipal principal) {
 
         List<ListingUnitResponse> created = units.stockIn(principal.userId(), request.toStockIn());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(created.size() + " card(s) stocked", created));
+                .body(ApiResult.success(created.size() + " card(s) stocked", created));
     }
 
     @GetMapping("/units/{unitUid}")
-    public ApiResponse<ListingUnitResponse> get(@PathVariable UUID unitUid, AuthPrincipal principal) {
-        return ApiResponse.success(units.get(principal.userId(), unitUid));
+    public ApiResult<ListingUnitResponse> get(@PathVariable UUID unitUid, AuthPrincipal principal) {
+        return ApiResult.success(units.get(principal.userId(), unitUid));
     }
 
     @PutMapping("/units/{unitUid}")
-    public ApiResponse<ListingUnitResponse> update(
+    public ApiResult<ListingUnitResponse> update(
             @PathVariable UUID unitUid, @Valid @RequestBody UnitUpdateRequest request, AuthPrincipal principal) {
 
-        return ApiResponse.success("Card updated", units.updateNotes(principal.userId(), null, unitUid, request.toNotes()));
+        return ApiResult.success("Card updated", units.updateNotes(principal.userId(), null, unitUid, request.toNotes()));
     }
 
     /**
@@ -86,28 +86,28 @@ public class SellerInventoryController {
      * hand with {@code listingId} null. The UUID, cost and history go with it.
      */
     @PostMapping("/units/{unitUid}/move")
-    public ApiResponse<ListingUnitResponse> move(
+    public ApiResult<ListingUnitResponse> move(
             @PathVariable UUID unitUid, @Valid @RequestBody UnitMoveRequest request, AuthPrincipal principal) {
 
         ListingUnitResponse moved = units.move(principal.userId(), unitUid, request.listingId());
         String message = moved.listingId() == null ? "Card is in hand" : "Card is on listing #" + moved.listingId();
-        return ApiResponse.success(message, moved);
+        return ApiResult.success(message, moved);
     }
 
     /** Lost or damaged; out of stock for good, booked as a LOSS. */
     @PostMapping("/units/{unitUid}/write-off")
-    public ApiResponse<ListingUnitResponse> writeOff(
+    public ApiResult<ListingUnitResponse> writeOff(
             @PathVariable UUID unitUid,
             @Valid @RequestBody(required = false) UnitWriteOffRequest request,
             AuthPrincipal principal) {
 
         String reason = request == null ? null : request.reasonOrNull();
-        return ApiResponse.success("Card written off", units.writeOff(principal.userId(), unitUid, reason));
+        return ApiResult.success("Card written off", units.writeOff(principal.userId(), unitUid, reason));
     }
 
     /** Newest first. {@code unitUid} gives one card's whole history. */
     @GetMapping("/inventory/movements")
-    public ApiResponse<PageResponse<InventoryMovementResponse>> movements(
+    public ApiResult<PageResponse<InventoryMovementResponse>> movements(
             @RequestParam(required = false) Long variantId,
             @RequestParam(required = false) CardCondition condition,
             @RequestParam(required = false) MovementType type,
@@ -117,7 +117,7 @@ public class SellerInventoryController {
             @RequestParam(defaultValue = "20") int size,
             AuthPrincipal principal) {
 
-        return ApiResponse.success(inventory.movements(
+        return ApiResult.success(inventory.movements(
                 principal.userId(), variantId, condition, type, listingId, unitUid, page, size));
     }
 }

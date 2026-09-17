@@ -293,7 +293,7 @@ DELETE /users/{userId}/roles/{role}              ADMIN
 ## API conventions
 
 - JSON requests use `Content-Type: application/json`.
-- Successful responses use the common `ApiResponse` envelope with `success`, `message`, and `data`.
+- Successful responses use the common `ApiResult` envelope with `success`, `message`, and `data`.
 - List endpoints that paginate use zero-based `page` and a `size` default of `20`.
 - Error responses include a stable code in `data.code`; use the code rather than matching the human-readable message.
 - Catalogued products and variants are deactivated with `active: false`; they are not deleted because other records may reference them.

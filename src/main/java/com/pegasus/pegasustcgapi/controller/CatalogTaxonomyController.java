@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.model.CardSet;
 import com.pegasus.pegasustcgapi.model.CatalogCategory;
 import com.pegasus.pegasustcgapi.model.Game;
@@ -34,32 +34,32 @@ public class CatalogTaxonomyController {
     }
 
     @GetMapping(ApiPaths.GAMES)
-    public ApiResponse<List<Game>> games() {
-        return ApiResponse.success(games.list(false));
+    public ApiResult<List<Game>> games() {
+        return ApiResult.success(games.list(false));
     }
 
     @GetMapping(ApiPaths.GAMES + "/{gameId}")
-    public ApiResponse<Game> game(@PathVariable short gameId) {
-        return ApiResponse.success(games.requireActive(gameId));
+    public ApiResult<Game> game(@PathVariable short gameId) {
+        return ApiResult.success(games.requireActive(gameId));
     }
 
     /** The filter sidebar is built from this, so a new game brings its own filters. */
     @GetMapping(ApiPaths.GAMES + "/{gameId}/attributes")
-    public ApiResponse<List<GameAttribute>> attributes(@PathVariable short gameId) {
+    public ApiResult<List<GameAttribute>> attributes(@PathVariable short gameId) {
         games.requireActive(gameId);
-        return ApiResponse.success(games.attributesOf(gameId));
+        return ApiResult.success(games.attributesOf(gameId));
     }
 
     /** @param gameId optional; given one, the cross-game categories come with it. */
     @GetMapping(ApiPaths.CATEGORIES)
-    public ApiResponse<List<CatalogCategory>> categories(
+    public ApiResult<List<CatalogCategory>> categories(
             @RequestParam(required = false) Short gameId) {
 
-        return ApiResponse.success(taxonomy.categories(gameId, false));
+        return ApiResult.success(taxonomy.categories(gameId, false));
     }
 
     @GetMapping(ApiPaths.CARD_SETS)
-    public ApiResponse<List<CardSet>> cardSets(@RequestParam short gameId) {
-        return ApiResponse.success(taxonomy.cardSets(gameId));
+    public ApiResult<List<CardSet>> cardSets(@RequestParam short gameId) {
+        return ApiResult.success(taxonomy.cardSets(gameId));
     }
 }
