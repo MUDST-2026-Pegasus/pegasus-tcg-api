@@ -5,7 +5,7 @@ import com.pegasus.pegasustcgapi.model.RoleCode;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.RoleService;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import jakarta.validation.Valid;
 import java.util.Set;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -35,20 +35,20 @@ public class UserRoleController {
     }
 
     @PostMapping
-    public ApiResponse<Set<RoleCode>> grant(
+    public ApiResult<Set<RoleCode>> grant(
             @PathVariable long userId,
             @Valid @RequestBody GrantRoleRequest request,
             AuthPrincipal principal) {
 
-        return ApiResponse.success(
+        return ApiResult.success(
                 "Role granted", roleService.grantAsAdmin(userId, request.role(), principal.userId()));
     }
 
     @DeleteMapping("/{role}")
-    public ApiResponse<Set<RoleCode>> revoke(
+    public ApiResult<Set<RoleCode>> revoke(
             @PathVariable long userId, @PathVariable RoleCode role, AuthPrincipal principal) {
 
-        return ApiResponse.success(
+        return ApiResult.success(
                 "Role revoked", roleService.revokeAsAdmin(userId, role, principal.userId()));
     }
 }
