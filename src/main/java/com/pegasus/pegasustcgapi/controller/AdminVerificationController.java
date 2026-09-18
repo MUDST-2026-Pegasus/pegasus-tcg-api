@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -39,9 +40,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminVerificationController {
 
     private final SellerOnboardingService onboarding;
+    private final VerificationResponseMapper mapper;
 
-    public AdminVerificationController(SellerOnboardingService onboarding) {
+    public AdminVerificationController(SellerOnboardingService onboarding, VerificationResponseMapper mapper) {
         this.onboarding = onboarding;
+        this.mapper = mapper;
     }
 
     /** Oldest first, so nobody waits behind a later submission. */
@@ -54,7 +57,7 @@ public class AdminVerificationController {
             @RequestParam(defaultValue = "20") int size) {
 
         List<VerificationResponse> items = onboarding.queue(status, page, size).stream()
-                .map(VerificationResponse::from)
+                .map(mapper::toResponse)
                 .toList();
 
         return ApiResult.success(
@@ -72,7 +75,7 @@ public class AdminVerificationController {
     public ApiResult<VerificationResponse> startReview(
             @PathVariable long verificationId, AuthPrincipal principal) {
 
-        return ApiResult.success("Review started", VerificationResponse.from(
+        return ApiResult.success("Review started", mapper.toResponse(
                 onboarding.startReview(verificationId, principal.userId())));
     }
 
@@ -87,7 +90,7 @@ public class AdminVerificationController {
     public ApiResult<VerificationResponse> approve(
             @PathVariable long verificationId, AuthPrincipal principal) {
 
-        return ApiResult.success("Seller verified", VerificationResponse.from(
+        return ApiResult.success("Seller verified", mapper.toResponse(
                 onboarding.approve(verificationId, principal.userId())));
     }
 
@@ -105,7 +108,7 @@ public class AdminVerificationController {
             @Valid @RequestBody RejectVerificationRequest request,
             AuthPrincipal principal) {
 
-        return ApiResult.success("Verification rejected", VerificationResponse.from(
+        return ApiResult.success("Verification rejected", mapper.toResponse(
                 onboarding.reject(verificationId, principal.userId(), request.reason())));
     }
 }
