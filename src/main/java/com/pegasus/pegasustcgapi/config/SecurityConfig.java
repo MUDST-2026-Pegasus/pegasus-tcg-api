@@ -77,6 +77,10 @@ public class SecurityConfig {
 
     /** Public Swagger UI and OpenAPI documentation resources. */
     private static final String[] SWAGGER_WHITELIST = {
+        "/v1/api-docs/**",
+        "/v1/api-docs",
+        "/v1/api-doc/**",
+        "/v1/api-doc",
         "/v3/api-docs/**",
         "/swagger-ui/**",
         "/swagger-ui.html",

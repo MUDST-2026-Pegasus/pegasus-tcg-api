@@ -31,15 +31,22 @@ class OpenApiSwaggerSmokeTest {
     }
 
     @Test
-    @DisplayName("serves OpenAPI 3 specification JSON without authentication")
+    @DisplayName("serves OpenAPI 3 specification JSON at /v1/api-docs without authentication")
     void openApiDocsAvailableUnauthenticated() throws Exception {
-        mockMvc.perform(get("/v3/api-docs"))
+        mockMvc.perform(get("/v1/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.openapi").exists())
                 .andExpect(jsonPath("$.info.title").value("Pegasus TCG API"))
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth").exists())
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth.type").value("http"))
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth.scheme").value("bearer"));
+    }
+
+    @Test
+    @DisplayName("redirects /v1/api-doc to /v1/api-docs")
+    void openApiDocsAliasRedirects() throws Exception {
+        mockMvc.perform(get("/v1/api-doc"))
+                .andExpect(status().is3xxRedirection());
     }
 
     @Test
