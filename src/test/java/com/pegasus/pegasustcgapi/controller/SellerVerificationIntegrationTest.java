@@ -34,7 +34,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 
 @SpringBootTest
 @Testcontainers
-@org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 class SellerVerificationIntegrationTest {
 
     @Container
@@ -60,6 +59,8 @@ class SellerVerificationIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        mockMvc = MockMvcBuilders.webAppContextSetup(context).build();
+        
         String tag = UUID.randomUUID().toString().substring(0, 8);
         username = "seller_" + tag;
 
