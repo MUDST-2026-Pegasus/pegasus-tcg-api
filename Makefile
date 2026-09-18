@@ -112,8 +112,8 @@ else
 	@xdg-open http://localhost:8080/swagger-ui.html 2>/dev/null || open http://localhost:8080/swagger-ui.html
 endif
 
-api-docs: ## Download the OpenAPI 3 JSON spec to stdout (Command: curl localhost:8080/v3/api-docs)
-	@curl -sS http://localhost:8080/v3/api-docs
+api-docs: ## Download the OpenAPI 3 JSON spec to stdout (Command: curl localhost:8080/v1/api-docs)
+	@curl -sS http://localhost:8080/v1/api-docs
 
 test-swagger: ## Run the OpenAPI / Swagger smoke tests (Command: ./gradlew test --tests OpenApiSwaggerSmokeTest)
 	$(gd) test --tests '*OpenApiSwaggerSmokeTest'

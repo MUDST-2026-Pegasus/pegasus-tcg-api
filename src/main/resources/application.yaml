@@ -58,3 +58,14 @@ pegasus:
     # Long enough to pick a file and upload it, short enough that a leaked link is worthless.
     upload-url-ttl: 5m
     download-url-ttl: 15m
+
+springdoc:
+  api-docs:
+    path: /v1/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+    display-request-duration: true
+    try-it-out-enabled: true

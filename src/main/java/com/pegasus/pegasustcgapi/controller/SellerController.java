@@ -13,6 +13,12 @@ import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.PayoutAccountService;
 import com.pegasus.pegasustcgapi.service.SellerOnboardingService;
 import com.pegasus.pegasustcgapi.service.ShippingOptionService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -34,6 +40,8 @@ import org.springframework.web.bind.annotation.RestController;
  * point of one profile being both buyer and seller [RQ-2] — and the endpoints
  * that genuinely need a verified seller say so themselves.
  */
+@Tag(name = "Seller Profile & Settings", description = "Seller onboarding, identity verification submissions, shipping options, and payout accounts")
+@SecurityRequirement(name = "BearerAuth")
 @RestController
 @RequestMapping(ApiPaths.SELLERS_ME)
 public class SellerController {
@@ -51,6 +59,11 @@ public class SellerController {
 
     // ---------- profile ----------
 
+    @Operation(summary = "Get current seller profile", description = "Retrieves seller onboarding profile, status, and settings for the authenticated user.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Seller profile retrieved"),
+            @ApiResponse(responseCode = "404", description = "Seller profile not yet created")
+    })
     @GetMapping
     public ApiResult<SellerProfileResponse> me(AuthPrincipal principal) {
         return ApiResult.success(
@@ -58,12 +71,19 @@ public class SellerController {
     }
 
     /** Creates the profile in NOT_APPLIED. Calling it again returns the same one. */
+    @Operation(summary = "Start seller application", description = "Initializes seller onboarding profile in NOT_APPLIED status.")
+    @ApiResponse(responseCode = "200", description = "Application started or existing profile returned")
     @PostMapping("/apply")
     public ApiResult<SellerProfileResponse> apply(AuthPrincipal principal) {
         return ApiResult.success("Seller application started",
                 SellerProfileResponse.from(onboarding.startApplication(principal.userId())));
     }
 
+    @Operation(summary = "Update seller settings", description = "Updates handling days, vacation mode, and automatic order acceptance.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Settings updated successfully"),
+            @ApiResponse(responseCode = "400", description = "Validation failed")
+    })
     @PutMapping("/settings")
     public ApiResult<SellerProfileResponse> updateSettings(
             @Valid @RequestBody SellerSettingsRequest request, AuthPrincipal principal) {
@@ -75,6 +95,8 @@ public class SellerController {
 
     // ---------- identity documents ----------
 
+    @Operation(summary = "List seller verification submissions", description = "Retrieves all KYC verification documents submitted by the authenticated seller.")
+    @ApiResponse(responseCode = "200", description = "Verifications listed")
     @GetMapping("/verifications")
     public ApiResult<List<VerificationResponse>> myVerifications(AuthPrincipal principal) {
         return ApiResult.success(onboarding.myVerifications(principal.userId()).stream()
@@ -82,6 +104,13 @@ public class SellerController {
                 .toList());
     }
 
+    @Operation(summary = "Submit KYC verification", description = "Submits legal identity and bank account details for seller verification review.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Verification submitted for review"),
+            @ApiResponse(responseCode = "400", description = "Request payload failed validation"),
+            @ApiResponse(responseCode = "403", description = "Suspended seller cannot submit verification"),
+            @ApiResponse(responseCode = "409", description = "Verification already pending review or bank account already registered")
+    })
     @PostMapping("/verifications")
     public ResponseEntity<ApiResult<VerificationResponse>> submitVerification(
             @Valid @RequestBody VerificationRequest request, AuthPrincipal principal) {
@@ -96,11 +125,18 @@ public class SellerController {
 
     // ---------- shipping ----------
 
+    @Operation(summary = "List shipping options", description = "Retrieves all shipping and delivery options configured by the authenticated seller.")
+    @ApiResponse(responseCode = "200", description = "Shipping options listed")
     @GetMapping("/shipping-options")
     public ApiResult<List<ShippingOption>> shippingOptions(AuthPrincipal principal) {
         return ApiResult.success(shipping.listMine(principal.userId()));
     }
 
+    @Operation(summary = "Create shipping option", description = "Creates a new shipping option with courier name and rates.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Shipping option added"),
+            @ApiResponse(responseCode = "400", description = "Validation failed")
+    })
     @PostMapping("/shipping-options")
     public ResponseEntity<ApiResult<ShippingOption>> createShippingOption(
             @Valid @RequestBody ShippingOptionRequest request, AuthPrincipal principal) {
@@ -110,6 +146,12 @@ public class SellerController {
                 .body(ApiResult.success("Shipping option added", created));
     }
 
+    @Operation(summary = "Update shipping option", description = "Updates an existing shipping option's name, cost, or configuration.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Shipping option updated"),
+            @ApiResponse(responseCode = "400", description = "Validation failed"),
+            @ApiResponse(responseCode = "404", description = "Shipping option not found")
+    })
     @PutMapping("/shipping-options/{optionId}")
     public ApiResult<ShippingOption> updateShippingOption(
             @PathVariable long optionId,
@@ -121,6 +163,11 @@ public class SellerController {
     }
 
     /** Deactivated, not deleted: orders already shipped under it still point here. */
+    @Operation(summary = "Deactivate shipping option", description = "Deactivates a shipping option so it cannot be selected for new orders.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Shipping option deactivated"),
+            @ApiResponse(responseCode = "404", description = "Shipping option not found")
+    })
     @DeleteMapping("/shipping-options/{optionId}")
     public ApiResult<Void> deactivateShippingOption(
             @PathVariable long optionId, AuthPrincipal principal) {
@@ -135,6 +182,11 @@ public class SellerController {
     // verification approved, and changing bank means verifying a new one — so
     // there is nothing to add, choose between, or delete.
 
+    @Operation(summary = "Get payout account", description = "Retrieves the verified seller's active bank payout account.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Payout account retrieved"),
+            @ApiResponse(responseCode = "404", description = "Payout account not found")
+    })
     @GetMapping("/payout-account")
     public ApiResult<PayoutAccount> payoutAccount(AuthPrincipal principal) {
         return ApiResult.success(payoutAccounts.mine(principal.userId()));
