@@ -34,6 +34,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 
 @SpringBootTest
 @Testcontainers
+@org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 class SellerVerificationIntegrationTest {
 
     @Container
