@@ -44,7 +44,6 @@ public class OpenApiConfig {
                                 .type(SecurityScheme.Type.HTTP)
                                 .scheme("bearer")
                                 .bearerFormat("JWT")
-                                .description("Enter your JWT access token (without 'Bearer ' prefix).")))
-                .addSecurityItem(new SecurityRequirement().addList(BEARER_AUTH));
+                                .description("Enter your JWT access token (without 'Bearer ' prefix).")));
     }
 }

@@ -39,13 +39,23 @@ class OpenApiSwaggerSmokeTest {
                 .andExpect(jsonPath("$.info.title").value("Pegasus TCG API"))
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth").exists())
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth.type").value("http"))
-                .andExpect(jsonPath("$.components.securitySchemes.BearerAuth.scheme").value("bearer"));
+                .andExpect(jsonPath("$.components.securitySchemes.BearerAuth.scheme").value("bearer"))
+                .andExpect(jsonPath("$.security").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/auth/login'].post.security").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/auth/me'].get.security[0].BearerAuth").exists());
     }
 
     @Test
     @DisplayName("redirects /v1/api-doc to /v1/api-docs")
     void openApiDocsAliasRedirects() throws Exception {
         mockMvc.perform(get("/v1/api-doc"))
+                .andExpect(status().is3xxRedirection());
+    }
+
+    @Test
+    @DisplayName("redirects legacy /v3/api-docs to /v1/api-docs")
+    void legacyOpenApiDocsRedirects() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().is3xxRedirection());
     }
 

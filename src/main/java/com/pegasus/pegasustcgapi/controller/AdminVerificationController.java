@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -31,6 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
  * narrow gate everything on the selling side sits behind.
  */
 @Tag(name = "Seller Verification Queue (Admin)", description = "KYC review queue, approval and rejection actions (Admin only)")
+@SecurityRequirement(name = "BearerAuth")
 @RestController
 @RequestMapping(ApiPaths.ADMIN + "/verifications")
 @PreAuthorize("hasRole('ADMIN')")
@@ -63,8 +65,8 @@ public class AdminVerificationController {
     @Operation(summary = "Start reviewing verification", description = "Claims a verification submission and marks it as IN_REVIEW.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Review started"),
-            @ApiResponse(responseCode = "400", description = "Submission not in SUBMITTED state"),
-            @ApiResponse(responseCode = "404", description = "Verification submission not found")
+            @ApiResponse(responseCode = "404", description = "Verification submission not found"),
+            @ApiResponse(responseCode = "409", description = "Submission already decided or modified by another admin")
     })
     @PostMapping("/{verificationId}/start-review")
     public ApiResult<VerificationResponse> startReview(
@@ -78,8 +80,8 @@ public class AdminVerificationController {
     @Operation(summary = "Approve verification", description = "Approves a seller KYC submission and automatically grants the SELLER role.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Seller verified"),
-            @ApiResponse(responseCode = "400", description = "Submission not in valid state for approval"),
-            @ApiResponse(responseCode = "404", description = "Verification submission not found")
+            @ApiResponse(responseCode = "404", description = "Verification submission not found"),
+            @ApiResponse(responseCode = "409", description = "Submission already decided or modified by another admin")
     })
     @PostMapping("/{verificationId}/approve")
     public ApiResult<VerificationResponse> approve(
@@ -93,8 +95,9 @@ public class AdminVerificationController {
     @Operation(summary = "Reject verification", description = "Rejects a seller KYC submission with a human-readable reason.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Verification rejected"),
-            @ApiResponse(responseCode = "400", description = "Validation failed or submission not in review"),
-            @ApiResponse(responseCode = "404", description = "Verification submission not found")
+            @ApiResponse(responseCode = "400", description = "Request payload failed validation"),
+            @ApiResponse(responseCode = "404", description = "Verification submission not found"),
+            @ApiResponse(responseCode = "409", description = "Submission already decided or modified by another admin")
     })
     @PostMapping("/{verificationId}/reject")
     public ApiResult<VerificationResponse> reject(

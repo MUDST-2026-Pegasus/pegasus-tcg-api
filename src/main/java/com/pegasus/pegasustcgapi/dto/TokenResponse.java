@@ -16,7 +16,7 @@ public record TokenResponse(
         String tokenType,
         @Schema(description = "Access token lifetime in seconds", example = "900")
         long expiresIn,
-        @Schema(description = "Opaque refresh token string", example = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6")
+        @Schema(description = "Opaque refresh token string", example = "q8wEv3X5x7kL1pZ8n6tY4r9m0bV3c8d1e2f3g4h5i6")
         String refreshToken,
         @Schema(description = "Refresh token lifetime in seconds", example = "2592000")
         long refreshExpiresIn) {

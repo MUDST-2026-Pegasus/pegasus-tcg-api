@@ -18,5 +18,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addViewControllers(ViewControllerRegistry registry) {
         registry.addRedirectViewController("/v1/api-doc", "/v1/api-docs");
+        registry.addRedirectViewController("/v3/api-docs", "/v1/api-docs");
     }
 }
