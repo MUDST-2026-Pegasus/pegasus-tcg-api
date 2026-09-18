@@ -123,8 +123,12 @@ public class SellerOnboardingService implements SellerPort {
         if (verifications.bankAccountUsedByAnother(bankAccountNumber, profile.id())) {
             throw new ConflictException(ErrorCode.BANK_ACCOUNT_ALREADY_USED);
         }
-        
+
         storageService.requireUploadedFor(UploadPurpose.SELLER_VERIFICATION, bankBookImageKey);
+
+        if (verifications.bankBookKeyUsedByAnother(bankBookImageKey, profile.id())) {
+            throw new ConflictException(ErrorCode.FILE_NOT_FOUND, "Image already used by another application");
+        }
 
         long id = verifications.insert(profile.id(), legalFirstName, legalLastName,
                 bankCode, bankName, bankAccountNumber, bankBookImageKey);

@@ -50,19 +50,14 @@ public class SellerController {
     private final SellerOnboardingService onboarding;
     private final ShippingOptionService shipping;
     private final PayoutAccountService payoutAccounts;
-    private final StorageService storageService;
+    private final VerificationResponseMapper mapper;
 
     public SellerController(SellerOnboardingService onboarding, ShippingOptionService shipping,
-            PayoutAccountService payoutAccounts, StorageService storageService) {
+            PayoutAccountService payoutAccounts, VerificationResponseMapper mapper) {
         this.onboarding = onboarding;
         this.shipping = shipping;
         this.payoutAccounts = payoutAccounts;
-        this.storageService = storageService;
-    }
-
-    private VerificationResponse toResponse(com.pegasus.pegasustcgapi.model.SellerVerification v) {
-        String url = storageService.presignDownload(v.bankBookImageKey());
-        return VerificationResponse.from(v, url);
+        this.mapper = mapper;
     }
 
     // ---------- profile ----------
@@ -103,27 +98,29 @@ public class SellerController {
 
     // ---------- identity documents ----------
 
-    @Operation(summary = "List seller verification submissions", description = "Retrieves all KYC verification documents submitted by the authenticated seller.")
-    @ApiResponse(responseCode = "200", description = "Verifications listed")
+    @Operation(summary = "List own verification submissions", description = "Retrieves all KYC verification submissions for the authenticated seller.")
+    @ApiResponse(responseCode = "200", description = "Verifications retrieved")
     @GetMapping("/verifications")
     public ApiResult<List<VerificationResponse>> myVerifications(AuthPrincipal principal) {
-        return ApiResult.success(onboarding.myVerifications(principal.userId()).stream()
-                .map(this::toResponse)
-                .toList());
+        List<VerificationResponse> items = onboarding.myVerifications(principal.userId()).stream()
+                .map(mapper::toResponse)
+                .toList();
+
+        return ApiResult.success(items);
     }
 
-    @Operation(summary = "Submit KYC verification", description = "Submits legal identity and bank account details for seller verification review.")
+    @Operation(summary = "Submit new verification", description = "Submits bank details and image for KYC review. Fails if another request is still pending.")
     @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "Verification submitted for review"),
+            @ApiResponse(responseCode = "201", description = "Submitted for review"),
             @ApiResponse(responseCode = "400", description = "Request payload failed validation"),
-            @ApiResponse(responseCode = "403", description = "Suspended seller cannot submit verification"),
-            @ApiResponse(responseCode = "409", description = "Verification already pending review or bank account already registered")
+            @ApiResponse(responseCode = "403", description = "Seller account is suspended"),
+            @ApiResponse(responseCode = "409", description = "Submission already under review, or bank account used by another seller")
     })
     @PostMapping("/verifications")
     public ResponseEntity<ApiResult<VerificationResponse>> submitVerification(
             @Valid @RequestBody VerificationRequest request, AuthPrincipal principal) {
 
-        VerificationResponse created = toResponse(onboarding.submitVerification(
+        VerificationResponse created = mapper.toResponse(onboarding.submitVerification(
                 principal.userId(), request.legalFirstName(), request.legalLastName(),
                 request.bankCode(), request.bankName(), request.normalisedAccountNumber(),
                 request.bankBookImageKey()));

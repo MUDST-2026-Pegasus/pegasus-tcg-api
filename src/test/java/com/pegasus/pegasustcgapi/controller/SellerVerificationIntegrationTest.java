@@ -1,17 +1,23 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pegasus.pegasustcgapi.dto.VerificationRequest;
+import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.when;
+
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
-import com.pegasus.pegasustcgapi.jooq.tables.records.UserAccountRecord;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
+import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,16 +27,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-
-import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest
 @Testcontainers
@@ -51,7 +56,7 @@ class SellerVerificationIntegrationTest {
     @Autowired
     private DSLContext dsl;
     
-    @Autowired
+    @MockitoBean
     private StorageService storageService;
 
     private long userId;
@@ -59,7 +64,7 @@ class SellerVerificationIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.webAppContextSetup(context).build();
+        mockMvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
         
         String tag = UUID.randomUUID().toString().substring(0, 8);
         username = "seller_" + tag;
@@ -110,11 +115,15 @@ class SellerVerificationIntegrationTest {
                 }
                 """.formatted(fakeKey);
 
+        // Mock StorageService to throw exception like real service does
+        org.mockito.Mockito.doThrow(new com.pegasus.pegasustcgapi.exception.NotFoundException(ErrorCode.FILE_NOT_FOUND))
+                .when(storageService).requireUploadedFor(UploadPurpose.SELLER_VERIFICATION, fakeKey);
+
         mockMvc.perform(post("/api/v1/sellers/me/verifications")
                         .with(jwt().jwt(jwt -> jwt.subject(String.valueOf(userId))))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.data.code").value(ErrorCode.FILE_NOT_FOUND.name()));
     }
 
@@ -125,9 +134,13 @@ class SellerVerificationIntegrationTest {
         String presignReq = """
                 {
                     "purpose": "SELLER_VERIFICATION",
-                    "contentType": "image/jpeg"
+                    "contentType": "image/jpeg",
+                    "sizeBytes": 1048576
                 }
                 """;
+
+        when(storageService.uploadUrlTtlSeconds()).thenReturn(3600L);
+        when(storageService.presignUpload(any())).thenReturn("https://mock-minio/upload");
 
         String presignResp = mockMvc.perform(post("/api/v1/uploads/presign")
                         .with(jwt().jwt(jwt -> jwt.subject(String.valueOf(userId))))
@@ -136,22 +149,14 @@ class SellerVerificationIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
-        // Extract key and uploadUrl from presignResp (we just need the key to pretend we uploaded it)
-        // Wait, to pass storageService.requireUploadedFor, we actually have to upload the file to MinIO
-        // because requireUploadedFor checks statObject.
-        String key = objectMapper.readTree(presignResp).path("data").path("key").asText();
-        String uploadUrl = objectMapper.readTree(presignResp).path("data").path("uploadUrl").asText();
+        String key = objectMapper.readTree(presignResp).path("data").path("objectKey").asText();
 
-        // We can use Spring's RestTemplate to PUT to MinIO, but requireUploadedFor just calls MinIO.
-        // Let's use standard Java HttpURLConnection or java.net.http.HttpClient to do PUT
-        java.net.http.HttpRequest putRequest = java.net.http.HttpRequest.newBuilder()
-                .uri(java.net.URI.create(uploadUrl))
-                .header("Content-Type", "image/jpeg")
-                .PUT(java.net.http.HttpRequest.BodyPublishers.ofByteArray(new byte[]{1, 2, 3}))
-                .build();
-        java.net.http.HttpClient.newHttpClient().send(putRequest, java.net.http.HttpResponse.BodyHandlers.discarding());
+        // 2. Mock requireUploadedFor and presignDownload
+        when(storageService.requireUploadedFor(UploadPurpose.SELLER_VERIFICATION, key))
+                .thenReturn(new com.pegasus.pegasustcgapi.storage.StoredObject(key, 1048576L, "image/jpeg"));
+        when(storageService.presignDownload(key)).thenReturn("https://mock-minio/download");
 
-        // 2. Submit verification
+        // 3. Submit verification
         String json = """
                 {
                     "legalFirstName": "Somchai",
@@ -169,17 +174,16 @@ class SellerVerificationIntegrationTest {
                         .content(json))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.bankBookImageKey").value(key))
-                .andExpect(jsonPath("$.data.bankBookImageUrl").isString());
+                .andExpect(jsonPath("$.data.bankBookImageUrl").value("https://mock-minio/download"));
 
-        // 3. GET /sellers/me/verifications
+        // 4. GET /sellers/me/verifications
         mockMvc.perform(get("/api/v1/sellers/me/verifications")
                         .with(jwt().jwt(jwt -> jwt.subject(String.valueOf(userId)))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].bankBookImageKey").value(key))
-                .andExpect(jsonPath("$.data[0].bankBookImageUrl").isString());
+                .andExpect(jsonPath("$.data[0].bankBookImageUrl").value("https://mock-minio/download"));
                 
-        // 4. GET /admin/verifications (Admin view)
-        // We need an admin user
+        // 5. GET /admin/verifications (Admin view)
         long adminId = dsl.insertInto(USER_ACCOUNT)
                 .set(USER_ACCOUNT.EMAIL, "admin_" + username + "@example.com")
                 .set(USER_ACCOUNT.PASSWORD_HASH, "x")
@@ -188,11 +192,10 @@ class SellerVerificationIntegrationTest {
                 .returningResult(USER_ACCOUNT.ID)
                 .fetchSingle().value1();
                 
-        // We can just use the role in jwt
         mockMvc.perform(get("/api/v1/admin/verifications")
-                        .with(jwt().jwt(jwt -> jwt.subject(String.valueOf(adminId)).claim("scope", "ROLE_ADMIN"))))
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(adminId)).claim("roles", List.of("ADMIN")))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
                 .andExpect(status().isOk())
-                // Assuming it might be the only one, but to be safe we check the array
                 .andExpect(jsonPath("$.data.items[?(@.bankBookImageKey == '%s')].bankBookImageUrl", key).exists());
     }
 }

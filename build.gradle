@@ -52,7 +52,7 @@ dependencies {
 
     jooqCodegen 'org.postgresql:postgresql'
 
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
     // A throwaway Postgres for tests that need real concurrent sessions, and that
     // must not reprice anybody's development data. Needs Docker, like compose.yaml.
