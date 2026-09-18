@@ -28,7 +28,10 @@ public record VerificationRequest(
 
         @NotBlank @Size(max = 34)
         @Pattern(regexp = "^[0-9\\-\\s]+$", message = "may only contain digits, spaces and dashes")
-        String bankAccountNumber) {
+        String bankAccountNumber,
+        
+        @NotBlank @Size(max = 500)
+        String bankBookImageKey) {
 
     /** Digits only, so one account has exactly one stored form. */
     public String normalisedAccountNumber() {

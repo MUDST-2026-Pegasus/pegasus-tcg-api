@@ -71,7 +71,7 @@ public class SellerVerificationRepository {
     }
 
     public long insert(long sellerProfileId, String legalFirstName, String legalLastName,
-            String bankCode, String bankName, String bankAccountNumber) {
+            String bankCode, String bankName, String bankAccountNumber, String bankBookImageKey) {
 
         return dsl.insertInto(SELLER_VERIFICATION)
                 .set(SELLER_VERIFICATION.SELLER_PROFILE_ID, sellerProfileId)
@@ -80,6 +80,7 @@ public class SellerVerificationRepository {
                 .set(SELLER_VERIFICATION.BANK_CODE, bankCode)
                 .set(SELLER_VERIFICATION.BANK_NAME, bankName)
                 .set(SELLER_VERIFICATION.BANK_ACCOUNT_NUMBER, bankAccountNumber)
+                .set(SELLER_VERIFICATION.BANK_BOOK_IMAGE_KEY, bankBookImageKey)
                 .set(SELLER_VERIFICATION.STATUS, VerificationStatus.SUBMITTED.name())
                 .returningResult(SELLER_VERIFICATION.ID)
                 .fetchSingle(SELLER_VERIFICATION.ID);
@@ -113,6 +114,7 @@ public class SellerVerificationRepository {
                 r.getBankCode(),
                 r.getBankName(),
                 r.getBankAccountNumber(),
+                r.getBankBookImageKey(),
                 VerificationStatus.valueOf(r.getStatus()),
                 r.getSubmittedAt(),
                 r.getReviewedBy(),

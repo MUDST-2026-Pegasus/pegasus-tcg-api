@@ -13,15 +13,18 @@ public record VerificationResponse(
         String bankCode,
         String bankName,
         String bankAccountNumber,
+        String bankBookImageKey,
+        String bankBookImageUrl,
         VerificationStatus status,
         OffsetDateTime submittedAt,
         Long reviewedBy,
         OffsetDateTime reviewedAt,
         String rejectionReason) {
 
-    public static VerificationResponse from(SellerVerification v) {
+    public static VerificationResponse from(SellerVerification v, String bankBookImageUrl) {
         return new VerificationResponse(v.id(), v.sellerProfileId(), v.legalFirstName(),
-                v.legalLastName(), v.bankCode(), v.bankName(), v.bankAccountNumber(), v.status(),
+                v.legalLastName(), v.bankCode(), v.bankName(), v.bankAccountNumber(),
+                v.bankBookImageKey(), bankBookImageUrl, v.status(),
                 v.submittedAt(), v.reviewedBy(), v.reviewedAt(), v.rejectionReason());
     }
 }

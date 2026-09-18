@@ -19,6 +19,7 @@ public record SellerVerification(
         String bankCode,
         String bankName,
         String bankAccountNumber,
+        String bankBookImageKey,
         VerificationStatus status,
         OffsetDateTime submittedAt,
         Long reviewedBy,

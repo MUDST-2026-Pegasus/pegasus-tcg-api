@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -39,9 +40,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminVerificationController {
 
     private final SellerOnboardingService onboarding;
+    private final StorageService storageService;
 
-    public AdminVerificationController(SellerOnboardingService onboarding) {
+    public AdminVerificationController(SellerOnboardingService onboarding, StorageService storageService) {
         this.onboarding = onboarding;
+        this.storageService = storageService;
+    }
+
+    private VerificationResponse toResponse(com.pegasus.pegasustcgapi.model.SellerVerification v) {
+        String url = storageService.presignDownload(v.bankBookImageKey());
+        return VerificationResponse.from(v, url);
     }
 
     /** Oldest first, so nobody waits behind a later submission. */
@@ -54,7 +62,7 @@ public class AdminVerificationController {
             @RequestParam(defaultValue = "20") int size) {
 
         List<VerificationResponse> items = onboarding.queue(status, page, size).stream()
-                .map(VerificationResponse::from)
+                .map(this::toResponse)
                 .toList();
 
         return ApiResult.success(
@@ -72,7 +80,7 @@ public class AdminVerificationController {
     public ApiResult<VerificationResponse> startReview(
             @PathVariable long verificationId, AuthPrincipal principal) {
 
-        return ApiResult.success("Review started", VerificationResponse.from(
+        return ApiResult.success("Review started", toResponse(
                 onboarding.startReview(verificationId, principal.userId())));
     }
 
@@ -87,7 +95,7 @@ public class AdminVerificationController {
     public ApiResult<VerificationResponse> approve(
             @PathVariable long verificationId, AuthPrincipal principal) {
 
-        return ApiResult.success("Seller verified", VerificationResponse.from(
+        return ApiResult.success("Seller verified", toResponse(
                 onboarding.approve(verificationId, principal.userId())));
     }
 
@@ -105,7 +113,7 @@ public class AdminVerificationController {
             @Valid @RequestBody RejectVerificationRequest request,
             AuthPrincipal principal) {
 
-        return ApiResult.success("Verification rejected", VerificationResponse.from(
+        return ApiResult.success("Verification rejected", toResponse(
                 onboarding.reject(verificationId, principal.userId(), request.reason())));
     }
 }

@@ -19,6 +19,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -49,12 +50,19 @@ public class SellerController {
     private final SellerOnboardingService onboarding;
     private final ShippingOptionService shipping;
     private final PayoutAccountService payoutAccounts;
+    private final StorageService storageService;
 
     public SellerController(SellerOnboardingService onboarding, ShippingOptionService shipping,
-            PayoutAccountService payoutAccounts) {
+            PayoutAccountService payoutAccounts, StorageService storageService) {
         this.onboarding = onboarding;
         this.shipping = shipping;
         this.payoutAccounts = payoutAccounts;
+        this.storageService = storageService;
+    }
+
+    private VerificationResponse toResponse(com.pegasus.pegasustcgapi.model.SellerVerification v) {
+        String url = storageService.presignDownload(v.bankBookImageKey());
+        return VerificationResponse.from(v, url);
     }
 
     // ---------- profile ----------
@@ -100,7 +108,7 @@ public class SellerController {
     @GetMapping("/verifications")
     public ApiResult<List<VerificationResponse>> myVerifications(AuthPrincipal principal) {
         return ApiResult.success(onboarding.myVerifications(principal.userId()).stream()
-                .map(VerificationResponse::from)
+                .map(this::toResponse)
                 .toList());
     }
 
@@ -115,9 +123,10 @@ public class SellerController {
     public ResponseEntity<ApiResult<VerificationResponse>> submitVerification(
             @Valid @RequestBody VerificationRequest request, AuthPrincipal principal) {
 
-        VerificationResponse created = VerificationResponse.from(onboarding.submitVerification(
+        VerificationResponse created = toResponse(onboarding.submitVerification(
                 principal.userId(), request.legalFirstName(), request.legalLastName(),
-                request.bankCode(), request.bankName(), request.normalisedAccountNumber()));
+                request.bankCode(), request.bankName(), request.normalisedAccountNumber(),
+                request.bankBookImageKey()));
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResult.success("Submitted for review", created));

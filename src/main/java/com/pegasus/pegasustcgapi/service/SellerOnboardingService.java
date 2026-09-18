@@ -14,6 +14,8 @@ import com.pegasus.pegasustcgapi.repository.PayoutAccountRepository;
 import com.pegasus.pegasustcgapi.repository.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.repository.SellerVerificationRepository;
 import com.pegasus.pegasustcgapi.repository.UserRepository;
+import com.pegasus.pegasustcgapi.storage.StorageService;
+import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -42,6 +44,7 @@ public class SellerOnboardingService implements SellerPort {
     private final UserRepository users;
     private final PayoutAccountRepository payoutAccounts;
     private final RoleService roles;
+    private final StorageService storageService;
     private final Clock clock;
 
     public SellerOnboardingService(
@@ -50,6 +53,7 @@ public class SellerOnboardingService implements SellerPort {
             UserRepository users,
             PayoutAccountRepository payoutAccounts,
             RoleService roles,
+            StorageService storageService,
             Clock clock) {
 
         this.profiles = profiles;
@@ -57,6 +61,7 @@ public class SellerOnboardingService implements SellerPort {
         this.users = users;
         this.payoutAccounts = payoutAccounts;
         this.roles = roles;
+        this.storageService = storageService;
         this.clock = clock;
     }
 
@@ -102,7 +107,8 @@ public class SellerOnboardingService implements SellerPort {
     @Transactional
     public SellerVerification submitVerification(
             long userId, String legalFirstName, String legalLastName,
-            String bankCode, String bankName, String bankAccountNumber) {
+            String bankCode, String bankName, String bankAccountNumber,
+            String bankBookImageKey) {
 
         SellerProfile profile = startApplication(userId);
 
@@ -117,9 +123,11 @@ public class SellerOnboardingService implements SellerPort {
         if (verifications.bankAccountUsedByAnother(bankAccountNumber, profile.id())) {
             throw new ConflictException(ErrorCode.BANK_ACCOUNT_ALREADY_USED);
         }
+        
+        storageService.requireUploadedFor(UploadPurpose.SELLER_VERIFICATION, bankBookImageKey);
 
         long id = verifications.insert(profile.id(), legalFirstName, legalLastName,
-                bankCode, bankName, bankAccountNumber);
+                bankCode, bankName, bankAccountNumber, bankBookImageKey);
 
         // An already-verified seller is changing bank, not reapplying: dropping them
         // to PENDING would pull their listings down while they wait.
