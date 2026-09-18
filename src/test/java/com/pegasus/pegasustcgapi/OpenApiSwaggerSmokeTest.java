@@ -41,6 +41,7 @@ class OpenApiSwaggerSmokeTest {
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth.type").value("http"))
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth.scheme").value("bearer"))
                 .andExpect(jsonPath("$.security").doesNotExist())
+                .andExpect(jsonPath("$.info.description").value(org.hamcrest.Matchers.containsString("Total Endpoints:")))
                 .andExpect(jsonPath("$.paths['/api/v1/auth/login'].post.security").doesNotExist())
                 .andExpect(jsonPath("$.paths['/api/v1/auth/me'].get.security[0].BearerAuth").exists());
     }

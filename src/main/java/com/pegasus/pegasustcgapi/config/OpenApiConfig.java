@@ -8,6 +8,7 @@ import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.info.License;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springdoc.core.utils.SpringDocUtils;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -45,5 +46,25 @@ public class OpenApiConfig {
                                 .scheme("bearer")
                                 .bearerFormat("JWT")
                                 .description("Enter your JWT access token (without 'Bearer ' prefix).")));
+    }
+
+    /**
+     * Dynamically appends the total endpoint (operations) count to the API description
+     * so it displays prominently at the top of the Swagger UI dashboard.
+     */
+    @Bean
+    public OpenApiCustomizer endpointCounterCustomizer() {
+        return openApi -> {
+            if (openApi.getPaths() != null) {
+                long totalEndpoints = openApi.getPaths().values().stream()
+                        .mapToLong(pathItem -> pathItem.readOperations().size())
+                        .sum();
+
+                String baseDescription = openApi.getInfo().getDescription();
+                openApi.getInfo().setDescription(
+                        (baseDescription != null ? baseDescription : "")
+                                + "\n\n---\n**Total Endpoints:** `" + totalEndpoints + "` operations");
+            }
+        };
     }
 }
