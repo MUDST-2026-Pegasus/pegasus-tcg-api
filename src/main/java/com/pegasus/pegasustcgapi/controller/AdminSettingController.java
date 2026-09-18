@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.SettingUpdateRequest;
 import com.pegasus.pegasustcgapi.repository.PlatformSettingRepository.Setting;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
@@ -43,8 +44,8 @@ public class AdminSettingController {
     @Operation(summary = "List platform settings", description = "Retrieves all runtime platform configuration settings.")
     @ApiResponse(responseCode = "200", description = "Settings listed")
     @GetMapping
-    public com.pegasus.pegasustcgapi.common.ApiResponse<List<Setting>> list() {
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success(settings.list());
+    public ApiResult<List<Setting>> list() {
+        return ApiResult.success(settings.list());
     }
 
     @Operation(summary = "Get platform setting", description = "Retrieves a specific runtime setting by key.")
@@ -53,9 +54,8 @@ public class AdminSettingController {
             @ApiResponse(responseCode = "404", description = "Setting key not found")
     })
     @GetMapping("/{key}")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<Setting> get(
-            @Parameter(description = "Setting key", example = "ESCROW_HOLD_DAYS") @PathVariable String key) {
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success(settings.get(key));
+    public ApiResult<Setting> get(@PathVariable String key) {
+        return ApiResult.success(settings.get(key));
     }
 
     @Operation(summary = "Update platform setting", description = "Updates the value of an existing platform setting.")
@@ -65,12 +65,12 @@ public class AdminSettingController {
             @ApiResponse(responseCode = "404", description = "Setting key not found")
     })
     @PutMapping("/{key}")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<Setting> update(
-            @Parameter(description = "Setting key", example = "ESCROW_HOLD_DAYS") @PathVariable String key,
+    public ApiResult<Setting> update(
+            @PathVariable String key,
             @Valid @RequestBody SettingUpdateRequest request,
             AuthPrincipal principal) {
 
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Setting updated",
+        return ApiResult.success("Setting updated",
                 settings.update(key, request.value(), principal.userId()));
     }
 }

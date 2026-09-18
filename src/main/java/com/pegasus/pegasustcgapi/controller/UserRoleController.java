@@ -5,11 +5,7 @@ import com.pegasus.pegasustcgapi.model.RoleCode;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.RoleService;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import jakarta.validation.Valid;
 import java.util.Set;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -46,12 +42,12 @@ public class UserRoleController {
             @ApiResponse(responseCode = "403", description = "Access denied — caller lacks ADMIN role")
     })
     @PostMapping
-    public com.pegasus.pegasustcgapi.common.ApiResponse<Set<RoleCode>> grant(
-            @Parameter(description = "ID of user to grant role to", example = "1") @PathVariable long userId,
+    public ApiResult<Set<RoleCode>> grant(
+            @PathVariable long userId,
             @Valid @RequestBody GrantRoleRequest request,
             AuthPrincipal principal) {
 
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success(
+        return ApiResult.success(
                 "Role granted", roleService.grantAsAdmin(userId, request.role(), principal.userId()));
     }
 
@@ -62,12 +58,10 @@ public class UserRoleController {
             @ApiResponse(responseCode = "403", description = "Access denied — caller lacks ADMIN role")
     })
     @DeleteMapping("/{role}")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<Set<RoleCode>> revoke(
-            @Parameter(description = "ID of user to revoke role from", example = "1") @PathVariable long userId,
-            @Parameter(description = "Role code to revoke") @PathVariable RoleCode role,
-            AuthPrincipal principal) {
+    public ApiResult<Set<RoleCode>> revoke(
+            @PathVariable long userId, @PathVariable RoleCode role, AuthPrincipal principal) {
 
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success(
+        return ApiResult.success(
                 "Role revoked", roleService.revokeAsAdmin(userId, role, principal.userId()));
     }
 }

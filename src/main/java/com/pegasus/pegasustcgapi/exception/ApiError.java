@@ -6,7 +6,7 @@ import java.util.List;
 
 /**
  * Machine-readable detail of a failure, carried as the {@code data} of an
- * {@link com.pegasus.pegasustcgapi.common.ApiResponse}. The human-readable text
+ * {@link com.pegasus.pegasustcgapi.common.ApiResult}. The human-readable text
  * lives in the envelope's {@code message}, and the status on the response itself.
  */
 @JsonInclude(JsonInclude.Include.NON_EMPTY)

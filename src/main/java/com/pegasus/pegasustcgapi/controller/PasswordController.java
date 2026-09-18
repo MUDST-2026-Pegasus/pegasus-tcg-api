@@ -9,10 +9,7 @@ import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.security.ClientInfo;
 import com.pegasus.pegasustcgapi.service.PasswordService;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,9 +35,9 @@ public class PasswordController {
             @ApiResponse(responseCode = "400", description = "Invalid or expired reset token")
     })
     @PostMapping("/reset")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<Void> reset(@Valid @RequestBody ResetPasswordRequest request) {
+    public ApiResult<Void> reset(@Valid @RequestBody ResetPasswordRequest request) {
         passwordService.reset(request);
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Password reset; sign in again", null);
+        return ApiResult.success("Password reset; sign in again", null);
     }
 
     /** Returns a fresh token pair, since changing the password drops the old sessions. */
@@ -50,12 +47,12 @@ public class PasswordController {
             @ApiResponse(responseCode = "400", description = "Current password incorrect or validation failed")
     })
     @PostMapping("/change")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<AuthResponse> change(
+    public ApiResult<AuthResponse> change(
             AuthPrincipal principal,
             @Valid @RequestBody ChangePasswordRequest request,
             HttpServletRequest http) {
 
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success(
+        return ApiResult.success(
                 "Password changed",
                 passwordService.change(principal.userId(), request, ClientInfo.from(http)));
     }

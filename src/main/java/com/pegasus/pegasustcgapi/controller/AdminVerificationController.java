@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.RejectVerificationRequest;
 import com.pegasus.pegasustcgapi.dto.VerificationResponse;
@@ -45,16 +46,16 @@ public class AdminVerificationController {
     @Operation(summary = "List verification review queue", description = "Retrieves a paginated list of KYC verification submissions filtered by status.")
     @ApiResponse(responseCode = "200", description = "Queue page retrieved")
     @GetMapping
-    public com.pegasus.pegasustcgapi.common.ApiResponse<PageResponse<VerificationResponse>> queue(
-            @Parameter(description = "Verification review status") @RequestParam(defaultValue = "SUBMITTED") VerificationStatus status,
-            @Parameter(description = "Zero-indexed page number", example = "0") @RequestParam(defaultValue = "0") int page,
-            @Parameter(description = "Page size", example = "20") @RequestParam(defaultValue = "20") int size) {
+    public ApiResult<PageResponse<VerificationResponse>> queue(
+            @RequestParam(defaultValue = "SUBMITTED") VerificationStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
 
         List<VerificationResponse> items = onboarding.queue(status, page, size).stream()
                 .map(VerificationResponse::from)
                 .toList();
 
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success(
+        return ApiResult.success(
                 PageResponse.of(items, page, size, onboarding.queueSize(status)));
     }
 
@@ -66,11 +67,10 @@ public class AdminVerificationController {
             @ApiResponse(responseCode = "404", description = "Verification submission not found")
     })
     @PostMapping("/{verificationId}/start-review")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<VerificationResponse> startReview(
-            @Parameter(description = "Verification ID", example = "1") @PathVariable long verificationId,
-            AuthPrincipal principal) {
+    public ApiResult<VerificationResponse> startReview(
+            @PathVariable long verificationId, AuthPrincipal principal) {
 
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Review started", VerificationResponse.from(
+        return ApiResult.success("Review started", VerificationResponse.from(
                 onboarding.startReview(verificationId, principal.userId())));
     }
 
@@ -82,11 +82,10 @@ public class AdminVerificationController {
             @ApiResponse(responseCode = "404", description = "Verification submission not found")
     })
     @PostMapping("/{verificationId}/approve")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<VerificationResponse> approve(
-            @Parameter(description = "Verification ID", example = "1") @PathVariable long verificationId,
-            AuthPrincipal principal) {
+    public ApiResult<VerificationResponse> approve(
+            @PathVariable long verificationId, AuthPrincipal principal) {
 
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Seller verified", VerificationResponse.from(
+        return ApiResult.success("Seller verified", VerificationResponse.from(
                 onboarding.approve(verificationId, principal.userId())));
     }
 
@@ -98,12 +97,12 @@ public class AdminVerificationController {
             @ApiResponse(responseCode = "404", description = "Verification submission not found")
     })
     @PostMapping("/{verificationId}/reject")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<VerificationResponse> reject(
-            @Parameter(description = "Verification ID", example = "1") @PathVariable long verificationId,
+    public ApiResult<VerificationResponse> reject(
+            @PathVariable long verificationId,
             @Valid @RequestBody RejectVerificationRequest request,
             AuthPrincipal principal) {
 
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Verification rejected", VerificationResponse.from(
+        return ApiResult.success("Verification rejected", VerificationResponse.from(
                 onboarding.reject(verificationId, principal.userId(), request.reason())));
     }
 }

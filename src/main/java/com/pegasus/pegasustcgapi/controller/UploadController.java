@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.PresignUploadRequest;
 import com.pegasus.pegasustcgapi.dto.PresignUploadResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
@@ -30,9 +30,9 @@ public class UploadController {
     }
 
     @PostMapping("/presign")
-    public ApiResponse<PresignUploadResponse> presign(
+    public ApiResult<PresignUploadResponse> presign(
             @Valid @RequestBody PresignUploadRequest request, AuthPrincipal principal) {
 
-        return ApiResponse.success("Upload authorised", uploads.presign(principal, request));
+        return ApiResult.success("Upload authorised", uploads.presign(principal, request));
     }
 }

@@ -9,10 +9,8 @@ import com.pegasus.pegasustcgapi.dto.UserResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.security.ClientInfo;
 import com.pegasus.pegasustcgapi.service.AuthService;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
+import com.pegasus.pegasustcgapi.common.ApiPaths;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -41,12 +39,12 @@ public class AuthController {
             @ApiResponse(responseCode = "409", description = "Username or email already in use")
     })
     @PostMapping("/register")
-    public ResponseEntity<com.pegasus.pegasustcgapi.common.ApiResponse<AuthResponse>> register(
+    public ResponseEntity<ApiResult<AuthResponse>> register(
             @Valid @RequestBody RegisterRequest request, HttpServletRequest http) {
 
         AuthResponse response = authService.register(request, ClientInfo.from(http));
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(com.pegasus.pegasustcgapi.common.ApiResponse.success("Account created", response));
+                .body(ApiResult.success("Account created", response));
     }
 
     @Operation(summary = "Sign in to account", description = "Authenticates using username/email and password, returning JWT access and refresh tokens.")
@@ -55,9 +53,9 @@ public class AuthController {
             @ApiResponse(responseCode = "400", description = "Invalid credentials or account suspended")
     })
     @PostMapping("/login")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<AuthResponse> login(
+    public ApiResult<AuthResponse> login(
             @Valid @RequestBody LoginRequest request, HttpServletRequest http) {
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Signed in", authService.login(request, ClientInfo.from(http)));
+        return ApiResult.success("Signed in", authService.login(request, ClientInfo.from(http)));
     }
 
     /** Exchanges a refresh token for a new pair. The old refresh token stops working. */
@@ -67,9 +65,9 @@ public class AuthController {
             @ApiResponse(responseCode = "400", description = "Expired, spent, or invalid refresh token")
     })
     @PostMapping("/refresh")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<AuthResponse> refresh(
+    public ApiResult<AuthResponse> refresh(
             @Valid @RequestBody RefreshRequest request, HttpServletRequest http) {
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success(
+        return ApiResult.success(
                 "Token refreshed", authService.refresh(request.refreshToken(), ClientInfo.from(http)));
     }
 
@@ -77,25 +75,25 @@ public class AuthController {
     @Operation(summary = "Sign out of current session", description = "Revokes the specified refresh token, ending the active session.")
     @ApiResponse(responseCode = "200", description = "Successfully signed out")
     @PostMapping("/logout")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<Void> logout(@Valid @RequestBody RefreshRequest request) {
+    public ApiResult<Void> logout(@Valid @RequestBody RefreshRequest request) {
         authService.logout(request.refreshToken());
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Signed out", null);
+        return ApiResult.success("Signed out", null);
     }
 
     /** Ends every session of the signed-in user, this one included. */
     @Operation(summary = "Sign out of all sessions", description = "Revokes all refresh tokens belonging to the authenticated user.")
     @ApiResponse(responseCode = "200", description = "Signed out of all sessions")
     @PostMapping("/logout-all")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<Void> logoutAll(AuthPrincipal principal) {
+    public ApiResult<Void> logoutAll(AuthPrincipal principal) {
         authService.logoutAll(principal.userId());
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Signed out of all sessions", null);
+        return ApiResult.success("Signed out of all sessions", null);
     }
 
     /** The signed-in account, read fresh from the database rather than from the token. */
     @Operation(summary = "Get current profile", description = "Returns profile information for the authenticated user, fetched live from the database.")
     @ApiResponse(responseCode = "200", description = "Profile retrieved")
     @GetMapping("/me")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<UserResponse> me(AuthPrincipal principal) {
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success(authService.currentUser(principal.userId()));
+    public ApiResult<UserResponse> me(AuthPrincipal principal) {
+        return ApiResult.success(authService.currentUser(principal.userId()));
     }
 }

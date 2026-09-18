@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
-import com.pegasus.pegasustcgapi.common.ApiResponse;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.dto.ProductDetailResponse;
@@ -61,7 +61,7 @@ public class CatalogProductController {
      *               filters need it to know what {@code attr.hp} means
      */
     @GetMapping("/products")
-    public ApiResponse<PageResponse<ProductSummaryResponse>> browse(
+    public ApiResult<PageResponse<ProductSummaryResponse>> browse(
             @RequestParam(required = false) Short gameId,
             @RequestParam(required = false) Integer categoryId,
             @RequestParam(required = false) Integer cardSetId,
@@ -72,7 +72,7 @@ public class CatalogProductController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam Map<String, String> allParameters) {
 
-        return ApiResponse.success(search.search(
+        return ApiResult.success(search.search(
                 gameId, categoryId, cardSetId, productType, q, allParameters, sort, true, page, size));
     }
 
@@ -85,34 +85,34 @@ public class CatalogProductController {
      * code to the variant everyone else's listings already point at [RQ-5].
      */
     @GetMapping("/variants/by-code/{code}")
-    public ApiResponse<VariantLookupResponse> variantByCode(@PathVariable String code) {
-        return ApiResponse.success(variants.lookupByCode(code));
+    public ApiResult<VariantLookupResponse> variantByCode(@PathVariable String code) {
+        return ApiResult.success(variants.lookupByCode(code));
     }
 
     /** The card page: the concept, its printings and its art in one read. */
     @GetMapping("/products/{idOrSlug}")
-    public ApiResponse<ProductDetailResponse> product(@PathVariable String idOrSlug) {
+    public ApiResult<ProductDetailResponse> product(@PathVariable String idOrSlug) {
         CatalogProduct product = products.requireActiveByIdOrSlug(idOrSlug);
 
-        return ApiResponse.success(new ProductDetailResponse(
+        return ApiResult.success(new ProductDetailResponse(
                 product,
                 variants.listOfProduct(product.id(), false),
                 images.listOfProduct(product.id(), false)));
     }
 
     @GetMapping("/products/{productId}/variants")
-    public ApiResponse<List<CatalogVariant>> variants(@PathVariable long productId) {
-        return ApiResponse.success(variants.listOfProduct(productId, false));
+    public ApiResult<List<CatalogVariant>> variants(@PathVariable long productId) {
+        return ApiResult.success(variants.listOfProduct(productId, false));
     }
 
     /** What a listing, a wishlist entry and a market statistic all point at [RQ-5]. */
     @GetMapping("/variants/{variantId}")
-    public ApiResponse<CatalogVariant> variant(@PathVariable long variantId) {
-        return ApiResponse.success(variants.requireActive(variantId));
+    public ApiResult<CatalogVariant> variant(@PathVariable long variantId) {
+        return ApiResult.success(variants.requireActive(variantId));
     }
 
     @GetMapping("/products/{productId}/images")
-    public ApiResponse<List<CatalogImageResponse>> images(@PathVariable long productId) {
-        return ApiResponse.success(images.listOfProduct(productId, false));
+    public ApiResult<List<CatalogImageResponse>> images(@PathVariable long productId) {
+        return ApiResult.success(images.listOfProduct(productId, false));
     }
 }

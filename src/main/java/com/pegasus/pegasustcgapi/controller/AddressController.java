@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.AddressRequest;
 import com.pegasus.pegasustcgapi.model.Address;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
@@ -41,8 +42,8 @@ public class AddressController {
     @Operation(summary = "List saved addresses", description = "Retrieves all saved delivery addresses for the authenticated user.")
     @ApiResponse(responseCode = "200", description = "Addresses listed")
     @GetMapping
-    public com.pegasus.pegasustcgapi.common.ApiResponse<List<Address>> list(AuthPrincipal principal) {
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success(addresses.list(principal.userId()));
+    public ApiResult<List<Address>> list(AuthPrincipal principal) {
+        return ApiResult.success(addresses.list(principal.userId()));
     }
 
     @Operation(summary = "Get address by ID", description = "Retrieves a specific delivery address by ID.")
@@ -51,10 +52,8 @@ public class AddressController {
             @ApiResponse(responseCode = "404", description = "Address not found")
     })
     @GetMapping("/{addressId}")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<Address> get(
-            @Parameter(description = "Address ID", example = "1") @PathVariable long addressId,
-            AuthPrincipal principal) {
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success(addresses.get(principal.userId(), addressId));
+    public ApiResult<Address> get(@PathVariable long addressId, AuthPrincipal principal) {
+        return ApiResult.success(addresses.get(principal.userId(), addressId));
     }
 
     @Operation(summary = "Create new address", description = "Adds a new delivery address to the user's address book.")
@@ -63,12 +62,12 @@ public class AddressController {
             @ApiResponse(responseCode = "400", description = "Validation failed")
     })
     @PostMapping
-    public ResponseEntity<com.pegasus.pegasustcgapi.common.ApiResponse<Address>> create(
+    public ResponseEntity<ApiResult<Address>> create(
             @Valid @RequestBody AddressRequest request, AuthPrincipal principal) {
 
         Address created = addresses.create(principal.userId(), request.toFields());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(com.pegasus.pegasustcgapi.common.ApiResponse.success("Address added", created));
+                .body(ApiResult.success("Address added", created));
     }
 
     @Operation(summary = "Update address", description = "Updates an existing delivery address in the user's address book.")
@@ -78,12 +77,12 @@ public class AddressController {
             @ApiResponse(responseCode = "404", description = "Address not found")
     })
     @PutMapping("/{addressId}")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<Address> update(
-            @Parameter(description = "Address ID", example = "1") @PathVariable long addressId,
+    public ApiResult<Address> update(
+            @PathVariable long addressId,
             @Valid @RequestBody AddressRequest request,
             AuthPrincipal principal) {
 
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success(
+        return ApiResult.success(
                 "Address updated", addresses.update(principal.userId(), addressId, request.toFields()));
     }
 
@@ -94,10 +93,8 @@ public class AddressController {
             @ApiResponse(responseCode = "404", description = "Address not found")
     })
     @DeleteMapping("/{addressId}")
-    public com.pegasus.pegasustcgapi.common.ApiResponse<Void> delete(
-            @Parameter(description = "Address ID", example = "1") @PathVariable long addressId,
-            AuthPrincipal principal) {
+    public ApiResult<Void> delete(@PathVariable long addressId, AuthPrincipal principal) {
         addresses.delete(principal.userId(), addressId);
-        return com.pegasus.pegasustcgapi.common.ApiResponse.success("Address removed", null);
+        return ApiResult.success("Address removed", null);
     }
 }

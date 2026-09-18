@@ -9,6 +9,7 @@ import com.pegasus.pegasustcgapi.model.SellerProfile;
 import com.pegasus.pegasustcgapi.model.SellerStatus;
 import com.pegasus.pegasustcgapi.model.SellerVerification;
 import com.pegasus.pegasustcgapi.model.VerificationStatus;
+import com.pegasus.pegasustcgapi.port.SellerPort;
 import com.pegasus.pegasustcgapi.repository.PayoutAccountRepository;
 import com.pegasus.pegasustcgapi.repository.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.repository.SellerVerificationRepository;
@@ -34,7 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
  * actually turns on.
  */
 @Service
-public class SellerOnboardingService {
+public class SellerOnboardingService implements SellerPort {
 
     private final SellerProfileRepository profiles;
     private final SellerVerificationRepository verifications;
