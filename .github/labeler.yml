@@ -1,0 +1,64 @@
+# Label PRs by API area based on changed file paths.
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - "docs/**"
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "build.gradle"
+          - "settings.gradle"
+          - "gradle/**"
+          - "gradlew"
+          - "gradlew.bat"
+
+config:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/main/resources/application*"
+          - ".gitignore"
+
+docker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docker/**"
+          - "Dockerfile*"
+          - "docker-compose*"
+
+database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/main/resources/db/**"
+
+controllers:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/main/java/**/controller/**"
+
+services:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/main/java/**/service/**"
+
+repositories:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/main/java/**/repository/**"
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/main/java/**/security/**"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/test/**"

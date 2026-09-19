@@ -414,3 +414,49 @@ make db-clean     # wipe the schema
 make db-migrate   # reapply all migrations
 make seed-catalog # load sample catalogue data
 ```
+
+
+## CI and security checks
+
+GitHub Actions runs on pull requests targeting `main` or `develop` and pushes to
+those branches. Both workflows can also be started from the Actions tab.
+
+- **CI / Test / Build** installs Java 25 and runs `./gradlew build --no-daemon`,
+  including automated tests and packaging. PostgreSQL 17 and MinIO start through
+  Docker Compose with disposable CI credentials; a JWT key is generated per run.
+  Flyway migrations and jOOQ generation run through the existing Gradle task
+  dependencies. Any service startup, build, or test failure fails the job.
+  HTML and JUnit test reports are retained as the `test-reports` artifact for 14 days,
+  including when tests fail.
+- **CI / Secret Leak Scan** uses [Gitleaks](https://github.com/gitleaks/gitleaks)
+  v8.30.1 to scan all fetched Git history, including commits in pull requests.
+  Findings fail the job (exit code 1). The Actions log shows redacted findings
+  with file/line/commit information; `secret-scan-report` contains the redacted JSON
+  report for 7 days. No Gitleaks license or production secrets are required.
+  Historical findings also fail the check: revoke/rotate real exposed credentials
+  and remediate the affected history. Do not suppress real leaks to make CI pass.
+- **CodeQL / Analyze (java-kotlin)** builds Java with PostgreSQL available for
+  generated jOOQ sources, then runs `security-and-quality` analysis. It also runs
+  every Monday at 03:00 UTC. Findings appear in GitHub **Security → Code scanning**
+  and applicable pull requests. Findings are reported; they do not automatically
+  fail the build job.
+
+Repository setup: enable GitHub Actions and CodeQL code scanning (private
+organization repositories require GitHub Code Security). Use this advanced
+CodeQL workflow instead of a duplicate default setup. Configure branch protection
+or rulesets to require **Test / Build**, **Secret Leak Scan**, and
+**Analyze (java-kotlin)** before merging. The workflows use the automatic
+`GITHUB_TOKEN`; no production credentials need to be configured.
+
+To reproduce the checks locally, use Java 25 and Docker, configure `.env` as
+above, then run:
+
+```bash
+docker compose up -d --wait postgres minio
+./gradlew build --no-daemon
+gitleaks git . --log-opts="--all" --redact --verbose --exit-code=1
+```
+
+Workflow files are in `.github/workflows/ci.yml` and
+`.github/workflows/codeql.yml`. This pipeline validates and scans the backend;
+application deployment is not configured.
