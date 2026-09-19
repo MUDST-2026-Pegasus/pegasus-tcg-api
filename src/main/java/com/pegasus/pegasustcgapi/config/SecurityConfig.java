@@ -108,6 +108,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
                         .requestMatchers(SWAGGER_WHITELIST).permitAll()
+                        .requestMatchers(ApiPaths.CART, ApiPaths.CART + "/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .authenticationEntryPoint(securityErrorHandler)
@@ -176,7 +177,12 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(properties.allowedOrigins());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+        config.setAllowedHeaders(List.of(
+                "Authorization",
+                "Content-Type",
+                "Accept",
+                "Idempotency-Key",
+                "X-Cart-Session"));
         // Tokens travel in the Authorization header, never in a cookie.
         config.setAllowCredentials(false);
         config.setMaxAge(3600L);
