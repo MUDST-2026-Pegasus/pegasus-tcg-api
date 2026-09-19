@@ -478,3 +478,29 @@ gitleaks git . --log-opts="--all" --redact --verbose --exit-code=1
 Workflow files are in `.github/workflows/ci.yml` and
 `.github/workflows/codeql.yml`. This pipeline validates and scans the backend;
 application deployment is not configured.
+
+### Backend image on GHCR
+
+On pushes to `main`, **Publish API image** waits for build/tests, secret scanning,
+and the CodeQL analysis job to succeed. CI calls the reusable CodeQL workflow;
+its separate manual and weekly runs remain available. CodeQL findings are
+reported in Security, not treated as an automatic severity-based publish gate.
+PRs, `develop`, and manual runs do not publish images.
+
+The image is `ghcr.io/mudst-2026-pegasus/pegasus-tcg-api`, tagged with
+`sha-<full-commit-sha>` and `latest`. Prefer the SHA tag or image digest for
+deployment and rollback. The image targets Linux amd64.
+
+`Dockerfile.ci` packages the JAR built and tested in the same CI run using a
+Java 25 runtime and a non-root user. Only that JAR and Dockerfile enter the image
+build context. Database, JWT and MinIO credentials are supplied at runtime.
+The existing Dockerfile still supports local builds through Docker Compose.
+
+Publishing uses the automatic `GITHUB_TOKEN` with job-scoped `packages: write`;
+no registry password secret is required. The organization must allow Actions
+to create packages. If this package already exists, grant this repository write
+access under the package settings → Manage Actions access. New GHCR packages
+are private by default; review package visibility and access after first publish.
+See [GitHub Container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+
+This publishes the backend image only; it does not deploy it to a server.
