@@ -22,11 +22,11 @@ jobs:
     env:
       DB_URL: jdbc:postgresql://localhost:5432/pegasus_tcg
       DB_USERNAME: postgres
-      DB_PASSWORD: postgres
-      POSTGRES_PASSWORD: postgres
-      # Disposable credentials for this runner's services only.
-      MINIO_ACCESS_KEY: ci-minio
-      MINIO_SECRET_KEY: ci-minio-password
+      DB_PASSWORD: ${{ secrets.CI_DB_PASSWORD }}
+      POSTGRES_PASSWORD: ${{ secrets.CI_DB_PASSWORD }}
+      # Dedicated CI credentials; never use production credentials.
+      MINIO_ACCESS_KEY: ${{ secrets.CI_MINIO_ACCESS_KEY }}
+      MINIO_SECRET_KEY: ${{ secrets.CI_MINIO_SECRET_KEY }}
 
     steps:
       - name: Checkout
@@ -43,7 +43,11 @@ jobs:
         run: echo "JWT_SECRET=$(openssl rand -base64 48)" >> "$GITHUB_ENV"
 
       - name: Start test services
-        run: docker compose up -d --wait postgres minio
+        run: |
+          : "${DB_PASSWORD:?Set the CI_DB_PASSWORD repository secret}"
+          : "${MINIO_ACCESS_KEY:?Set the CI_MINIO_ACCESS_KEY repository secret}"
+          : "${MINIO_SECRET_KEY:?Set the CI_MINIO_SECRET_KEY repository secret}"
+          docker compose up -d --wait postgres minio
 
       - name: Test and build
         run: ./gradlew build --no-daemon

@@ -22,7 +22,7 @@ jobs:
     env:
       DB_URL: jdbc:postgresql://localhost:5432/pegasus_tcg
       DB_USERNAME: postgres
-      DB_PASSWORD: postgres
+      DB_PASSWORD: ${{ secrets.CI_DB_PASSWORD }}
 
     services:
       postgres:
@@ -30,7 +30,7 @@ jobs:
         env:
           POSTGRES_DB: pegasus_tcg
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ${{ secrets.CI_DB_PASSWORD }}
         ports:
           - 5432:5432
         options: >-

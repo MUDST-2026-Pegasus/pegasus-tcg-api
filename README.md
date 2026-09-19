@@ -423,7 +423,7 @@ those branches. Both workflows can also be started from the Actions tab.
 
 - **CI / Test / Build** installs Java 25 and runs `./gradlew build --no-daemon`,
   including automated tests and packaging. PostgreSQL 17 and MinIO start through
-  Docker Compose with disposable CI credentials; a JWT key is generated per run.
+  Docker Compose with dedicated credentials from repository secrets; a JWT key is generated per run.
   Flyway migrations and jOOQ generation run through the existing Gradle task
   dependencies. Any service startup, build, or test failure fails the job.
   HTML and JUnit test reports are retained as the `test-reports` artifact for 14 days,
@@ -446,7 +446,25 @@ organization repositories require GitHub Code Security). Use this advanced
 CodeQL workflow instead of a duplicate default setup. Configure branch protection
 or rulesets to require **Test / Build**, **Secret Leak Scan**, and
 **Analyze (java-kotlin)** before merging. The workflows use the automatic
-`GITHUB_TOKEN`; no production credentials need to be configured.
+`GITHUB_TOKEN` for GitHub operations.
+
+Before running CI, add these **repository secrets** under **Settings → Secrets and
+variables → Actions → New repository secret**:
+
+| Secret | Used by |
+| --- | --- |
+| `CI_DB_PASSWORD` | PostgreSQL, Gradle and application tests in CI; PostgreSQL and Gradle in CodeQL |
+| `CI_MINIO_ACCESS_KEY` | MinIO and application tests (at least 3 characters) |
+| `CI_MINIO_SECRET_KEY` | MinIO and application tests (at least 8 characters) |
+
+Generate separate random values for CI; do not reuse production credentials.
+`DB_URL` and the `postgres` username remain public configuration for the isolated
+runner database. JWT keys remain generated per run. Missing secrets cause these
+jobs to fail; there are no hardcoded password fallbacks in the workflows.
+GitHub does not pass repository secrets to fork pull requests or Dependabot pull
+requests, so build/test and CodeQL cannot complete on those events with this
+configuration. Secret Leak Scan does not need these secrets and still runs.
+Do not switch to `pull_request_target` to expose secrets to untrusted PR code.
 
 To reproduce the checks locally, use Java 25 and Docker, configure `.env` as
 above, then run:
