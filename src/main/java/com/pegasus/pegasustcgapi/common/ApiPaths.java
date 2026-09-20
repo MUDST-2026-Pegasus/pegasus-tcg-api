@@ -22,6 +22,15 @@ public final class ApiPaths {
     public static final String PROFILES = API_V1 + "/u";
     /** Presigned upload tickets; the files themselves never pass through this API. */
     public static final String UPLOADS = API_V1 + "/uploads";
+    /** The active cart for guest or signed-in users. */
+    public static final String CART = API_V1 + "/cart";
+    public static final String CART_ITEMS = CART + "/items";
+    /** Checkout process to convert cart into sales and seller orders. */
+    public static final String CHECKOUT = API_V1 + "/checkout";
+    /** The signed-in buyer's orders. */
+    public static final String ORDERS = API_V1 + "/orders";
+    /** The signed-in seller's own orders. */
+    public static final String SELLERS_ME_ORDERS = SELLERS_ME + "/orders";
 
     private ApiPaths() {
     }

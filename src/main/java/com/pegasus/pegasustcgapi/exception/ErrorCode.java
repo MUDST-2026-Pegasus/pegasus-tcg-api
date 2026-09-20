@@ -40,6 +40,8 @@ public enum ErrorCode {
     COLLECTION_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "Collection card not found"),
     LISTING_NOT_FOUND(HttpStatus.NOT_FOUND, "Listing not found"),
     LISTING_UNIT_NOT_FOUND(HttpStatus.NOT_FOUND, "Card not found in this seller's stock"),
+    CART_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "Cart item not found"),
+    ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "Order not found"),
 
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email address is already registered"),
     USERNAME_ALREADY_USED(HttpStatus.CONFLICT, "Username is already taken"),
@@ -64,9 +66,17 @@ public enum ErrorCode {
     LISTING_UNIT_MISMATCH(HttpStatus.CONFLICT, "This card is a different printing, condition or seller than the listing"),
     LISTING_UNIT_STATE(HttpStatus.CONFLICT, "The card is not in a state that allows this"),
     INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "Not enough cards left on this listing"),
+    CART_EMPTY(HttpStatus.CONFLICT, "Cart is empty"),
+    LISTING_NOT_PURCHASABLE(HttpStatus.CONFLICT, "Listing is not available for purchase"),
+    CART_PRICE_CHANGED(HttpStatus.CONFLICT, "One or more item prices have changed"),
+    CANNOT_BUY_OWN_LISTING(HttpStatus.CONFLICT, "Cannot purchase your own listing"),
+    ORDER_STATUS_TRANSITION(HttpStatus.CONFLICT, "This order cannot move to that status"),
+    CANCEL_WINDOW_CLOSED(HttpStatus.CONFLICT, "Order cancellation window has closed"),
+    IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "Request with this idempotency key is already in progress or completed"),
 
     INVALID_ATTRIBUTE_DEFINITION(HttpStatus.BAD_REQUEST, "Attribute definition is not usable"),
     INVALID_PRODUCT_ATTRIBUTES(HttpStatus.BAD_REQUEST, "Product attributes do not match this game"),
+    IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "Idempotency-Key header is required"),
 
     UNSUPPORTED_FILE_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "File type is not allowed for this upload"),
     FILE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "File is larger than this upload allows"),
