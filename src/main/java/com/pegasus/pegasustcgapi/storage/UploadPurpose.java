@@ -28,7 +28,9 @@ public enum UploadPurpose {
     /** Proof of postage filed by the seller. */
     SHIPMENT_PROOF("shipments", RoleCode.SELLER, Allowed.IMAGES, 5 * Allowed.MB),
     /** An owner's own photo of a card they keep; any account can have a collection. */
-    COLLECTION_IMAGE("collections", null, Allowed.IMAGES, 5 * Allowed.MB);
+    COLLECTION_IMAGE("collections", null, Allowed.IMAGES, 5 * Allowed.MB),
+    /** Seller's bank book image for verification. */
+    SELLER_VERIFICATION("verifications", null, Allowed.IMAGES, 5 * Allowed.MB);
 
     /** Enum constants are built before the enum's own statics, so these live here. */
     private static final class Allowed {

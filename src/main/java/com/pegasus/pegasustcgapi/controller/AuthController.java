@@ -10,6 +10,11 @@ import com.pegasus.pegasustcgapi.security.ClientInfo;
 import com.pegasus.pegasustcgapi.service.AuthService;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -20,7 +25,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-
+@Tag(name = "Authentication", description = "User registration, login, token refresh, and session management")
 @RestController
 @RequestMapping(ApiPaths.AUTH)
 public class AuthController {
@@ -31,6 +36,12 @@ public class AuthController {
         this.authService = authService;
     }
 
+    @Operation(summary = "Register new account", description = "Creates a new buyer or seller user account and returns the initial access and refresh tokens.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Account successfully created"),
+            @ApiResponse(responseCode = "400", description = "Invalid request payload or validation failed"),
+            @ApiResponse(responseCode = "409", description = "Username or email already in use")
+    })
     @PostMapping("/register")
     public ResponseEntity<ApiResult<AuthResponse>> register(
             @Valid @RequestBody RegisterRequest request, HttpServletRequest http) {
@@ -40,6 +51,13 @@ public class AuthController {
                 .body(ApiResult.success("Account created", response));
     }
 
+    @Operation(summary = "Sign in to account", description = "Authenticates using email and password, returning JWT access and refresh tokens.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Successfully signed in"),
+            @ApiResponse(responseCode = "400", description = "Request payload failed validation"),
+            @ApiResponse(responseCode = "401", description = "Invalid email or password"),
+            @ApiResponse(responseCode = "403", description = "Account is locked, suspended, or deactivated")
+    })
     @PostMapping("/login")
     public ApiResult<AuthResponse> login(
             @Valid @RequestBody LoginRequest request, HttpServletRequest http) {
@@ -47,6 +65,12 @@ public class AuthController {
     }
 
     /** Exchanges a refresh token for a new pair. The old refresh token stops working. */
+    @Operation(summary = "Refresh access token", description = "Exchanges a valid refresh token for a new token pair. The old refresh token is revoked.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Token pair refreshed"),
+            @ApiResponse(responseCode = "400", description = "Request payload failed validation"),
+            @ApiResponse(responseCode = "401", description = "Refresh token is invalid, expired, or already used")
+    })
     @PostMapping("/refresh")
     public ApiResult<AuthResponse> refresh(
             @Valid @RequestBody RefreshRequest request, HttpServletRequest http) {
@@ -55,6 +79,8 @@ public class AuthController {
     }
 
     /** Ends this session. Succeeds even for a token that was already dead. */
+    @Operation(summary = "Sign out of current session", description = "Revokes the specified refresh token, ending the active session.")
+    @ApiResponse(responseCode = "200", description = "Successfully signed out")
     @PostMapping("/logout")
     public ApiResult<Void> logout(@Valid @RequestBody RefreshRequest request) {
         authService.logout(request.refreshToken());
@@ -62,6 +88,12 @@ public class AuthController {
     }
 
     /** Ends every session of the signed-in user, this one included. */
+    @Operation(summary = "Sign out of all sessions", description = "Revokes all refresh tokens belonging to the authenticated user.",
+            security = @SecurityRequirement(name = "BearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Signed out of all sessions"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
     @PostMapping("/logout-all")
     public ApiResult<Void> logoutAll(AuthPrincipal principal) {
         authService.logoutAll(principal.userId());
@@ -69,6 +101,12 @@ public class AuthController {
     }
 
     /** The signed-in account, read fresh from the database rather than from the token. */
+    @Operation(summary = "Get current profile", description = "Returns profile information for the authenticated user, fetched live from the database.",
+            security = @SecurityRequirement(name = "BearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Profile retrieved"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
     @GetMapping("/me")
     public ApiResult<UserResponse> me(AuthPrincipal principal) {
         return ApiResult.success(authService.currentUser(principal.userId()));

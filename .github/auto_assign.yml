@@ -1,0 +1,17 @@
+addAssignees: author
+
+addReviewers: true
+
+reviewers:
+  - ice1425
+  - boatngin
+  - Gameinwza
+  # - teammate3
+
+# Number of reviewers to assign (0 = all)
+numberOfReviewers: 1
+
+# Skip auto-assign when PR title contains any of these keywords
+skipKeywords:
+  - wip
+  - draft
