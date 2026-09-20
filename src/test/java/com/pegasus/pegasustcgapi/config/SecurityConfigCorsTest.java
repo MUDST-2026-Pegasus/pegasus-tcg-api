@@ -30,5 +30,6 @@ class SecurityConfigCorsTest {
                 "Accept",
                 "Idempotency-Key",
                 "X-Cart-Session");
+        assertThat(corsConfig.getExposedHeaders()).contains("X-Cart-Session");
     }
 }

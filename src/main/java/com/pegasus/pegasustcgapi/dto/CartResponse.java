@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.dto;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -13,5 +14,17 @@ public record CartResponse(
         String currency,
         List<CartItemResponse> items,
         int totalQuantity,
-        BigDecimal itemsSubtotal) {
+        BigDecimal itemsSubtotal,
+        OffsetDateTime expiresAt) {
+
+    public CartResponse(
+            long id,
+            Long userId,
+            String sessionKey,
+            String currency,
+            List<CartItemResponse> items,
+            int totalQuantity,
+            BigDecimal itemsSubtotal) {
+        this(id, userId, sessionKey, currency, items, totalQuantity, itemsSubtotal, null);
+    }
 }

@@ -8,10 +8,13 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.CartRecord;
 import com.pegasus.pegasustcgapi.model.Cart;
 import com.pegasus.pegasustcgapi.model.CartItem;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -21,9 +24,16 @@ import org.springframework.stereotype.Repository;
 public class CartRepository {
 
     private final DSLContext dsl;
+    private final Clock clock;
+
+    @Autowired
+    public CartRepository(DSLContext dsl, Clock clock) {
+        this.dsl = dsl;
+        this.clock = clock;
+    }
 
     public CartRepository(DSLContext dsl) {
-        this.dsl = dsl;
+        this(dsl, Clock.systemUTC());
     }
 
     public Optional<Cart> findById(long id) {
@@ -59,11 +69,33 @@ public class CartRepository {
     }
 
     public Cart createForSession(String sessionKey) {
-        CartRecord record = dsl.insertInto(CART)
+        OffsetDateTime expiresAt = OffsetDateTime.now(clock).plusDays(1);
+        Optional<Cart> existing = findBySessionKey(sessionKey);
+        if (existing.isPresent()) {
+            touchGuestCartExpiry(existing.get().id(), expiresAt);
+            return findById(existing.get().id()).orElse(existing.get());
+        }
+        dsl.insertInto(CART)
                 .set(CART.SESSION_KEY, sessionKey)
-                .returning()
-                .fetchSingle();
-        return toCart(record);
+                .set(CART.EXPIRES_AT, expiresAt)
+                .onConflict(CART.SESSION_KEY)
+                .doUpdate()
+                .set(CART.EXPIRES_AT, expiresAt)
+                .set(CART.UPDATED_AT, DSL.currentOffsetDateTime())
+                .execute();
+        return findBySessionKey(sessionKey).orElseThrow();
+    }
+
+    public void touchGuestCartExpiry(long cartId) {
+        touchGuestCartExpiry(cartId, OffsetDateTime.now(clock).plusDays(1));
+    }
+
+    public void touchGuestCartExpiry(long cartId, OffsetDateTime expiresAt) {
+        dsl.update(CART)
+                .set(CART.EXPIRES_AT, DSL.when(CART.USER_ID.isNull(), expiresAt).otherwise(CART.EXPIRES_AT))
+                .set(CART.UPDATED_AT, DSL.currentOffsetDateTime())
+                .where(CART.ID.eq(cartId))
+                .execute();
     }
 
     public List<CartItem> findItemsByCartId(long cartId) {
@@ -81,6 +113,14 @@ public class CartRepository {
                 .map(CartRepository::toCartItem);
     }
 
+    public Optional<CartItem> findItemByCartIdAndListingId(long cartId, long listingId) {
+        return dsl.selectFrom(CART_ITEM)
+                .where(CART_ITEM.CART_ID.eq(cartId))
+                .and(CART_ITEM.LISTING_ID.eq(listingId))
+                .fetchOptional()
+                .map(CartRepository::toCartItem);
+    }
+
     public CartItem upsertItem(long cartId, long listingId, int quantity, BigDecimal unitPriceAtAdd) {
         CartItemRecord record = dsl.insertInto(CART_ITEM)
                 .set(CART_ITEM.CART_ID, cartId)
@@ -94,14 +134,39 @@ public class CartRepository {
                 .set(CART_ITEM.UPDATED_AT, DSL.currentOffsetDateTime())
                 .returning()
                 .fetchSingle();
+
+        touchGuestCartExpiry(cartId);
+
+        return toCartItem(record);
+    }
+
+    public CartItem updateItemQuantity(long itemId, long cartId, int quantity) {
+        CartItemRecord record = dsl.update(CART_ITEM)
+                .set(CART_ITEM.QUANTITY, quantity)
+                .set(CART_ITEM.UPDATED_AT, DSL.currentOffsetDateTime())
+                .where(CART_ITEM.ID.eq(itemId))
+                .and(CART_ITEM.CART_ID.eq(cartId))
+                .returning()
+                .fetchOne();
+
+        if (record == null) {
+            return null;
+        }
+
+        touchGuestCartExpiry(cartId);
+
         return toCartItem(record);
     }
 
     public boolean deleteItem(long itemId, long cartId) {
-        return dsl.deleteFrom(CART_ITEM)
+        boolean deleted = dsl.deleteFrom(CART_ITEM)
                 .where(CART_ITEM.ID.eq(itemId))
                 .and(CART_ITEM.CART_ID.eq(cartId))
                 .execute() > 0;
+        if (deleted) {
+            touchGuestCartExpiry(cartId);
+        }
+        return deleted;
     }
 
     public void mergeGuestCartIntoUserCart(long guestCartId, long userCartId) {

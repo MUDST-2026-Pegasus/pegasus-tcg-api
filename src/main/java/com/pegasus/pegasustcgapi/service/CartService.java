@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.service;
 import com.pegasus.pegasustcgapi.dto.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.CartItemResponse;
 import com.pegasus.pegasustcgapi.dto.CartResponse;
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -82,8 +83,17 @@ public class CartService {
             }
         }
 
-        int quantity = request.resolvedQuantity();
-        CartItem item = cartRepository.upsertItem(cart.id(), request.listingId(), quantity, offer.price());
+        int requestedQuantity = request.resolvedQuantity();
+        Optional<CartItem> existingItem = cartRepository.findItemByCartIdAndListingId(cart.id(), request.listingId());
+        int cumulativeQuantity = existingItem.map(item -> item.quantity() + requestedQuantity).orElse(requestedQuantity);
+
+        if (cumulativeQuantity > offer.quantityAvailable()) {
+            throw new ConflictException(
+                    ErrorCode.INSUFFICIENT_STOCK,
+                    "Requested quantity (" + cumulativeQuantity + ") exceeds available stock (" + offer.quantityAvailable() + ")");
+        }
+
+        CartItem item = cartRepository.upsertItem(cart.id(), request.listingId(), cumulativeQuantity, offer.price());
 
         CartItemResponse response = new CartItemResponse(
                 item.id(),
@@ -160,7 +170,79 @@ public class CartService {
                 cart.currency(),
                 items,
                 totalQuantity,
-                subtotal);
+                subtotal,
+                cart.expiresAt());
+    }
+
+    /**
+     * Updates the quantity of an item in the caller's cart.
+     * Throws CART_ITEM_NOT_FOUND if the item does not belong to the current cart.
+     * Throws INSUFFICIENT_STOCK if the quantity exceeds available stock.
+     */
+    @Transactional
+    public CartItemResponse updateItemQuantity(
+            AuthPrincipal principal, String sessionKey, long itemId, int quantity) {
+        if (quantity < 1) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Quantity must be at least 1");
+        }
+
+        Cart cart;
+        if (principal != null) {
+            cart = resolveCartForUser(principal.userId(), sessionKey);
+        } else {
+            if (sessionKey == null || sessionKey.isBlank()) {
+                throw new NotFoundException(ErrorCode.CART_ITEM_NOT_FOUND);
+            }
+            cart = cartRepository.findBySessionKey(sessionKey)
+                    .orElseThrow(() -> new NotFoundException(ErrorCode.CART_ITEM_NOT_FOUND));
+        }
+
+        CartItem existingItem = cartRepository.findItemByIdAndCartId(itemId, cart.id())
+                .orElseThrow(() -> new NotFoundException(ErrorCode.CART_ITEM_NOT_FOUND));
+
+        ListingOffer offer = pricingPort.offer(existingItem.listingId())
+                .orElseThrow(() -> new ConflictException(ErrorCode.LISTING_NOT_PURCHASABLE));
+
+        if (!offer.purchasable()) {
+            throw new ConflictException(ErrorCode.LISTING_NOT_PURCHASABLE);
+        }
+
+        if (principal != null) {
+            Optional<SellerProfile> sellerProfile = sellerProfileRepository.findByUserId(principal.userId());
+            if (sellerProfile.isPresent() && sellerProfile.get().id() == offer.sellerProfileId()) {
+                throw new ConflictException(ErrorCode.CANNOT_BUY_OWN_LISTING);
+            }
+        }
+
+        if (quantity > offer.quantityAvailable()) {
+            throw new ConflictException(
+                    ErrorCode.INSUFFICIENT_STOCK,
+                    "Requested quantity (" + quantity + ") exceeds available stock (" + offer.quantityAvailable() + ")");
+        }
+
+        CartItem updated = cartRepository.updateItemQuantity(itemId, cart.id(), quantity);
+        if (updated == null) {
+            throw new NotFoundException(ErrorCode.CART_ITEM_NOT_FOUND);
+        }
+
+        boolean priceChanged = updated.unitPriceAtAdd().compareTo(offer.price()) != 0;
+
+        return new CartItemResponse(
+                updated.id(),
+                updated.cartId(),
+                updated.listingId(),
+                updated.quantity(),
+                updated.unitPriceAtAdd(),
+                offer.price(),
+                priceChanged,
+                offer.purchasable(),
+                offer.quantityAvailable(),
+                offer.sellerProfileId(),
+                offer.catalogVariantId(),
+                offer.condition(),
+                offer.currency(),
+                updated.addedAt(),
+                updated.updatedAt());
     }
 
     /**

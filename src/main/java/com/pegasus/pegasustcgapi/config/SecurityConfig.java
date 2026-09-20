@@ -57,6 +57,8 @@ public class SecurityConfig {
         ApiPaths.AUTH + "/logout",
         ApiPaths.AUTH + "/password/forgot",
         ApiPaths.AUTH + "/password/reset",
+        ApiPaths.CART + "/**",
+        "/api/v1/cart/**",
     };
 
     /**
@@ -108,7 +110,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
                         .requestMatchers(SWAGGER_WHITELIST).permitAll()
-                        .requestMatchers(ApiPaths.CART, ApiPaths.CART + "/**").permitAll()
+                        .requestMatchers(ApiPaths.CART, ApiPaths.CART + "/**", "/api/v1/cart", "/api/v1/cart/**").permitAll()
+                        .requestMatchers("/cart", "/cart/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .authenticationEntryPoint(securityErrorHandler)
@@ -153,6 +156,8 @@ public class SecurityConfig {
                 .macAlgorithm(MacAlgorithm.HS256)
                 .build();
 
+        // Expired tokens and clock skew are rejected here; anything semantic about
+        // who holds the token happens after it decodes.
         OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
                 new JwtTimestampValidator(),
                 new JwtIssuerValidator(properties.jwtIssuer()));
@@ -183,6 +188,9 @@ public class SecurityConfig {
                 "Accept",
                 "Idempotency-Key",
                 "X-Cart-Session"));
+        config.setExposedHeaders(List.of(
+                "X-Cart-Session",
+                "Idempotency-Key"));
         // Tokens travel in the Authorization header, never in a cookie.
         config.setAllowCredentials(false);
         config.setMaxAge(3600L);

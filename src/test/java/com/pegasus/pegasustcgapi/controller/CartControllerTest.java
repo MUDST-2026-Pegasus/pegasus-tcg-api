@@ -1,12 +1,16 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -14,6 +18,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.dto.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.CartItemResponse;
+import com.pegasus.pegasustcgapi.dto.CartResponse;
+import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.GlobalExceptionHandler;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -104,6 +110,23 @@ class CartControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/v1/cart returns cart summary including expiresAt for guest")
+    void getCartReturnsSummaryWithExpiresAt() throws Exception {
+        OffsetDateTime expiresAt = OffsetDateTime.parse("2026-09-21T10:00:00Z");
+        CartResponse response = new CartResponse(
+                1L, null, "guest-session", "THB", List.of(), 0, BigDecimal.ZERO, expiresAt);
+        given(cartService.getCart(any(), eq("guest-session"))).willReturn(response);
+
+        mockMvc.perform(get(ApiPaths.CART)
+                        .header("X-Cart-Session", "guest-session"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Cart-Session", "guest-session"))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.sessionKey").value("guest-session"))
+                .andExpect(jsonPath("$.data.expiresAt").value("2026-09-21T10:00:00Z"));
+    }
+
+    @Test
     @DisplayName("DELETE /api/v1/cart/items/{itemId} successfully deletes item")
     void deleteCartItemSucceeds() throws Exception {
         mockMvc.perform(delete(ApiPaths.CART_ITEMS + "/100")
@@ -123,5 +146,100 @@ class CartControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data.code").value(ErrorCode.CART_ITEM_NOT_FOUND.name()));
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/cart/items/{itemId} successfully updates item quantity")
+    void updateCartItemQuantitySucceeds() throws Exception {
+        CartItemResponse item = mockItemResponse(100L, 5L, 4, new BigDecimal("120.00"), false);
+        given(cartService.updateItemQuantity(any(), eq("guest-session"), eq(100L), eq(4)))
+                .willReturn(item);
+
+        mockMvc.perform(put(ApiPaths.CART_ITEMS + "/100")
+                        .header("X-Cart-Session", "guest-session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "quantity": 4
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Cart-Session", "guest-session"))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(100))
+                .andExpect(jsonPath("$.data.quantity").value(4));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/cart/items/{itemId} successfully updates item quantity")
+    void patchCartItemQuantitySucceeds() throws Exception {
+        CartItemResponse item = mockItemResponse(100L, 5L, 3, new BigDecimal("120.00"), false);
+        given(cartService.updateItemQuantity(any(), eq("guest-session"), eq(100L), eq(3)))
+                .willReturn(item);
+
+        mockMvc.perform(patch(ApiPaths.CART_ITEMS + "/100")
+                        .header("X-Cart-Session", "guest-session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "quantity": 3
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Cart-Session", "guest-session"))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(100))
+                .andExpect(jsonPath("$.data.quantity").value(3));
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/cart/items/{itemId} with quantity 0 returns 400 Bad Request")
+    void updateCartItemQuantityZeroReturns400() throws Exception {
+        mockMvc.perform(put(ApiPaths.CART_ITEMS + "/100")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "quantity": 0
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value(ErrorCode.VALIDATION_FAILED.name()));
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/cart/items/{itemId} returns 404 when item not found")
+    void updateNonExistentCartItemReturns404() throws Exception {
+        given(cartService.updateItemQuantity(any(), any(), eq(999L), anyInt()))
+                .willThrow(new NotFoundException(ErrorCode.CART_ITEM_NOT_FOUND));
+
+        mockMvc.perform(put(ApiPaths.CART_ITEMS + "/999")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "quantity": 2
+                                }
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value(ErrorCode.CART_ITEM_NOT_FOUND.name()));
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/cart/items/{itemId} returns 409 when stock insufficient")
+    void updateCartItemInsufficientStockReturns409() throws Exception {
+        given(cartService.updateItemQuantity(any(), any(), eq(100L), eq(20)))
+                .willThrow(new ConflictException(ErrorCode.INSUFFICIENT_STOCK));
+
+        mockMvc.perform(put(ApiPaths.CART_ITEMS + "/100")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "quantity": 20
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value(ErrorCode.INSUFFICIENT_STOCK.name()));
     }
 }

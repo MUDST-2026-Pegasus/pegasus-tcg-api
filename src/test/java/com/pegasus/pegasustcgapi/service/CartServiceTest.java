@@ -171,6 +171,59 @@ class CartServiceTest {
                     .isInstanceOfSatisfying(ConflictException.class,
                             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CANNOT_BUY_OWN_LISTING));
         }
+
+        @Test
+        @DisplayName("throws INSUFFICIENT_STOCK when requested quantity exceeds available stock on new item")
+        void requestedQuantityExceedsAvailableStockThrows() {
+            CartItemRequest request = new CartItemRequest(10L, 15);
+            ListingOffer listingOffer = offer(10L, 99L, new BigDecimal("100.00"), true); // available = 10
+
+            given(pricingPort.offer(10L)).willReturn(Optional.of(listingOffer));
+            given(cartRepository.createForSession(anyString())).willAnswer(inv ->
+                    new Cart(1L, null, inv.getArgument(0), "THB", OffsetDateTime.now(), OffsetDateTime.now(), null));
+
+            assertThatThrownBy(() -> cartService.addItem(null, null, request))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INSUFFICIENT_STOCK));
+        }
+
+        @Test
+        @DisplayName("throws INSUFFICIENT_STOCK when cumulative quantity exceeds available stock on existing item")
+        void cumulativeQuantityExceedsAvailableStockThrows() {
+            CartItemRequest request = new CartItemRequest(10L, 5);
+            ListingOffer listingOffer = offer(10L, 99L, new BigDecimal("100.00"), true); // available = 10
+            Cart cart = new Cart(1L, null, "guest-key", "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem existingItem = new CartItem(100L, 1L, 10L, 8, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now());
+
+            given(pricingPort.offer(10L)).willReturn(Optional.of(listingOffer));
+            given(cartRepository.findBySessionKey("guest-key")).willReturn(Optional.of(cart));
+            given(cartRepository.findItemByCartIdAndListingId(1L, 10L)).willReturn(Optional.of(existingItem));
+
+            // 8 + 5 = 13 > 10
+            assertThatThrownBy(() -> cartService.addItem(null, "guest-key", request))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INSUFFICIENT_STOCK));
+        }
+
+        @Test
+        @DisplayName("adds cumulative quantity when existing item and added quantity within available stock")
+        void addsCumulativeQuantityWithinStock() {
+            CartItemRequest request = new CartItemRequest(10L, 3);
+            ListingOffer listingOffer = offer(10L, 99L, new BigDecimal("100.00"), true); // available = 10
+            Cart cart = new Cart(1L, null, "guest-key", "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem existingItem = new CartItem(100L, 1L, 10L, 4, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now());
+
+            given(pricingPort.offer(10L)).willReturn(Optional.of(listingOffer));
+            given(cartRepository.findBySessionKey("guest-key")).willReturn(Optional.of(cart));
+            given(cartRepository.findItemByCartIdAndListingId(1L, 10L)).willReturn(Optional.of(existingItem));
+            given(cartRepository.upsertItem(eq(1L), eq(10L), eq(7), eq(new BigDecimal("100.00"))))
+                    .willReturn(new CartItem(100L, 1L, 10L, 7, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now()));
+
+            CartService.AddResult result = cartService.addItem(null, "guest-key", request);
+
+            assertThat(result.item().quantity()).isEqualTo(7);
+            verify(cartRepository).upsertItem(1L, 10L, 7, new BigDecimal("100.00"));
+        }
     }
 
     @Nested
@@ -249,6 +302,23 @@ class CartServiceTest {
             assertThat(items).isEmpty();
             verify(pricingPort, never()).offers(any());
         }
+
+        @Test
+        @DisplayName("getCart includes expiresAt for guest cart")
+        void getCartIncludesExpiresAtForGuestCart() {
+            String guestKey = "guest-session-456";
+            OffsetDateTime expiresAt = OffsetDateTime.now().plusDays(1);
+            Cart guestCart = new Cart(1L, null, guestKey, "THB", OffsetDateTime.now(), OffsetDateTime.now(), expiresAt);
+
+            given(cartRepository.findBySessionKey(guestKey)).willReturn(Optional.of(guestCart));
+            given(cartRepository.findItemsByCartId(1L)).willReturn(List.of());
+
+            CartResponse response = cartService.getCart(null, guestKey);
+
+            assertThat(response.expiresAt()).isEqualTo(expiresAt);
+            assertThat(response.sessionKey()).isEqualTo(guestKey);
+            assertThat(response.userId()).isNull();
+        }
     }
 
     @Nested
@@ -289,6 +359,139 @@ class CartServiceTest {
             assertThatThrownBy(() -> cartService.removeItem(null, null, 100L))
                     .isInstanceOfSatisfying(NotFoundException.class,
                             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CART_ITEM_NOT_FOUND));
+        }
+    }
+
+    @Nested
+    @DisplayName("Update Item Quantity")
+    class UpdateItemTests {
+
+        @Test
+        @DisplayName("successfully updates item quantity for authenticated user")
+        void updatesQuantityForAuthenticatedUser() {
+            AuthPrincipal user = principal(42L);
+            Cart userCart = new Cart(2L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem existingItem = new CartItem(100L, 2L, 10L, 1, new BigDecimal("150.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            ListingOffer listingOffer = offer(10L, 99L, new BigDecimal("150.00"), true); // available = 10
+
+            given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
+            given(cartRepository.findItemByIdAndCartId(100L, 2L)).willReturn(Optional.of(existingItem));
+            given(pricingPort.offer(10L)).willReturn(Optional.of(listingOffer));
+            given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.empty());
+            given(cartRepository.updateItemQuantity(100L, 2L, 5))
+                    .willReturn(new CartItem(100L, 2L, 10L, 5, new BigDecimal("150.00"), OffsetDateTime.now(), OffsetDateTime.now()));
+
+            CartItemResponse response = cartService.updateItemQuantity(user, null, 100L, 5);
+
+            assertThat(response.id()).isEqualTo(100L);
+            assertThat(response.quantity()).isEqualTo(5);
+            verify(cartRepository).updateItemQuantity(100L, 2L, 5);
+        }
+
+        @Test
+        @DisplayName("successfully updates item quantity for guest session")
+        void updatesQuantityForGuestSession() {
+            String guestKey = "guest-key-123";
+            Cart guestCart = new Cart(1L, null, guestKey, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem existingItem = new CartItem(100L, 1L, 10L, 2, new BigDecimal("150.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            ListingOffer listingOffer = offer(10L, 99L, new BigDecimal("150.00"), true); // available = 10
+
+            given(cartRepository.findBySessionKey(guestKey)).willReturn(Optional.of(guestCart));
+            given(cartRepository.findItemByIdAndCartId(100L, 1L)).willReturn(Optional.of(existingItem));
+            given(pricingPort.offer(10L)).willReturn(Optional.of(listingOffer));
+            given(cartRepository.updateItemQuantity(100L, 1L, 4))
+                    .willReturn(new CartItem(100L, 1L, 10L, 4, new BigDecimal("150.00"), OffsetDateTime.now(), OffsetDateTime.now()));
+
+            CartItemResponse response = cartService.updateItemQuantity(null, guestKey, 100L, 4);
+
+            assertThat(response.id()).isEqualTo(100L);
+            assertThat(response.quantity()).isEqualTo(4);
+            verify(cartRepository).updateItemQuantity(100L, 1L, 4);
+        }
+
+        @Test
+        @DisplayName("throws VALIDATION_FAILED when quantity < 1")
+        void quantityLessThanOneThrows() {
+            assertThatThrownBy(() -> cartService.updateItemQuantity(null, "guest-key", 100L, 0))
+                    .isInstanceOfSatisfying(com.pegasus.pegasustcgapi.exception.BadRequestException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+        }
+
+        @Test
+        @DisplayName("throws CART_ITEM_NOT_FOUND when guest session is missing")
+        void guestWithoutSessionThrowsNotFound() {
+            assertThatThrownBy(() -> cartService.updateItemQuantity(null, null, 100L, 2))
+                    .isInstanceOfSatisfying(NotFoundException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CART_ITEM_NOT_FOUND));
+        }
+
+        @Test
+        @DisplayName("throws CART_ITEM_NOT_FOUND when item not in cart")
+        void itemNotInCartThrowsNotFound() {
+            AuthPrincipal user = principal(42L);
+            Cart userCart = new Cart(2L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+
+            given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
+            given(cartRepository.findItemByIdAndCartId(999L, 2L)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> cartService.updateItemQuantity(user, null, 999L, 2))
+                    .isInstanceOfSatisfying(NotFoundException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CART_ITEM_NOT_FOUND));
+        }
+
+        @Test
+        @DisplayName("throws INSUFFICIENT_STOCK when updated quantity exceeds available stock")
+        void quantityExceedsStockThrows() {
+            AuthPrincipal user = principal(42L);
+            Cart userCart = new Cart(2L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem existingItem = new CartItem(100L, 2L, 10L, 1, new BigDecimal("150.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            ListingOffer listingOffer = offer(10L, 99L, new BigDecimal("150.00"), true); // available = 10
+
+            given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
+            given(cartRepository.findItemByIdAndCartId(100L, 2L)).willReturn(Optional.of(existingItem));
+            given(pricingPort.offer(10L)).willReturn(Optional.of(listingOffer));
+            given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> cartService.updateItemQuantity(user, null, 100L, 15))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INSUFFICIENT_STOCK));
+        }
+
+        @Test
+        @DisplayName("throws LISTING_NOT_PURCHASABLE when listing is no longer purchasable")
+        void unpurchasableListingThrows() {
+            AuthPrincipal user = principal(42L);
+            Cart userCart = new Cart(2L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem existingItem = new CartItem(100L, 2L, 10L, 1, new BigDecimal("150.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            ListingOffer listingOffer = offer(10L, 99L, new BigDecimal("150.00"), false);
+
+            given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
+            given(cartRepository.findItemByIdAndCartId(100L, 2L)).willReturn(Optional.of(existingItem));
+            given(pricingPort.offer(10L)).willReturn(Optional.of(listingOffer));
+
+            assertThatThrownBy(() -> cartService.updateItemQuantity(user, null, 100L, 2))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.LISTING_NOT_PURCHASABLE));
+        }
+
+        @Test
+        @DisplayName("throws CANNOT_BUY_OWN_LISTING when seller attempts to update own listing")
+        void sellerCannotUpdateOwnListing() {
+            AuthPrincipal seller = principal(42L);
+            Cart userCart = new Cart(2L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem existingItem = new CartItem(100L, 2L, 10L, 1, new BigDecimal("150.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            ListingOffer listingOffer = offer(10L, 77L, new BigDecimal("150.00"), true);
+            SellerProfile profile = new SellerProfile(
+                    77L, 42L, SellerStatus.VERIFIED, OffsetDateTime.now(), null, (short) 1, false, true, OffsetDateTime.now());
+
+            given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
+            given(cartRepository.findItemByIdAndCartId(100L, 2L)).willReturn(Optional.of(existingItem));
+            given(pricingPort.offer(10L)).willReturn(Optional.of(listingOffer));
+            given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.of(profile));
+
+            assertThatThrownBy(() -> cartService.updateItemQuantity(seller, null, 100L, 2))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CANNOT_BUY_OWN_LISTING));
         }
     }
 }

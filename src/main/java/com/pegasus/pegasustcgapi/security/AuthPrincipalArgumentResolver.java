@@ -71,6 +71,8 @@ public class AuthPrincipalArgumentResolver implements HandlerMethodArgumentResol
         return path.equals("/cart")
                 || path.startsWith("/cart/")
                 || path.equals(ApiPaths.CART)
-                || path.startsWith(ApiPaths.CART + "/");
+                || path.startsWith(ApiPaths.CART + "/")
+                || path.contains("/cart/")
+                || path.endsWith("/cart");
     }
 }
