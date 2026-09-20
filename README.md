@@ -414,3 +414,93 @@ make db-clean     # wipe the schema
 make db-migrate   # reapply all migrations
 make seed-catalog # load sample catalogue data
 ```
+
+
+## CI and security checks
+
+GitHub Actions runs on pull requests targeting `main` or `develop` and pushes to
+those branches. Both workflows can also be started from the Actions tab.
+
+- **CI / Test / Build** installs Java 25 and runs `./gradlew build --no-daemon`,
+  including automated tests and packaging. PostgreSQL 17 and MinIO start through
+  Docker Compose with dedicated credentials from repository secrets; a JWT key is generated per run.
+  Flyway migrations and jOOQ generation run through the existing Gradle task
+  dependencies. Any service startup, build, or test failure fails the job.
+  HTML and JUnit test reports are retained as the `test-reports` artifact for 14 days,
+  including when tests fail.
+- **CI / Secret Leak Scan** uses [Gitleaks](https://github.com/gitleaks/gitleaks)
+  v8.30.1 to scan all fetched Git history, including commits in pull requests.
+  Findings fail the job (exit code 1). The Actions log shows redacted findings
+  with file/line/commit information; `secret-scan-report` contains the redacted JSON
+  report for 7 days. No Gitleaks license or production secrets are required.
+  Historical findings also fail the check: revoke/rotate real exposed credentials
+  and remediate the affected history. Do not suppress real leaks to make CI pass.
+- **CodeQL / Analyze (java-kotlin)** builds Java with PostgreSQL available for
+  generated jOOQ sources, then runs `security-and-quality` analysis. It also runs
+  every Monday at 03:00 UTC. Findings appear in GitHub **Security → Code scanning**
+  and applicable pull requests. Findings are reported; they do not automatically
+  fail the build job.
+
+Repository setup: enable GitHub Actions and CodeQL code scanning (private
+organization repositories require GitHub Code Security). Use this advanced
+CodeQL workflow instead of a duplicate default setup. Configure branch protection
+or rulesets to require **Test / Build**, **Secret Leak Scan**, and
+**Analyze (java-kotlin)** before merging. The workflows use the automatic
+`GITHUB_TOKEN` for GitHub operations.
+
+Before running CI, add these **repository secrets** under **Settings → Secrets and
+variables → Actions → New repository secret**:
+
+| Secret | Used by |
+| --- | --- |
+| `CI_DB_PASSWORD` | PostgreSQL, Gradle and application tests in CI; PostgreSQL and Gradle in CodeQL |
+| `CI_MINIO_ACCESS_KEY` | MinIO and application tests (at least 3 characters) |
+| `CI_MINIO_SECRET_KEY` | MinIO and application tests (at least 8 characters) |
+
+Generate separate random values for CI; do not reuse production credentials.
+`DB_URL` and the `postgres` username remain public configuration for the isolated
+runner database. JWT keys remain generated per run. Missing secrets cause these
+jobs to fail; there are no hardcoded password fallbacks in the workflows.
+GitHub does not pass repository secrets to fork pull requests or Dependabot pull
+requests, so build/test and CodeQL cannot complete on those events with this
+configuration. Secret Leak Scan does not need these secrets and still runs.
+Do not switch to `pull_request_target` to expose secrets to untrusted PR code.
+
+To reproduce the checks locally, use Java 25 and Docker, configure `.env` as
+above, then run:
+
+```bash
+docker compose up -d --wait postgres minio
+./gradlew build --no-daemon
+gitleaks git . --log-opts="--all" --redact --verbose --exit-code=1
+```
+
+Workflow files are in `.github/workflows/ci.yml` and
+`.github/workflows/codeql.yml`. This pipeline validates and scans the backend;
+application deployment is not configured.
+
+### Backend image on GHCR
+
+On pushes to `main`, **Publish API image** waits for build/tests, secret scanning,
+and the CodeQL analysis job to succeed. CI calls the reusable CodeQL workflow;
+its separate manual and weekly runs remain available. CodeQL findings are
+reported in Security, not treated as an automatic severity-based publish gate.
+PRs, `develop`, and manual runs do not publish images.
+
+The image is `ghcr.io/mudst-2026-pegasus/pegasus-tcg-api`, tagged with
+`sha-<full-commit-sha>` and `latest`. Prefer the SHA tag or image digest for
+deployment and rollback. The image targets Linux amd64.
+
+`Dockerfile.ci` packages the JAR built and tested in the same CI run using a
+Java 25 runtime and a non-root user. Only that JAR and Dockerfile enter the image
+build context. Database, JWT and MinIO credentials are supplied at runtime.
+The existing Dockerfile still supports local builds through Docker Compose.
+
+Publishing uses the automatic `GITHUB_TOKEN` with job-scoped `packages: write`;
+no registry password secret is required. The organization must allow Actions
+to create packages. If this package already exists, grant this repository write
+access under the package settings → Manage Actions access. New GHCR packages
+are private by default; review package visibility and access after first publish.
+See [GitHub Container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+
+This publishes the backend image only; it does not deploy it to a server.
