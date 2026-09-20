@@ -21,17 +21,31 @@ public class OrderAutoReleaseScheduler {
 
     private final OrderRepository orderRepository;
     private final OrderLifecycleService orderLifecycleService;
+    private final java.time.Clock clock;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public OrderAutoReleaseScheduler(
+            OrderRepository orderRepository,
+            OrderLifecycleService orderLifecycleService,
+            java.time.Clock clock) {
+        this.orderRepository = orderRepository;
+        this.orderLifecycleService = orderLifecycleService;
+        this.clock = clock;
+    }
 
     public OrderAutoReleaseScheduler(
             OrderRepository orderRepository,
             OrderLifecycleService orderLifecycleService) {
-        this.orderRepository = orderRepository;
-        this.orderLifecycleService = orderLifecycleService;
+        this(orderRepository, orderLifecycleService, java.time.Clock.systemUTC());
     }
 
     @Scheduled(cron = "${pegasus.order.auto-release-cron:0 */5 * * * *}")
     public void runAutoRelease() {
-        OffsetDateTime now = OffsetDateTime.now();
+        processAutoReleases();
+    }
+
+    public void processAutoReleases() {
+        OffsetDateTime now = clock != null ? OffsetDateTime.now(clock) : OffsetDateTime.now();
         List<SellerOrderRecord> overdueOrders = orderRepository.findOverdueShippedOrders(now);
         if (overdueOrders.isEmpty()) {
             return;
