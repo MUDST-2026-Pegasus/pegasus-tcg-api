@@ -27,14 +27,16 @@ import com.pegasus.pegasustcgapi.model.SellerStatus;
 import com.pegasus.pegasustcgapi.port.CollectionPort;
 import com.pegasus.pegasustcgapi.port.InventoryPort;
 import com.pegasus.pegasustcgapi.port.LedgerPort;
+import com.pegasus.pegasustcgapi.port.SellerPort;
 import com.pegasus.pegasustcgapi.repository.OrderRepository;
-import com.pegasus.pegasustcgapi.repository.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,7 +61,7 @@ class OrderLifecycleUnitTest {
     private OrderRepository orderRepository;
 
     @Mock
-    private SellerProfileRepository sellerProfileRepository;
+    private SellerPort sellerPort;
 
     @Mock
     private PlatformSettingService platformSettingService;
@@ -82,9 +84,11 @@ class OrderLifecycleUnitTest {
 
     @BeforeEach
     void setUp() {
-        when(platformSettingService.getInt(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS)).thenReturn(24);
-        when(platformSettingService.getInt(PlatformSettingService.ESCROW_AUTO_RELEASE_DAYS)).thenReturn(7);
-        when(sellerProfileRepository.findByUserId(sellerPrincipal.userId())).thenReturn(Optional.of(sellerProfile));
+        when(platformSettingService.getHours(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS))
+                .thenReturn(Duration.ofHours(24));
+        when(platformSettingService.getDays(PlatformSettingService.ESCROW_AUTO_RELEASE_DAYS))
+                .thenReturn(Duration.ofDays(7));
+        when(sellerPort.requireProfile(sellerPrincipal.userId())).thenReturn(sellerProfile);
     }
 
     private SalesOrderRecord mockSalesOrder(long id, String status) {
@@ -92,7 +96,10 @@ class OrderLifecycleUnitTest {
         when(so.getId()).thenReturn(id);
         when(so.getBuyerId()).thenReturn(buyerPrincipal.userId());
         when(so.getStatus()).thenReturn(status);
-        when(so.getOrderNumber()).thenReturn("ORD-" + id);
+        when(so.getOrderNumber()).thenReturn("PGS-20260920-%06d".formatted(id));
+        // Unpaid orders have no cancellation window; paid ones are measured from paid_at.
+        when(so.getPaidAt()).thenReturn(
+                "PENDING_PAYMENT".equals(status) ? null : OffsetDateTime.now().minusHours(1));
         when(so.getCurrency()).thenReturn("THB");
         when(so.getItemsSubtotal()).thenReturn(new BigDecimal("200.00"));
         when(so.getShippingTotal()).thenReturn(new BigDecimal("20.00"));
@@ -167,19 +174,51 @@ class OrderLifecycleUnitTest {
             verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PARTIALLY_COMPLETED"), any(), any(), any());
         }
 
-        @Test
-        @DisplayName("Mixed completion: 1 COMPLETED, 1 CANCELLED -> parent status PARTIALLY_COMPLETED")
-        void rollup_MixedCompletedAndCancelled_ResultsInPartiallyCompleted() {
+        @ParameterizedTest(name = "1 COMPLETED and 1 {0}: nothing left running -> parent status COMPLETED")
+        @ValueSource(strings = {"CANCELLED", "REFUNDED"})
+        void rollup_CompletedAlongsideOtherTerminalChild_ResultsInCompleted(String siblingStatus) {
             SalesOrderRecord parent = mockSalesOrder(1L, "PAID");
             SellerOrderRecord so1 = mockSellerOrder(11L, 1L, "COMPLETED");
-            SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "CANCELLED");
+            SellerOrderRecord so2 = mockSellerOrder(12L, 1L, siblingStatus);
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
             when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             service.rollupSalesOrderStatus(1L);
 
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PARTIALLY_COMPLETED"), any(), any(), any());
+            // PARTIALLY_COMPLETED is for an order that is still going. Once every
+            // sub-order has finished, one of them delivered, the order is done.
+            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("COMPLETED"), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("Everything terminal but nothing delivered: 1 CANCELLED, 1 REFUNDED -> parent status CANCELLED")
+        void rollup_AllTerminalWithoutCompleted_ResultsInCancelled() {
+            SalesOrderRecord parent = mockSalesOrder(1L, "PAID");
+            SellerOrderRecord so1 = mockSellerOrder(11L, 1L, "CANCELLED");
+            SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "REFUNDED");
+
+            when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
+            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+
+            service.rollupSalesOrderStatus(1L);
+
+            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("CANCELLED"), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("Paid but nothing finished: 1 PAID, 1 PENDING_PAYMENT -> parent status PAID")
+        void rollup_PartlyPaid_ResultsInPaid() {
+            SalesOrderRecord parent = mockSalesOrder(1L, "PAID");
+            SellerOrderRecord so1 = mockSellerOrder(11L, 1L, "PAID");
+            SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "PENDING_PAYMENT");
+
+            when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
+            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+
+            service.rollupSalesOrderStatus(1L);
+
+            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PAID"), any(), any(), any());
         }
 
         @Test
@@ -240,10 +279,7 @@ class OrderLifecycleUnitTest {
             when(orderRepository.updateSellerOrderStatus(eq(10L), eq(List.of("PAID", "PREPARING")), eq("SHIPPED"), any(), any(), any(), any(), any(), any()))
                     .thenReturn(1);
 
-            OrderItemRecord item = mock(OrderItemRecord.class);
-            when(item.getId()).thenReturn(101L);
-            when(orderRepository.findOrderItemsBySellerOrderId(10L)).thenReturn(List.of(item));
-            when(orderRepository.findUnitIdsByOrderItemId(101L)).thenReturn(List.of(5001L));
+            when(orderRepository.findUnitIdsGroupedBySellerOrderId(10L)).thenReturn(Map.of(101L, List.of(5001L)));
 
             SalesOrderRecord parent = mockSalesOrder(1L, "PAID");
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));

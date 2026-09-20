@@ -15,6 +15,7 @@ import static org.mockito.Mockito.verify;
 import com.pegasus.pegasustcgapi.dto.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.CartItemResponse;
 import com.pegasus.pegasustcgapi.dto.CartResponse;
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -60,6 +61,11 @@ class CartServiceTest {
 
     @InjectMocks
     private CartService cartService;
+
+    private static final String GUEST_KEY_A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+    private static final String GUEST_KEY_B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
+    private static final String GUEST_KEY_C = "cccccccc-3333-4333-8333-cccccccccccc";
+    private static final String GUEST_KEY_D = "dddddddd-4444-4444-8444-dddddddddddd";
 
     private static AuthPrincipal principal(long userId) {
         return new AuthPrincipal(userId, "user@example.com", "testuser", Set.of(RoleCode.BUYER));
@@ -192,15 +198,15 @@ class CartServiceTest {
         void cumulativeQuantityExceedsAvailableStockThrows() {
             CartItemRequest request = new CartItemRequest(10L, 5);
             ListingOffer listingOffer = offer(10L, 99L, new BigDecimal("100.00"), true); // available = 10
-            Cart cart = new Cart(1L, null, "guest-key", "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            Cart cart = new Cart(1L, null, GUEST_KEY_A, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
             CartItem existingItem = new CartItem(100L, 1L, 10L, 8, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now());
 
             given(pricingPort.offer(10L)).willReturn(Optional.of(listingOffer));
-            given(cartRepository.findBySessionKey("guest-key")).willReturn(Optional.of(cart));
+            given(cartRepository.findBySessionKey(GUEST_KEY_A)).willReturn(Optional.of(cart));
             given(cartRepository.findItemByCartIdAndListingId(1L, 10L)).willReturn(Optional.of(existingItem));
 
             // 8 + 5 = 13 > 10
-            assertThatThrownBy(() -> cartService.addItem(null, "guest-key", request))
+            assertThatThrownBy(() -> cartService.addItem(null, GUEST_KEY_A, request))
                     .isInstanceOfSatisfying(ConflictException.class,
                             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INSUFFICIENT_STOCK));
         }
@@ -210,16 +216,16 @@ class CartServiceTest {
         void addsCumulativeQuantityWithinStock() {
             CartItemRequest request = new CartItemRequest(10L, 3);
             ListingOffer listingOffer = offer(10L, 99L, new BigDecimal("100.00"), true); // available = 10
-            Cart cart = new Cart(1L, null, "guest-key", "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            Cart cart = new Cart(1L, null, GUEST_KEY_A, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
             CartItem existingItem = new CartItem(100L, 1L, 10L, 4, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now());
 
             given(pricingPort.offer(10L)).willReturn(Optional.of(listingOffer));
-            given(cartRepository.findBySessionKey("guest-key")).willReturn(Optional.of(cart));
+            given(cartRepository.findBySessionKey(GUEST_KEY_A)).willReturn(Optional.of(cart));
             given(cartRepository.findItemByCartIdAndListingId(1L, 10L)).willReturn(Optional.of(existingItem));
             given(cartRepository.upsertItem(eq(1L), eq(10L), eq(7), eq(new BigDecimal("100.00"))))
                     .willReturn(new CartItem(100L, 1L, 10L, 7, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now()));
 
-            CartService.AddResult result = cartService.addItem(null, "guest-key", request);
+            CartService.AddResult result = cartService.addItem(null, GUEST_KEY_A, request);
 
             assertThat(result.item().quantity()).isEqualTo(7);
             verify(cartRepository).upsertItem(1L, 10L, 7, new BigDecimal("100.00"));
@@ -234,15 +240,14 @@ class CartServiceTest {
         @DisplayName("merges guest cart into user permanent cart when session key header is present")
         void mergesGuestCartIntoUserCart() {
             AuthPrincipal user = principal(42L);
-            String guestKey = "guest-session-123";
+            String guestKey = GUEST_KEY_C;
             Cart guestCart = new Cart(1L, null, guestKey, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
             Cart userCart = new Cart(2L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
 
             given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
             given(cartRepository.findBySessionKey(guestKey)).willReturn(Optional.of(guestCart));
-            given(cartRepository.findItemsByCartId(2L)).willReturn(List.of());
 
-            cartService.getCartItems(user, guestKey);
+            cartService.mergeGuestCartIfPresent(user, guestKey);
 
             verify(cartRepository).mergeGuestCartIntoUserCart(1L, 2L);
         }
@@ -260,7 +265,7 @@ class CartServiceTest {
             CartItem item1 = new CartItem(1L, 2L, 10L, 1, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now());
             CartItem item2 = new CartItem(2L, 2L, 20L, 2, new BigDecimal("50.00"), OffsetDateTime.now(), OffsetDateTime.now());
 
-            given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
+            given(cartRepository.findByUserId(42L)).willReturn(Optional.of(userCart));
             given(cartRepository.findItemsByCartId(2L)).willReturn(List.of(item1, item2));
 
             // Item 1 price changed to 120.00; Item 2 price unchanged at 50.00
@@ -294,7 +299,7 @@ class CartServiceTest {
             AuthPrincipal user = principal(42L);
             Cart userCart = new Cart(2L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
 
-            given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
+            given(cartRepository.findByUserId(42L)).willReturn(Optional.of(userCart));
             given(cartRepository.findItemsByCartId(2L)).willReturn(List.of());
 
             List<CartItemResponse> items = cartService.getCartItems(user, null);
@@ -304,9 +309,30 @@ class CartServiceTest {
         }
 
         @Test
+        @DisplayName("reading a cart never creates one")
+        void readingDoesNotCreateACart() {
+            AuthPrincipal user = principal(42L);
+            given(cartRepository.findByUserId(42L)).willReturn(Optional.empty());
+
+            CartResponse response = cartService.getCart(user, null);
+
+            assertThat(response.id()).isZero();
+            assertThat(response.items()).isEmpty();
+            verify(cartRepository, never()).getOrCreateForUser(anyLong());
+        }
+
+        @Test
+        @DisplayName("rejects a session key the API never issued")
+        void rejectsForgedSessionKey() {
+            assertThatThrownBy(() -> cartService.getCart(null, "../../etc/passwd"))
+                    .isInstanceOfSatisfying(BadRequestException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CART_SESSION_INVALID));
+        }
+
+        @Test
         @DisplayName("getCart includes expiresAt for guest cart")
         void getCartIncludesExpiresAtForGuestCart() {
-            String guestKey = "guest-session-456";
+            String guestKey = GUEST_KEY_D;
             OffsetDateTime expiresAt = OffsetDateTime.now().plusDays(1);
             Cart guestCart = new Cart(1L, null, guestKey, "THB", OffsetDateTime.now(), OffsetDateTime.now(), expiresAt);
 
@@ -391,7 +417,7 @@ class CartServiceTest {
         @Test
         @DisplayName("successfully updates item quantity for guest session")
         void updatesQuantityForGuestSession() {
-            String guestKey = "guest-key-123";
+            String guestKey = GUEST_KEY_B;
             Cart guestCart = new Cart(1L, null, guestKey, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
             CartItem existingItem = new CartItem(100L, 1L, 10L, 2, new BigDecimal("150.00"), OffsetDateTime.now(), OffsetDateTime.now());
             ListingOffer listingOffer = offer(10L, 99L, new BigDecimal("150.00"), true); // available = 10
@@ -412,7 +438,7 @@ class CartServiceTest {
         @Test
         @DisplayName("throws VALIDATION_FAILED when quantity < 1")
         void quantityLessThanOneThrows() {
-            assertThatThrownBy(() -> cartService.updateItemQuantity(null, "guest-key", 100L, 0))
+            assertThatThrownBy(() -> cartService.updateItemQuantity(null, GUEST_KEY_A, 100L, 0))
                     .isInstanceOfSatisfying(com.pegasus.pegasustcgapi.exception.BadRequestException.class,
                             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
         }

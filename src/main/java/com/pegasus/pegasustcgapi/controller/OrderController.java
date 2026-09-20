@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.OrderDetailsResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
@@ -11,12 +12,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.util.List;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -34,11 +36,15 @@ public class OrderController {
         this.orderLifecycleService = orderLifecycleService;
     }
 
-    @Operation(summary = "List buyer orders", description = "Retrieves all sales orders placed by the authenticated buyer.")
+    @Operation(summary = "List buyer orders",
+            description = "Retrieves a page of sales orders placed by the authenticated buyer, newest first.")
     @ApiResponse(responseCode = "200", description = "Orders retrieved")
     @GetMapping
-    public ApiResult<List<OrderDetailsResponse>> list(AuthPrincipal principal) {
-        return ApiResult.success(orderLifecycleService.listBuyerOrders(principal));
+    public ApiResult<PageResponse<OrderDetailsResponse>> list(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            AuthPrincipal principal) {
+        return ApiResult.success(orderLifecycleService.listBuyerOrders(principal, page, size));
     }
 
     @Operation(summary = "Get order details", description = "Retrieves detailed order information including seller sub-orders and tracking.")
@@ -54,13 +60,14 @@ public class OrderController {
     @Operation(summary = "Cancel order", description = "Cancels an order within the cancellation window before shipping.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Order cancelled successfully"),
+            @ApiResponse(responseCode = "400", description = "Cancellation reason is longer than the field allows"),
             @ApiResponse(responseCode = "404", description = "Order not found"),
             @ApiResponse(responseCode = "409", description = "Order status transition forbidden or cancellation window expired")
     })
     @PostMapping("/{id}/cancel")
     public ApiResult<OrderDetailsResponse> cancel(
             @PathVariable long id,
-            @RequestBody(required = false) CancelOrderRequest request,
+            @Valid @RequestBody(required = false) CancelOrderRequest request,
             AuthPrincipal principal) {
         return ApiResult.success("Order cancelled successfully", orderLifecycleService.cancelBuyerOrder(principal, id, request));
     }
@@ -74,16 +81,5 @@ public class OrderController {
     @PostMapping("/{id}/confirm-received")
     public ApiResult<OrderDetailsResponse> confirmReceived(@PathVariable long id, AuthPrincipal principal) {
         return ApiResult.success("Order receipt confirmed successfully", orderLifecycleService.confirmBuyerOrderReceived(principal, id));
-    }
-
-    @Operation(summary = "Mark order paid", description = "Simulates successful order payment transition for testing and sandbox environments.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Order marked as paid"),
-            @ApiResponse(responseCode = "404", description = "Order not found"),
-            @ApiResponse(responseCode = "409", description = "Order cannot transition to PAID")
-    })
-    @PostMapping("/{id}/pay")
-    public ApiResult<OrderDetailsResponse> pay(@PathVariable long id, AuthPrincipal principal) {
-        return ApiResult.success("Order payment processed successfully", orderLifecycleService.markOrderPaid(principal, id));
     }
 }

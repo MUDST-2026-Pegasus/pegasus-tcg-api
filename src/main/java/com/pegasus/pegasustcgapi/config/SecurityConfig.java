@@ -49,7 +49,13 @@ public class SecurityConfig {
     /** HS256 needs at least as much key material as it produces output. */
     private static final int MIN_SECRET_BYTES = 32;
 
-    /** Reachable without a token: the ways in, and the ways back in. */
+    /**
+     * Reachable without a token: the ways in, and the ways back in.
+     *
+     * <p>The cart is not listed here. It is open on every method, not just POST, and
+     * saying so once below beats a POST-only rule that a later {@code permitAll} for
+     * the same paths silently overrides.
+     */
     private static final String[] PUBLIC_POST_ENDPOINTS = {
         ApiPaths.AUTH + "/register",
         ApiPaths.AUTH + "/login",
@@ -57,8 +63,6 @@ public class SecurityConfig {
         ApiPaths.AUTH + "/logout",
         ApiPaths.AUTH + "/password/forgot",
         ApiPaths.AUTH + "/password/reset",
-        ApiPaths.CART + "/**",
-        "/api/v1/cart/**",
     };
 
     /**
@@ -110,8 +114,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
                         .requestMatchers(SWAGGER_WHITELIST).permitAll()
-                        .requestMatchers(ApiPaths.CART, ApiPaths.CART + "/**", "/api/v1/cart", "/api/v1/cart/**").permitAll()
-                        .requestMatchers("/cart", "/cart/**").permitAll()
+                        // The basket is the one part of the shop a guest keeps, so every
+                        // method on it is open; the handlers themselves decide what an
+                        // anonymous caller may see by taking Optional<AuthPrincipal>.
+                        .requestMatchers(ApiPaths.CART, ApiPaths.CART + "/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .authenticationEntryPoint(securityErrorHandler)

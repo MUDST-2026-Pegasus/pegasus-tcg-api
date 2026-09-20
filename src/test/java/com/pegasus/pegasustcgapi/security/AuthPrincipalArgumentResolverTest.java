@@ -53,14 +53,14 @@ class AuthPrincipalArgumentResolverTest {
     }
 
     @Test
-    @DisplayName("returns null for unauthenticated cart request with AuthPrincipal parameter")
-    void unauthenticatedCartReturnsNull() throws Exception {
+    @DisplayName("rejects an unauthenticated request for a required AuthPrincipal, cart route or not")
+    void unauthenticatedCartWithRequiredPrincipalThrows() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", ApiPaths.CART);
         ServletWebRequest webRequest = new ServletWebRequest(request);
 
-        Object result = resolver.resolveArgument(param(0), null, webRequest, null);
-
-        assertThat(result).isNull();
+        assertThatThrownBy(() -> resolver.resolveArgument(param(0), null, webRequest, null))
+                .isInstanceOfSatisfying(UnauthorizedException.class,
+                        e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.UNAUTHENTICATED));
     }
 
     @Test
@@ -75,14 +75,26 @@ class AuthPrincipalArgumentResolverTest {
     }
 
     @Test
-    @DisplayName("returns null for unauthenticated /cart request")
-    void unauthenticatedShortCartPathReturnsNull() throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/cart");
+    @DisplayName("a path that merely mentions a cart does not grant guest access")
+    void cartShapedPathOnAGuardedRouteStillThrows() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "GET", ApiPaths.ADMIN + "/carts/7/audit");
         ServletWebRequest webRequest = new ServletWebRequest(request);
 
-        Object result = resolver.resolveArgument(param(0), null, webRequest, null);
+        assertThatThrownBy(() -> resolver.resolveArgument(param(0), null, webRequest, null))
+                .isInstanceOfSatisfying(UnauthorizedException.class,
+                        e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.UNAUTHENTICATED));
+    }
 
-        assertThat(result).isNull();
+    @Test
+    @DisplayName("an Optional parameter admits guests wherever it is declared")
+    void optionalParameterResolvesEmptyOnAnyRoute() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", ApiPaths.COLLECTION);
+        ServletWebRequest webRequest = new ServletWebRequest(request);
+
+        Object result = resolver.resolveArgument(param(1), null, webRequest, null);
+
+        assertThat(result).isEqualTo(Optional.empty());
     }
 
     @Test
