@@ -35,9 +35,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.jooq.JSONB;
+import org.jooq.exception.IntegrityConstraintViolationException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Handles checkout, converting the active cart into a sales order and seller orders.
@@ -50,9 +55,35 @@ public class CheckoutService {
     private final OrderRepository orderRepository;
     private final AddressRepository addressRepository;
     private final SellerProfileRepository sellerProfileRepository;
+    private final ShippingOptionService shippingOptionService;
     private final PricingPort pricingPort;
     private final InventoryPort inventoryPort;
     private final LedgerPort ledgerPort;
+    private final TransactionTemplate transactionTemplate;
+
+    @Autowired
+    public CheckoutService(
+            CartRepository cartRepository,
+            CartService cartService,
+            OrderRepository orderRepository,
+            AddressRepository addressRepository,
+            SellerProfileRepository sellerProfileRepository,
+            @Autowired(required = false) ShippingOptionService shippingOptionService,
+            PricingPort pricingPort,
+            InventoryPort inventoryPort,
+            LedgerPort ledgerPort,
+            @Autowired(required = false) PlatformTransactionManager transactionManager) {
+        this.cartRepository = cartRepository;
+        this.cartService = cartService;
+        this.orderRepository = orderRepository;
+        this.addressRepository = addressRepository;
+        this.sellerProfileRepository = sellerProfileRepository;
+        this.shippingOptionService = shippingOptionService;
+        this.pricingPort = pricingPort;
+        this.inventoryPort = inventoryPort;
+        this.ledgerPort = ledgerPort;
+        this.transactionTemplate = transactionManager != null ? new TransactionTemplate(transactionManager) : null;
+    }
 
     public CheckoutService(
             CartRepository cartRepository,
@@ -63,20 +94,15 @@ public class CheckoutService {
             PricingPort pricingPort,
             InventoryPort inventoryPort,
             LedgerPort ledgerPort) {
-        this.cartRepository = cartRepository;
-        this.cartService = cartService;
-        this.orderRepository = orderRepository;
-        this.addressRepository = addressRepository;
-        this.sellerProfileRepository = sellerProfileRepository;
-        this.pricingPort = pricingPort;
-        this.inventoryPort = inventoryPort;
-        this.ledgerPort = ledgerPort;
+        this(cartRepository, cartService, orderRepository, addressRepository, sellerProfileRepository,
+                null, pricingPort, inventoryPort, ledgerPort, null);
     }
 
     /**
-     * Executes the checkout process atomically within a strict transaction.
+     * Executes the checkout process atomically.
+     * Replays existing orders for the same buyer, rejects key conflicts from others,
+     * and recovers gracefully from concurrent race conditions under the same idempotency key.
      */
-    @Transactional(rollbackFor = Exception.class)
     public CheckoutResponse checkout(
             AuthPrincipal principal,
             String idempotencyKey,
@@ -93,29 +119,62 @@ public class CheckoutService {
         }
 
         String trimmedKey = idempotencyKey.trim();
+
+        // Fast-path lookup
         Optional<SalesOrderRecord> existingOrderOpt = orderRepository.findSalesOrderByIdempotencyKey(trimmedKey);
         if (existingOrderOpt.isPresent()) {
             SalesOrderRecord existingOrder = existingOrderOpt.get();
             if (Objects.equals(existingOrder.getBuyerId(), principal.userId())) {
-                return getOrderDetails(existingOrder.getId());
+                return getOrderDetails(existingOrder.getId(), true);
             } else {
                 throw new ConflictException(ErrorCode.IDEMPOTENCY_KEY_CONFLICT);
             }
         }
+
+        // 2. Atomic checkout execution
+        try {
+            return executeInTransaction(() -> executeCheckout(principal, trimmedKey, guestSessionKey, request));
+        } catch (DuplicateKeyException | IntegrityConstraintViolationException e) {
+            // Race condition: another concurrent transaction committed with the same key.
+            // This transaction rolled back. Re-query winner's committed order.
+            return orderRepository.findSalesOrderByIdempotencyKey(trimmedKey)
+                    .map(winnerOrder -> {
+                        if (Objects.equals(winnerOrder.getBuyerId(), principal.userId())) {
+                            return getOrderDetails(winnerOrder.getId(), true);
+                        } else {
+                            throw new ConflictException(ErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+                        }
+                    })
+                    .orElseThrow(() -> e);
+        }
+    }
+
+    private <T> T executeInTransaction(Supplier<T> action) {
+        if (transactionTemplate != null) {
+            return transactionTemplate.execute(status -> action.get());
+        }
+        return action.get();
+    }
+
+    private CheckoutResponse executeCheckout(
+            AuthPrincipal principal,
+            String trimmedKey,
+            String guestSessionKey,
+            CheckoutRequest request) {
 
         // If guest session key is present, merge it into permanent user cart first
         if (guestSessionKey != null && !guestSessionKey.isBlank()) {
             cartService.getCart(principal, guestSessionKey);
         }
 
-        // 2. Retrieve user's cart and items
+        // 1. Retrieve user's cart and items
         Cart cart = cartRepository.findByUserId(principal.userId()).orElse(null);
         List<CartItem> items = cart != null ? cartRepository.findItemsByCartId(cart.id()) : List.of();
         if (items.isEmpty()) {
             throw new ConflictException(ErrorCode.CART_EMPTY);
         }
 
-        // Batch validate pricing and purchasability
+        // 2. Batch validate pricing and purchasability
         List<Long> listingIds = items.stream().map(CartItem::listingId).distinct().toList();
         Map<Long, ListingOffer> offers = pricingPort.offers(listingIds);
 
@@ -141,24 +200,94 @@ public class CheckoutService {
         // 3. Inventory Reservation (strictly rolls back on failure)
         Map<Long, Integer> quantityByListing = new LinkedHashMap<>();
         for (CartItem item : items) {
-            quantityByListing.put(item.listingId(), item.quantity());
+            quantityByListing.merge(item.listingId(), item.quantity(), Integer::sum);
         }
         Map<Long, List<ReservedUnit>> heldUnitsByListing = inventoryPort.reserve(quantityByListing);
 
-        // 4. Sales Order Creation
-        BigDecimal itemsSubtotal = items.stream()
-                .map(i -> i.unitPriceAtAdd().multiply(BigDecimal.valueOf(i.quantity())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // 4. Group cart items by sellerProfileId & calculate subtotals, shipping, commission
+        Map<Long, List<CartItem>> itemsBySeller = new LinkedHashMap<>();
+        for (CartItem item : items) {
+            ListingOffer offer = offers.get(item.listingId());
+            itemsBySeller.computeIfAbsent(offer.sellerProfileId(), k -> new ArrayList<>()).add(item);
+        }
+
+        BigDecimal itemsSubtotal = BigDecimal.ZERO;
         BigDecimal shippingTotal = BigDecimal.ZERO;
         BigDecimal discountTotal = BigDecimal.ZERO;
+
+        record SellerSuborderComputation(
+                long sellerProfileId,
+                List<CartItem> items,
+                BigDecimal subtotal,
+                BigDecimal shippingFee,
+                BigDecimal discount,
+                BigDecimal grandTotal,
+                BigDecimal commission,
+                BigDecimal netAmount) {}
+
+        List<SellerSuborderComputation> sellerComputations = new ArrayList<>();
+
+        for (Map.Entry<Long, List<CartItem>> entry : itemsBySeller.entrySet()) {
+            long sellerProfileId = entry.getKey();
+            List<CartItem> sellerItems = entry.getValue();
+
+            BigDecimal sellerSubtotal = sellerItems.stream()
+                    .map(i -> i.unitPriceAtAdd().multiply(BigDecimal.valueOf(i.quantity())))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            int sellerItemCount = sellerItems.stream().mapToInt(CartItem::quantity).sum();
+
+            BigDecimal sellerShipping = BigDecimal.ZERO;
+            Long optionId = (request != null && request.shippingOptionBySeller() != null)
+                    ? request.shippingOptionBySeller().get(sellerProfileId)
+                    : null;
+            if (shippingOptionService != null) {
+                try {
+                    sellerShipping = shippingOptionService.feeFor(sellerProfileId, optionId, sellerItemCount, sellerSubtotal);
+                } catch (NotFoundException e) {
+                    sellerShipping = BigDecimal.ZERO;
+                }
+            }
+            BigDecimal sellerDiscount = BigDecimal.ZERO;
+            BigDecimal sellerGrandTotal = sellerSubtotal.add(sellerShipping).subtract(sellerDiscount);
+
+            BigDecimal commission = ledgerPort.quoteCommission(sellerSubtotal);
+            if (commission == null) {
+                commission = BigDecimal.ZERO;
+            }
+            BigDecimal sellerNet = sellerGrandTotal.subtract(commission);
+
+            sellerComputations.add(new SellerSuborderComputation(
+                    sellerProfileId, sellerItems, sellerSubtotal, sellerShipping, sellerDiscount, sellerGrandTotal, commission, sellerNet));
+
+            itemsSubtotal = itemsSubtotal.add(sellerSubtotal);
+            shippingTotal = shippingTotal.add(sellerShipping);
+            discountTotal = discountTotal.add(sellerDiscount);
+        }
+
         BigDecimal grandTotal = itemsSubtotal.add(shippingTotal).subtract(discountTotal);
 
+        // 5. Address resolution & snapshot
+        Long shippingAddressId = request != null ? request.shippingAddressId() : null;
+        Address address = null;
+        if (shippingAddressId != null) {
+            address = addressRepository.findByIdAndUserId(shippingAddressId, principal.userId())
+                    .orElseThrow(() -> new NotFoundException(ErrorCode.ADDRESS_NOT_FOUND));
+        } else {
+            List<Address> userAddresses = addressRepository.findByUserId(principal.userId());
+            address = userAddresses.stream()
+                    .filter(Address::defaultShipping)
+                    .findFirst()
+                    .or(() -> userAddresses.stream().findFirst())
+                    .orElse(null);
+            if (address != null) {
+                shippingAddressId = address.id();
+            }
+        }
+        JSONB addressSnapshot = createAddressSnapshot(address);
+        String buyerNote = request != null ? request.buyerNote() : null;
         String orderNumber = "ORD-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
 
-        Long shippingAddressId = request != null ? request.shippingAddressId() : null;
-        String buyerNote = request != null ? request.buyerNote() : null;
-        JSONB addressSnapshot = createAddressSnapshot(principal.userId(), shippingAddressId);
-
+        // 6. Insert Sales Order
         SalesOrderRecord salesOrder = orderRepository.insertSalesOrder(
                 orderNumber,
                 principal.userId(),
@@ -172,46 +301,24 @@ public class CheckoutService {
                 buyerNote,
                 trimmedKey);
 
-        // 5. Group cart items by sellerProfileId & Create Seller Orders + Order Items
-        Map<Long, List<CartItem>> itemsBySeller = new LinkedHashMap<>();
-        for (CartItem item : items) {
-            ListingOffer offer = offers.get(item.listingId());
-            itemsBySeller.computeIfAbsent(offer.sellerProfileId(), k -> new ArrayList<>()).add(item);
-        }
-
+        // 7. Insert Seller Orders & Order Items & Units
         Map<Long, ListingSnapshotDetails> snapshotDetails = orderRepository.findListingDetails(listingIds);
 
-        for (Map.Entry<Long, List<CartItem>> entry : itemsBySeller.entrySet()) {
-            long sellerProfileId = entry.getKey();
-            List<CartItem> sellerItems = entry.getValue();
-
-            BigDecimal sellerSubtotal = sellerItems.stream()
-                    .map(i -> i.unitPriceAtAdd().multiply(BigDecimal.valueOf(i.quantity())))
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            BigDecimal sellerShipping = BigDecimal.ZERO;
-            BigDecimal sellerDiscount = BigDecimal.ZERO;
-            BigDecimal sellerGrandTotal = sellerSubtotal.add(sellerShipping).subtract(sellerDiscount);
-
-            BigDecimal commission = ledgerPort.quoteCommission(sellerSubtotal);
-            if (commission == null) {
-                commission = BigDecimal.ZERO;
-            }
-            BigDecimal sellerNet = sellerGrandTotal.subtract(commission);
-
-            String sellerOrderNumber = orderNumber + "-S" + sellerProfileId;
+        for (SellerSuborderComputation sc : sellerComputations) {
+            String sellerOrderNumber = orderNumber + "-S" + sc.sellerProfileId();
 
             SellerOrderRecord sellerOrder = orderRepository.insertSellerOrder(
                     salesOrder.getId(),
-                    sellerProfileId,
+                    sc.sellerProfileId(),
                     sellerOrderNumber,
-                    sellerSubtotal,
-                    sellerShipping,
-                    sellerDiscount,
-                    sellerGrandTotal,
-                    commission,
-                    sellerNet);
+                    sc.subtotal(),
+                    sc.shippingFee(),
+                    sc.discount(),
+                    sc.grandTotal(),
+                    sc.commission(),
+                    sc.netAmount());
 
-            for (CartItem sellerItem : sellerItems) {
+            for (CartItem sellerItem : sc.items()) {
                 ListingSnapshotDetails details = snapshotDetails.get(sellerItem.listingId());
                 String productName = details != null ? details.productName() : "Trading Card";
                 String variantLabel = details != null ? details.variantLabel() : "Standard";
@@ -236,19 +343,23 @@ public class CheckoutService {
                         imageKey);
 
                 List<ReservedUnit> reservedUnits = heldUnitsByListing.get(sellerItem.listingId());
-                List<Long> unitIds = reservedUnits.stream().map(ReservedUnit::unitId).toList();
+                List<Long> unitIds = reservedUnits != null ? reservedUnits.stream().map(ReservedUnit::unitId).toList() : List.of();
                 orderRepository.insertOrderItemUnits(orderItem.getId(), unitIds);
             }
         }
 
-        // 6. Cleanup User Cart
+        // 8. Cleanup User Cart
         cartRepository.deleteCart(cart.id());
 
-        // 7. Return complete order outcome
-        return getOrderDetails(salesOrder.getId());
+        // 9. Return complete order outcome
+        return getOrderDetails(salesOrder.getId(), false);
     }
 
     public CheckoutResponse getOrderDetails(long salesOrderId) {
+        return getOrderDetails(salesOrderId, false);
+    }
+
+    public CheckoutResponse getOrderDetails(long salesOrderId, boolean replayed) {
         SalesOrderRecord salesOrder = orderRepository.findSalesOrderById(salesOrderId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
 
@@ -298,18 +409,14 @@ public class CheckoutService {
                 salesOrder.getDiscountTotal(),
                 salesOrder.getGrandTotal(),
                 salesOrder.getPlacedAt(),
-                sellerResponses);
+                sellerResponses,
+                replayed);
     }
 
-    private JSONB createAddressSnapshot(long userId, Long shippingAddressId) {
-        if (shippingAddressId == null) {
+    private JSONB createAddressSnapshot(Address a) {
+        if (a == null) {
             return JSONB.valueOf("{}");
         }
-        Optional<Address> addressOpt = addressRepository.findByIdAndUserId(shippingAddressId, userId);
-        if (addressOpt.isEmpty()) {
-            return JSONB.valueOf("{}");
-        }
-        Address a = addressOpt.get();
         String json = """
                 {"id":%d,"recipientName":"%s","phone":"%s","line1":"%s","line2":"%s","subdistrict":"%s","district":"%s","province":"%s","postalCode":"%s","countryCode":"%s"}
                 """.formatted(

@@ -37,6 +37,7 @@ public class CheckoutController {
 
     @Operation(summary = "Checkout active cart", description = "Converts items in the buyer's cart into a sales order and seller orders with inventory reservation.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Order already placed with this idempotency key (replayed response)"),
             @ApiResponse(responseCode = "201", description = "Order created successfully"),
             @ApiResponse(responseCode = "400", description = "Idempotency key missing or invalid request"),
             @ApiResponse(responseCode = "401", description = "Unauthenticated"),
@@ -50,7 +51,9 @@ public class CheckoutController {
             AuthPrincipal principal) {
 
         CheckoutResponse response = checkoutService.checkout(principal, idempotencyKey, sessionKey, request);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResult.success("Order placed successfully", response));
+        HttpStatus status = response.replayed() ? HttpStatus.OK : HttpStatus.CREATED;
+        String message = response.replayed() ? "Order retrieved successfully (idempotent replay)" : "Order placed successfully";
+        return ResponseEntity.status(status)
+                .body(ApiResult.success(message, response));
     }
 }

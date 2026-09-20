@@ -22,6 +22,7 @@ import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
 import com.pegasus.pegasustcgapi.jooq.tables.records.OrderItemRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
+import org.springframework.dao.DuplicateKeyException;
 import com.pegasus.pegasustcgapi.model.Address;
 import com.pegasus.pegasustcgapi.model.CardCondition;
 import com.pegasus.pegasustcgapi.model.Cart;
@@ -210,6 +211,74 @@ class CheckoutServiceTest {
             SalesOrderRecord otherUserOrder = salesOrderRecord(1L, 99L, "ORD-999", idemKey);
 
             given(orderRepository.findSalesOrderByIdempotencyKey(idemKey)).willReturn(Optional.of(otherUserOrder));
+
+            assertThatThrownBy(() -> checkoutService.checkout(buyer, idemKey, null, null))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_KEY_CONFLICT));
+        }
+
+        @Test
+        @DisplayName("recovers from DuplicateKeyException race condition when winner belongs to same buyer")
+        void recoversFromDuplicateKeyRaceConditionSameBuyer() {
+            AuthPrincipal buyer = principal(42L);
+            String idemKey = "idem-race-1";
+            Cart cart = new Cart(5L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem item = new CartItem(10L, 5L, 100L, 1, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            ListingOffer offer1 = offer(100L, 77L, new BigDecimal("100.00"), true);
+            ReservedUnit unit = new ReservedUnit(1001L, UUID.randomUUID());
+            SalesOrderRecord winnerOrder = salesOrderRecord(999L, 42L, "ORD-WINNER", idemKey);
+
+            // Fast path misses because both requests raced concurrently
+            given(orderRepository.findSalesOrderByIdempotencyKey(idemKey))
+                    .willReturn(Optional.empty())
+                    .willReturn(Optional.of(winnerOrder));
+
+            given(cartRepository.findByUserId(42L)).willReturn(Optional.of(cart));
+            given(cartRepository.findItemsByCartId(5L)).willReturn(List.of(item));
+            given(pricingPort.offers(List.of(100L))).willReturn(Map.of(100L, offer1));
+            given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.empty());
+            given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
+            given(ledgerPort.quoteCommission(any())).willReturn(BigDecimal.TEN);
+
+            // Insert throws DuplicateKeyException due to concurrent duplicate key
+            given(orderRepository.insertSalesOrder(anyString(), anyLong(), anyString(), any(), any(), any(), any(), any(), any(), any(), eq(idemKey)))
+                    .willThrow(new DuplicateKeyException("duplicate key value"));
+
+            given(orderRepository.findSalesOrderById(999L)).willReturn(Optional.of(winnerOrder));
+            given(orderRepository.findSellerOrdersBySalesOrderId(999L)).willReturn(List.of());
+
+            CheckoutResponse response = checkoutService.checkout(buyer, idemKey, null, null);
+
+            assertThat(response).isNotNull();
+            assertThat(response.orderId()).isEqualTo(999L);
+            assertThat(response.orderNumber()).isEqualTo("ORD-WINNER");
+            assertThat(response.replayed()).isTrue();
+        }
+
+        @Test
+        @DisplayName("throws IDEMPOTENCY_KEY_CONFLICT when DuplicateKeyException occurs and winner belongs to another buyer")
+        void duplicateKeyRaceConditionDifferentBuyerThrowsConflict() {
+            AuthPrincipal buyer = principal(42L);
+            String idemKey = "idem-race-conflict";
+            Cart cart = new Cart(5L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem item = new CartItem(10L, 5L, 100L, 1, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            ListingOffer offer1 = offer(100L, 77L, new BigDecimal("100.00"), true);
+            ReservedUnit unit = new ReservedUnit(1001L, UUID.randomUUID());
+            SalesOrderRecord otherBuyerWinner = salesOrderRecord(999L, 888L, "ORD-OTHER", idemKey);
+
+            given(orderRepository.findSalesOrderByIdempotencyKey(idemKey))
+                    .willReturn(Optional.empty())
+                    .willReturn(Optional.of(otherBuyerWinner));
+
+            given(cartRepository.findByUserId(42L)).willReturn(Optional.of(cart));
+            given(cartRepository.findItemsByCartId(5L)).willReturn(List.of(item));
+            given(pricingPort.offers(List.of(100L))).willReturn(Map.of(100L, offer1));
+            given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.empty());
+            given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
+            given(ledgerPort.quoteCommission(any())).willReturn(BigDecimal.TEN);
+
+            given(orderRepository.insertSalesOrder(anyString(), anyLong(), anyString(), any(), any(), any(), any(), any(), any(), any(), eq(idemKey)))
+                    .willThrow(new DuplicateKeyException("duplicate key value"));
 
             assertThatThrownBy(() -> checkoutService.checkout(buyer, idemKey, null, null))
                     .isInstanceOfSatisfying(ConflictException.class,
@@ -503,16 +572,145 @@ class CheckoutServiceTest {
             ReservedUnit unit = new ReservedUnit(1001L, UUID.randomUUID());
             given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
 
-            SalesOrderRecord salesOrder = salesOrderRecord(1L, 42L, "ORD-123", idemKey);
-            given(orderRepository.insertSalesOrder(anyString(), anyLong(), anyString(), any(), any(), any(), any(), any(), any(), any(), anyString()))
-                    .willReturn(salesOrder);
-
             given(ledgerPort.quoteCommission(any())).willThrow(new IllegalStateException("Ledger communication failure"));
 
             assertThatThrownBy(() -> checkoutService.checkout(buyer, idemKey, null, null))
                     .isInstanceOf(IllegalStateException.class);
 
+            verify(orderRepository, never()).insertSalesOrder(anyString(), anyLong(), anyString(), any(), any(), any(), any(), any(), any(), any(), anyString());
             verify(cartRepository, never()).deleteCart(anyLong());
+        }
+
+        @Test
+        @DisplayName("multi-seller cart with 3 sellers generates 1 sales order and 3 distinct seller orders")
+        void multiSellerOrderSplitting3Sellers() {
+            AuthPrincipal buyer = principal(42L);
+            String idemKey = "idem-3-sellers";
+            Cart cart = new Cart(5L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem item1 = new CartItem(10L, 5L, 100L, 1, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            CartItem item2 = new CartItem(11L, 5L, 101L, 1, new BigDecimal("200.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            CartItem item3 = new CartItem(12L, 5L, 102L, 1, new BigDecimal("300.00"), OffsetDateTime.now(), OffsetDateTime.now());
+
+            ListingOffer offer1 = offer(100L, 77L, new BigDecimal("100.00"), true);
+            ListingOffer offer2 = offer(101L, 88L, new BigDecimal("200.00"), true);
+            ListingOffer offer3 = offer(102L, 99L, new BigDecimal("300.00"), true);
+
+            given(orderRepository.findSalesOrderByIdempotencyKey(idemKey)).willReturn(Optional.empty());
+            given(cartRepository.findByUserId(42L)).willReturn(Optional.of(cart));
+            given(cartRepository.findItemsByCartId(5L)).willReturn(List.of(item1, item2, item3));
+            given(pricingPort.offers(List.of(100L, 101L, 102L))).willReturn(Map.of(100L, offer1, 101L, offer2, 102L, offer3));
+            given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.empty());
+
+            ReservedUnit unit1 = new ReservedUnit(1001L, UUID.randomUUID());
+            ReservedUnit unit2 = new ReservedUnit(1002L, UUID.randomUUID());
+            ReservedUnit unit3 = new ReservedUnit(1003L, UUID.randomUUID());
+            given(inventoryPort.reserve(Map.of(100L, 1, 101L, 1, 102L, 1)))
+                    .willReturn(Map.of(100L, List.of(unit1), 101L, List.of(unit2), 102L, List.of(unit3)));
+
+            ListingSnapshotDetails d1 = new ListingSnapshotDetails(100L, 1L, "NM", "Card A", "EN", "Pokemon", null);
+            ListingSnapshotDetails d2 = new ListingSnapshotDetails(101L, 2L, "NM", "Card B", "EN", "Pokemon", null);
+            ListingSnapshotDetails d3 = new ListingSnapshotDetails(102L, 3L, "NM", "Card C", "EN", "Pokemon", null);
+            given(orderRepository.findListingDetails(List.of(100L, 101L, 102L))).willReturn(Map.of(100L, d1, 101L, d2, 102L, d3));
+
+            given(ledgerPort.quoteCommission(new BigDecimal("100.00"))).willReturn(new BigDecimal("10.00"));
+            given(ledgerPort.quoteCommission(new BigDecimal("200.00"))).willReturn(new BigDecimal("20.00"));
+            given(ledgerPort.quoteCommission(new BigDecimal("300.00"))).willReturn(new BigDecimal("30.00"));
+
+            SalesOrderRecord salesOrder = salesOrderRecord(1L, 42L, "ORD-3S", idemKey);
+            salesOrder.setGrandTotal(new BigDecimal("600.00"));
+            SellerOrderRecord so1 = sellerOrderRecord(10L, 1L, 77L, "ORD-3S-S77");
+            SellerOrderRecord so2 = sellerOrderRecord(11L, 1L, 88L, "ORD-3S-S88");
+            SellerOrderRecord so3 = sellerOrderRecord(12L, 1L, 99L, "ORD-3S-S99");
+
+            OrderItemRecord oi1 = orderItemRecord(1000L, 10L, 100L, 1, new BigDecimal("100.00"));
+            OrderItemRecord oi2 = orderItemRecord(1001L, 11L, 101L, 1, new BigDecimal("200.00"));
+            OrderItemRecord oi3 = orderItemRecord(1002L, 12L, 102L, 1, new BigDecimal("300.00"));
+
+            given(orderRepository.insertSalesOrder(anyString(), eq(42L), eq("THB"),
+                    eq(new BigDecimal("600.00")), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
+                    eq(new BigDecimal("600.00")), eq(null), any(), eq(null), eq(idemKey)))
+                    .willReturn(salesOrder);
+
+            given(orderRepository.insertSellerOrder(eq(1L), eq(77L), anyString(),
+                    eq(new BigDecimal("100.00")), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
+                    eq(new BigDecimal("100.00")), eq(new BigDecimal("10.00")), eq(new BigDecimal("90.00"))))
+                    .willReturn(so1);
+            given(orderRepository.insertSellerOrder(eq(1L), eq(88L), anyString(),
+                    eq(new BigDecimal("200.00")), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
+                    eq(new BigDecimal("200.00")), eq(new BigDecimal("20.00")), eq(new BigDecimal("180.00"))))
+                    .willReturn(so2);
+            given(orderRepository.insertSellerOrder(eq(1L), eq(99L), anyString(),
+                    eq(new BigDecimal("300.00")), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
+                    eq(new BigDecimal("300.00")), eq(new BigDecimal("30.00")), eq(new BigDecimal("270.00"))))
+                    .willReturn(so3);
+
+            given(orderRepository.insertOrderItem(eq(10L), eq(100L), eq(1L), eq(1), eq(new BigDecimal("100.00")), eq(new BigDecimal("100.00")), anyString(), anyString(), anyString(), any(), any()))
+                    .willReturn(oi1);
+            given(orderRepository.insertOrderItem(eq(11L), eq(101L), eq(2L), eq(1), eq(new BigDecimal("200.00")), eq(new BigDecimal("200.00")), anyString(), anyString(), anyString(), any(), any()))
+                    .willReturn(oi2);
+            given(orderRepository.insertOrderItem(eq(12L), eq(102L), eq(3L), eq(1), eq(new BigDecimal("300.00")), eq(new BigDecimal("300.00")), anyString(), anyString(), anyString(), any(), any()))
+                    .willReturn(oi3);
+
+            given(orderRepository.findSalesOrderById(1L)).willReturn(Optional.of(salesOrder));
+            given(orderRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of(so1, so2, so3));
+            given(orderRepository.findOrderItemsBySellerOrderId(10L)).willReturn(List.of(oi1));
+            given(orderRepository.findOrderItemsBySellerOrderId(11L)).willReturn(List.of(oi2));
+            given(orderRepository.findOrderItemsBySellerOrderId(12L)).willReturn(List.of(oi3));
+            given(orderRepository.findUnitIdsByOrderItemId(anyLong())).willReturn(List.of(1001L));
+
+            CheckoutResponse response = checkoutService.checkout(buyer, idemKey, null, null);
+
+            assertThat(response).isNotNull();
+            assertThat(response.orderId()).isEqualTo(1L);
+            assertThat(response.sellerOrders()).hasSize(3);
+            verify(orderRepository).insertSellerOrder(eq(1L), eq(77L), anyString(), any(), any(), any(), any(), any(), any());
+            verify(orderRepository).insertSellerOrder(eq(1L), eq(88L), anyString(), any(), any(), any(), any(), any(), any());
+            verify(orderRepository).insertSellerOrder(eq(1L), eq(99L), anyString(), any(), any(), any(), any(), any(), any());
+            verify(cartRepository).deleteCart(5L);
+        }
+
+        @Test
+        @DisplayName("falls back to default shipping address when not explicitly specified in request")
+        void fallbackToDefaultAddressWhenNotSpecified() {
+            AuthPrincipal buyer = principal(42L);
+            String idemKey = "idem-addr-fallback";
+            Cart cart = new Cart(5L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem item = new CartItem(10L, 5L, 100L, 1, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            ListingOffer offer1 = offer(100L, 77L, new BigDecimal("100.00"), true);
+            Address defaultAddr = new Address(55L, 42L, "Home", "Default Recipient", "0812345678", "Line 1", null,
+                    "Subdistrict", "District", "Bangkok", "10110", "TH", true, false, OffsetDateTime.now());
+
+            given(orderRepository.findSalesOrderByIdempotencyKey(idemKey)).willReturn(Optional.empty());
+            given(cartRepository.findByUserId(42L)).willReturn(Optional.of(cart));
+            given(cartRepository.findItemsByCartId(5L)).willReturn(List.of(item));
+            given(pricingPort.offers(List.of(100L))).willReturn(Map.of(100L, offer1));
+            given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.empty());
+            given(addressRepository.findByUserId(42L)).willReturn(List.of(defaultAddr));
+
+            ReservedUnit unit = new ReservedUnit(1001L, UUID.randomUUID());
+            given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
+            given(ledgerPort.quoteCommission(any())).willReturn(BigDecimal.TEN);
+
+            SalesOrderRecord salesOrder = salesOrderRecord(1L, 42L, "ORD-DEF-ADDR", idemKey);
+            SellerOrderRecord sellerOrder = sellerOrderRecord(10L, 1L, 77L, "ORD-DEF-ADDR-S77");
+            OrderItemRecord orderItem = orderItemRecord(1000L, 10L, 100L, 1, new BigDecimal("100.00"));
+
+            given(orderRepository.insertSalesOrder(anyString(), eq(42L), anyString(), any(), any(), any(), any(), eq(55L), any(), any(), eq(idemKey)))
+                    .willReturn(salesOrder);
+            given(orderRepository.insertSellerOrder(anyLong(), anyLong(), anyString(), any(), any(), any(), any(), any(), any()))
+                    .willReturn(sellerOrder);
+            given(orderRepository.insertOrderItem(anyLong(), anyLong(), anyLong(), anyInt(), any(), any(), any(), any(), any(), any(), any()))
+                    .willReturn(orderItem);
+
+            given(orderRepository.findSalesOrderById(1L)).willReturn(Optional.of(salesOrder));
+            given(orderRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of(sellerOrder));
+            given(orderRepository.findOrderItemsBySellerOrderId(10L)).willReturn(List.of(orderItem));
+            given(orderRepository.findUnitIdsByOrderItemId(1000L)).willReturn(List.of(1001L));
+
+            CheckoutResponse response = checkoutService.checkout(buyer, idemKey, null, null);
+
+            assertThat(response).isNotNull();
+            verify(orderRepository).insertSalesOrder(anyString(), eq(42L), anyString(), any(), any(), any(), any(), eq(55L), any(), any(), eq(idemKey));
         }
     }
 }

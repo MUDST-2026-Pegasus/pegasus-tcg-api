@@ -133,6 +133,22 @@ class CheckoutControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/v1/checkout returns 200 OK with order details on idempotent replay")
+    void replayedCheckoutReturnsOk() throws Exception {
+        CheckoutResponse response = mockResponse(1L, "ORD-2026-001").withReplayed(true);
+        given(checkoutService.checkout(any(), eq("key-replay"), any(), any()))
+                .willReturn(response);
+
+        mockMvc.perform(post(ApiPaths.CHECKOUT)
+                        .header("Idempotency-Key", "key-replay"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.orderId").value(1))
+                .andExpect(jsonPath("$.data.orderNumber").value("ORD-2026-001"))
+                .andExpect(jsonPath("$.data.replayed").value(true));
+    }
+
+    @Test
     @DisplayName("POST /api/v1/checkout returns 409 CART_EMPTY when cart has no items")
     void emptyCartReturnsConflict() throws Exception {
         given(checkoutService.checkout(any(), eq("key-empty"), any(), any()))

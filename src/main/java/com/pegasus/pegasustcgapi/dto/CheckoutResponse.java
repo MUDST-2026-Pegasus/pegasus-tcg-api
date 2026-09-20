@@ -18,7 +18,39 @@ public record CheckoutResponse(
         BigDecimal discountTotal,
         BigDecimal grandTotal,
         OffsetDateTime placedAt,
-        List<SellerOrderResponse> sellerOrders) {
+        List<SellerOrderResponse> sellerOrders,
+        boolean replayed) {
+
+    public CheckoutResponse(
+            long orderId,
+            String orderNumber,
+            long buyerId,
+            String status,
+            String currency,
+            BigDecimal itemsSubtotal,
+            BigDecimal shippingTotal,
+            BigDecimal discountTotal,
+            BigDecimal grandTotal,
+            OffsetDateTime placedAt,
+            List<SellerOrderResponse> sellerOrders) {
+        this(orderId, orderNumber, buyerId, status, currency, itemsSubtotal, shippingTotal, discountTotal, grandTotal, placedAt, sellerOrders, false);
+    }
+
+    public CheckoutResponse withReplayed(boolean replayed) {
+        return new CheckoutResponse(
+                orderId,
+                orderNumber,
+                buyerId,
+                status,
+                currency,
+                itemsSubtotal,
+                shippingTotal,
+                discountTotal,
+                grandTotal,
+                placedAt,
+                sellerOrders,
+                replayed);
+    }
 
     public record SellerOrderResponse(
             long id,
