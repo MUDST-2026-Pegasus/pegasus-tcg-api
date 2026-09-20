@@ -189,8 +189,47 @@ public class CartRepository {
         dsl.deleteFrom(CART).where(CART.ID.eq(guestCartId)).execute();
     }
 
+    /**
+     * Re-pins an item to the price it sells for now, so the buyer can look at the
+     * new figure and check out again [CR-3].
+     */
+    public CartItem updateItemPrice(long itemId, long cartId, BigDecimal unitPriceAtAdd) {
+        CartItemRecord record = dsl.update(CART_ITEM)
+                .set(CART_ITEM.UNIT_PRICE_AT_ADD, unitPriceAtAdd)
+                .set(CART_ITEM.UPDATED_AT, DSL.currentOffsetDateTime())
+                .where(CART_ITEM.ID.eq(itemId))
+                .and(CART_ITEM.CART_ID.eq(cartId))
+                .returning()
+                .fetchOne();
+        return record == null ? null : toCartItem(record);
+    }
+
+    /**
+     * Empties a basket without removing it. Checkout takes everything in the cart,
+     * and the buyer keeps the same cart row for whatever they put in next.
+     */
+    public int deleteItemsByCartId(long cartId) {
+        return dsl.deleteFrom(CART_ITEM)
+                .where(CART_ITEM.CART_ID.eq(cartId))
+                .execute();
+    }
+
     public void deleteCart(long cartId) {
         dsl.deleteFrom(CART).where(CART.ID.eq(cartId)).execute();
+    }
+
+    /**
+     * Housekeeping for signed-out baskets nobody came back for.
+     *
+     * <p>Anyone can create one of these without an account, so without a sweep the
+     * table only ever grows. {@code cart_item} cascades from {@code cart}.
+     */
+    public int deleteExpiredGuestCarts(OffsetDateTime cutoff) {
+        return dsl.deleteFrom(CART)
+                .where(CART.USER_ID.isNull())
+                .and(CART.EXPIRES_AT.isNotNull())
+                .and(CART.EXPIRES_AT.lt(cutoff))
+                .execute();
     }
 
     static Cart toCart(CartRecord r) {

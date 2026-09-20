@@ -73,10 +73,13 @@ public enum ErrorCode {
     ORDER_STATUS_TRANSITION(HttpStatus.CONFLICT, "This order cannot move to that status"),
     CANCEL_WINDOW_CLOSED(HttpStatus.CONFLICT, "Order cancellation window has closed"),
     IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "Request with this idempotency key is already in progress or completed"),
+    DATA_CONFLICT(HttpStatus.CONFLICT, "This change conflicts with data that already exists"),
 
     INVALID_ATTRIBUTE_DEFINITION(HttpStatus.BAD_REQUEST, "Attribute definition is not usable"),
     INVALID_PRODUCT_ATTRIBUTES(HttpStatus.BAD_REQUEST, "Product attributes do not match this game"),
     IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "Idempotency-Key header is required"),
+    SHIPPING_OPTION_INVALID(HttpStatus.BAD_REQUEST, "Shipping option does not belong to this seller"),
+    CART_SESSION_INVALID(HttpStatus.BAD_REQUEST, "X-Cart-Session is not a session key this API issued"),
 
     UNSUPPORTED_FILE_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "File type is not allowed for this upload"),
     FILE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "File is larger than this upload allows"),
