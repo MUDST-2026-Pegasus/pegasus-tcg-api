@@ -70,7 +70,7 @@ class CartControllerTest {
     @Test
     @DisplayName("POST /api/v1/cart/items returns X-Cart-Session header for guest")
     void guestAddItemSetsCartSessionHeader() throws Exception {
-        String sessionKey = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        String sessionKey = "test-session-cart-12345";
         CartItemResponse item = mockItemResponse(100L, 5L, 2, new BigDecimal("120.00"), false);
         given(cartService.addItem(any(), any(), any(CartItemRequest.class)))
                 .willReturn(new AddResult(item, sessionKey));

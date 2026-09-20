@@ -84,8 +84,21 @@ public class CartService {
         }
 
         int requestedQuantity = request.resolvedQuantity();
+        if (requestedQuantity < 1) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Quantity must be at least 1");
+        }
+
         Optional<CartItem> existingItem = cartRepository.findItemByCartIdAndListingId(cart.id(), request.listingId());
-        int cumulativeQuantity = existingItem.map(item -> item.quantity() + requestedQuantity).orElse(requestedQuantity);
+        int cumulativeQuantity;
+        if (existingItem.isPresent()) {
+            try {
+                cumulativeQuantity = Math.addExact(existingItem.get().quantity(), requestedQuantity);
+            } catch (ArithmeticException e) {
+                throw new ConflictException(ErrorCode.INSUFFICIENT_STOCK, "Requested quantity causes integer overflow");
+            }
+        } else {
+            cumulativeQuantity = requestedQuantity;
+        }
 
         if (cumulativeQuantity > offer.quantityAvailable()) {
             throw new ConflictException(

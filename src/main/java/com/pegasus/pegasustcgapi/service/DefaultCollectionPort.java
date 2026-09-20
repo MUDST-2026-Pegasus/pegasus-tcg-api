@@ -2,8 +2,6 @@ package com.pegasus.pegasustcgapi.service;
 
 import com.pegasus.pegasustcgapi.port.CollectionPort;
 import com.pegasus.pegasustcgapi.repository.OrderRepository;
-import java.util.List;
-import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 /**
@@ -16,11 +14,6 @@ public class DefaultCollectionPort implements CollectionPort {
 
     public DefaultCollectionPort(OrderRepository orderRepository) {
         this.orderRepository = orderRepository;
-    }
-
-    @Override
-    public void grant(UUID userId, List<UUID> orderItemUnitIds) {
-        // Stub for UUID-based callers
     }
 
     @Override

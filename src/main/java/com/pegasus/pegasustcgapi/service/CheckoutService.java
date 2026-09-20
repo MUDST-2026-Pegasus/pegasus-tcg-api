@@ -169,7 +169,10 @@ public class CheckoutService {
 
         // 1. Retrieve user's cart and items
         Cart cart = cartRepository.findByUserId(principal.userId()).orElse(null);
-        List<CartItem> items = cart != null ? cartRepository.findItemsByCartId(cart.id()) : List.of();
+        if (cart == null) {
+            throw new ConflictException(ErrorCode.CART_EMPTY);
+        }
+        List<CartItem> items = cartRepository.findItemsByCartId(cart.id());
         if (items.isEmpty()) {
             throw new ConflictException(ErrorCode.CART_EMPTY);
         }
@@ -349,7 +352,9 @@ public class CheckoutService {
         }
 
         // 8. Cleanup User Cart
-        cartRepository.deleteCart(cart.id());
+        if (cart != null) {
+            cartRepository.deleteCart(cart.id());
+        }
 
         // 9. Return complete order outcome
         return getOrderDetails(salesOrder.getId(), false);
