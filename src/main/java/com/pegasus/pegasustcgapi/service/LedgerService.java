@@ -26,4 +26,9 @@ public class LedgerService implements LedgerPort {
     public void release(UUID sellerOrderId) {
         // Escrow release stub for future payout integration
     }
+
+    @Override
+    public void release(long sellerOrderId) {
+        // Escrow release stub for future payout integration
+    }
 }

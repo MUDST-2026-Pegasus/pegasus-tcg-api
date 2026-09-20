@@ -11,4 +11,6 @@ public interface LedgerPort {
     BigDecimal quoteCommission(BigDecimal itemsSubtotal);
 
     void release(UUID sellerOrderId);
+
+    void release(long sellerOrderId);
 }

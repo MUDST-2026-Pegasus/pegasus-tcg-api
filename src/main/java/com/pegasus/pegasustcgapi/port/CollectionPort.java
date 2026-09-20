@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface CollectionPort {
 
     void grant(UUID userId, List<UUID> orderItemUnitIds);
+
+    void grant(long buyerUserId, long sellerOrderId);
 }

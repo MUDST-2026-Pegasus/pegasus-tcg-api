@@ -206,6 +206,30 @@ SELECT v.public_uid::uuid, sp.id, cv.id, 'NM', l.id, 'LISTED', 180.00, now()
      SELECT 1 FROM listing_unit lu WHERE lu.public_uid = v.public_uid::uuid
  );
 
+-- ---------- seller variant cost (inventory ledger) ----------
+--
+-- Running average costs required for inventory movements and commitSale.
+
+INSERT INTO seller_variant_cost (seller_profile_id, catalog_variant_id, condition_code, total_quantity, total_cost, average_unit_cost, last_movement_at)
+SELECT sp.id, cv.id, 'NM', 2, 150.00, 75.0000, now()
+  FROM seller_profile sp
+  JOIN user_account u ON u.id = sp.user_id AND u.username = 'seller_user'
+  JOIN catalog_variant cv ON cv.sku = 'POKEMON-SV8A-006-165-EN-NORMAL'
+ WHERE NOT EXISTS (
+     SELECT 1 FROM seller_variant_cost svc
+      WHERE svc.seller_profile_id = sp.id AND svc.catalog_variant_id = cv.id AND svc.condition_code = 'NM'
+ );
+
+INSERT INTO seller_variant_cost (seller_profile_id, catalog_variant_id, condition_code, total_quantity, total_cost, average_unit_cost, last_movement_at)
+SELECT sp.id, cv.id, 'NM', 2, 360.00, 180.0000, now()
+  FROM seller_profile sp
+  JOIN user_account u ON u.id = sp.user_id AND u.username = 'seller_user'
+  JOIN catalog_variant cv ON cv.sku = 'POKEMON-SV8A-006-165-EN-FOIL'
+ WHERE NOT EXISTS (
+     SELECT 1 FROM seller_variant_cost svc
+      WHERE svc.seller_profile_id = sp.id AND svc.catalog_variant_id = cv.id AND svc.condition_code = 'NM'
+ );
+
 -- ---------- sequence resynchronization ----------
 
 SELECT setval(pg_get_serial_sequence('user_account', 'id'), COALESCE((SELECT max(id) FROM user_account), 1));
@@ -217,6 +241,7 @@ SELECT setval(pg_get_serial_sequence('catalog_product', 'id'), COALESCE((SELECT 
 SELECT setval(pg_get_serial_sequence('catalog_variant', 'id'), COALESCE((SELECT max(id) FROM catalog_variant), 1));
 SELECT setval(pg_get_serial_sequence('listing', 'id'), COALESCE((SELECT max(id) FROM listing), 1));
 SELECT setval(pg_get_serial_sequence('listing_unit', 'id'), COALESCE((SELECT max(id) FROM listing_unit), 1));
+SELECT setval(pg_get_serial_sequence('seller_variant_cost', 'id'), COALESCE((SELECT max(id) FROM seller_variant_cost), 1));
 SELECT setval(pg_get_serial_sequence('address', 'id'), COALESCE((SELECT max(id) FROM address), 1));
 
 COMMIT;
