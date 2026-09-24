@@ -63,6 +63,11 @@ public class CatalogCategoryRepository {
                 .and(exceptId == null ? DSL.noCondition() : CATALOG_CATEGORY.ID.ne(exceptId)));
     }
 
+    public boolean hasChildren(int id) {
+        return dsl.fetchExists(dsl.selectOne().from(CATALOG_CATEGORY)
+                .where(CATALOG_CATEGORY.PARENT_ID.eq(id)));
+    }
+
     public int insert(CategoryFields fields) {
         return dsl.insertInto(CATALOG_CATEGORY)
                 .set(CATALOG_CATEGORY.GAME_ID, fields.gameId())

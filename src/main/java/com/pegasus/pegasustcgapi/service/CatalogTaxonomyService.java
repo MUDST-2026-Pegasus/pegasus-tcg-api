@@ -142,9 +142,11 @@ public class CatalogTaxonomyService {
      * would do the same in every other game. The game is fixed at creation, so
      * checking here is enough.
      *
-     * <p>Only one level is checked, so a deeper loop is still possible in theory.
-     * Categories are a short, admin-curated list, and the check that would rule it
-     * out reads the whole chain on every save.
+     * <p>Categories are two levels deep at most: a parent has to be top level, and
+     * a category that already has children cannot take a parent. Browsing by a
+     * category finds what is filed under it and under its children, and the search
+     * page lists the shelves the same way, so a third level would be a shelf nobody
+     * can reach. It also makes a parent loop impossible without reading the chain.
      *
      * @param gameId the child's game; null for a cross-game category
      */
@@ -156,6 +158,14 @@ public class CatalogTaxonomyService {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, "A category cannot be its own parent");
         }
         CatalogCategory parent = requireCategory(parentId);
+        if (parent.parentId() != null) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "Categories nest one level deep: the parent has to be a top-level category");
+        }
+        if (categoryId != null && categories.hasChildren(categoryId)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "A category with categories under it cannot be moved under another one");
+        }
         if (!parent.isCrossGame() && !parent.gameId().equals(gameId)) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED,
                     "A parent category must be cross-game or belong to the same game");

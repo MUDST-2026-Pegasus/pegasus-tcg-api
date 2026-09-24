@@ -265,4 +265,33 @@ class CatalogTaxonomyServiceTest {
 
         verifyNoInteractions(storage);
     }
+
+    @Test
+    @DisplayName("a category cannot go under one that is itself a child: two levels at most")
+    void grandchildIsRefused() {
+        given(categories.findById(204)).willReturn(Optional.of(new CatalogCategory(204, null, 203,
+                "BOOSTER_BOXES", "Booster boxes", "booster-boxes", (short) 2, true, null)));
+
+        assertThatThrownBy(() -> service.createCategory(new CategoryFields(null, 204,
+                "JUMBO", "Jumbo boxes", null, (short) 0, true, null)))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("one level deep");
+
+        verify(categories, never()).insert(any());
+    }
+
+    @Test
+    @DisplayName("a category with children cannot be moved under another, or its children become grandchildren")
+    void parentCannotBecomeAChild() {
+        given(categories.findById(203)).willReturn(Optional.of(new CatalogCategory(203, null, null,
+                "SEALED", "Sealed product", "sealed-product", (short) 2, true, null)));
+        given(categories.findById(205)).willReturn(Optional.of(new CatalogCategory(205, null, null,
+                "OTHER", "Other", "other", (short) 9, true, null)));
+        given(categories.hasChildren(203)).willReturn(true);
+
+        assertThatThrownBy(() -> service.updateCategory(203, new CategoryFields(null, 205,
+                "SEALED", "Sealed product", null, (short) 2, true, null)))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("cannot be moved under");
+    }
 }
