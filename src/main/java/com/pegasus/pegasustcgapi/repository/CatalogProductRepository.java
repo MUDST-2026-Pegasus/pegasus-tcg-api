@@ -105,6 +105,9 @@ public class CatalogProductRepository {
         if (!query.attributes().isEmpty()) {
             condition = condition.and(attributesContain(query.attributes()));
         }
+        if (query.inStockOnly()) {
+            condition = condition.and(CATALOG_PRODUCT.ID.in(ProductMarketRepository.productIdsOnSale()));
+        }
         return condition;
     }
 

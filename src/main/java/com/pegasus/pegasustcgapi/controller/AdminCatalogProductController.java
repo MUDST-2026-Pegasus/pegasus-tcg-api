@@ -83,7 +83,7 @@ public class AdminCatalogProductController {
             @RequestParam Map<String, String> allParameters) {
 
         return ApiResult.success(search.search(gameId, categoryId, cardSetId, productType, q,
-                allParameters, sort, activeOnly, page, size));
+                allParameters, sort, activeOnly, false, page, size));
     }
 
     /**

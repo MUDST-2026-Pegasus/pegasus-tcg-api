@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.dto;
 
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.ProductType;
+import java.math.BigDecimal;
 import java.util.Map;
 
 /**
@@ -11,6 +12,9 @@ import java.util.Map;
  *                        bucket is private; null when the entry has no art yet
  * @param variantCount    how many printings exist, so a tile can say "3 versions"
  *                        without a second request
+ * @param lowestPrice     the cheapest listing on sale now, in THB; null when nobody
+ *                        is selling one, which a tile shows as out of stock
+ * @param listingCount    listings on sale now, across every printing and condition
  */
 public record ProductSummaryResponse(
         long id,
@@ -25,10 +29,13 @@ public record ProductSummaryResponse(
         String rarityCode,
         Map<String, Object> attributes,
         String primaryImageUrl,
-        int variantCount) {
+        int variantCount,
+        BigDecimal lowestPrice,
+        int listingCount) {
 
     public static ProductSummaryResponse of(
-            CatalogProduct product, String primaryImageUrl, int variantCount) {
+            CatalogProduct product, String primaryImageUrl, int variantCount,
+            BigDecimal lowestPrice, int listingCount) {
 
         return new ProductSummaryResponse(
                 product.id(),
@@ -43,6 +50,8 @@ public record ProductSummaryResponse(
                 product.rarityCode(),
                 product.attributes(),
                 primaryImageUrl,
-                variantCount);
+                variantCount,
+                lowestPrice,
+                listingCount);
     }
 }

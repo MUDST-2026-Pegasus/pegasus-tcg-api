@@ -6,6 +6,7 @@ import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.dto.ProductDetailResponse;
 import com.pegasus.pegasustcgapi.dto.ProductSummaryResponse;
+import com.pegasus.pegasustcgapi.dto.TrendingProductResponse;
 import com.pegasus.pegasustcgapi.dto.VariantLookupResponse;
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.CatalogVariant;
@@ -57,8 +58,9 @@ public class CatalogProductController {
      * taken as well as the named ones: which keys exist depends on the game, and
      * only its registry knows them.
      *
-     * @param gameId worth sending: the browse index starts with it, and attribute
-     *               filters need it to know what {@code attr.hp} means
+     * @param gameId  worth sending: the browse index starts with it, and attribute
+     *                filters need it to know what {@code attr.hp} means
+     * @param inStock true for only the cards someone is selling right now
      */
     @GetMapping("/products")
     public ApiResult<PageResponse<ProductSummaryResponse>> browse(
@@ -68,12 +70,30 @@ public class CatalogProductController {
             @RequestParam(required = false) ProductType productType,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "false") boolean inStock,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam Map<String, String> allParameters) {
 
         return ApiResult.success(search.search(
-                gameId, categoryId, cardSetId, productType, q, allParameters, sort, true, page, size));
+                gameId, categoryId, cardSetId, productType, q, allParameters, sort, true, inStock, page, size));
+    }
+
+    /**
+     * The cards that have been selling: most sold over the last {@code days} first,
+     * then the ones more sellers are offering. Only cards on sale now are ranked.
+     *
+     * @param gameId optional; left out, every game is ranked together
+     * @param days   1–365, default 30
+     * @param limit  1–50, default 10
+     */
+    @GetMapping("/trending")
+    public ApiResult<List<TrendingProductResponse>> trending(
+            @RequestParam(required = false) Short gameId,
+            @RequestParam(required = false) Integer days,
+            @RequestParam(required = false) Integer limit) {
+
+        return ApiResult.success(search.trending(gameId, days, limit));
     }
 
     /**

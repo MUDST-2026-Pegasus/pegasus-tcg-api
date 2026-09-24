@@ -10,6 +10,7 @@ import java.util.Map;
  * @param nameQuery  matched against the English and local names
  * @param attributes exact matches, typed — {@code 200} and {@code "200"} are
  *                   different things to a jsonb containment test
+ * @param inStockOnly only products someone is selling right now
  */
 public record ProductSearchQuery(
         Short gameId,
@@ -19,6 +20,7 @@ public record ProductSearchQuery(
         String nameQuery,
         Map<String, Object> attributes,
         boolean activeOnly,
+        boolean inStockOnly,
         Sort sort,
         int limit,
         int offset) {
