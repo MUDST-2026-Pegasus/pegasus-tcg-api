@@ -37,6 +37,23 @@ pegasus:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
 
+  cart:
+    # Signed-out baskets past their expires_at. Anyone can create one without an
+    # account, so something has to clear them out.
+    guest-purge-cron: ${CART_GUEST_PURGE_CRON:0 30 3 * * *}
+
+  order:
+    # Escrow auto-release sweep: completes sub-orders the buyer never confirmed.
+    auto-release-cron: ${ORDER_AUTO_RELEASE_CRON:0 */5 * * * *}
+    # How many overdue sub-orders one round of the sweep pulls in.
+    auto-release-batch-size: ${ORDER_AUTO_RELEASE_BATCH_SIZE:200}
+
+  payment:
+    # POST /orders/{id}/pay marks an order paid without taking any money, which is
+    # only ever wanted on a developer machine or a sandbox. Off unless asked for:
+    # on a live deployment it is a way to have cards posted for free.
+    mock-enabled: ${PAYMENT_MOCK_ENABLED:false}
+
   pricing:
     # The nightly market run: the day's median per printing and condition, then
     # AUTO_MEDIAN prices moved to it [RQ-5]. Safe to run twice, or on two instances.

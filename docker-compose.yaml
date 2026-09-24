@@ -19,7 +19,9 @@ services:
       start_period: 10s
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # Official MinIO images on quay.io and Docker Hub no longer allow anonymous pulls;
+    # pgsty/minio is a maintained drop-in fork (same entrypoint, ships mc).
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     container_name: pegasus-tcg-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"

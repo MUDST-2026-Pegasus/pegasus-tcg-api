@@ -49,7 +49,13 @@ public class SecurityConfig {
     /** HS256 needs at least as much key material as it produces output. */
     private static final int MIN_SECRET_BYTES = 32;
 
-    /** Reachable without a token: the ways in, and the ways back in. */
+    /**
+     * Reachable without a token: the ways in, and the ways back in.
+     *
+     * <p>The cart is not listed here. It is open on every method, not just POST, and
+     * saying so once below beats a POST-only rule that a later {@code permitAll} for
+     * the same paths silently overrides.
+     */
     private static final String[] PUBLIC_POST_ENDPOINTS = {
         ApiPaths.AUTH + "/register",
         ApiPaths.AUTH + "/login",
@@ -108,6 +114,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
                         .requestMatchers(SWAGGER_WHITELIST).permitAll()
+                        // The basket is the one part of the shop a guest keeps, so every
+                        // method on it is open; the handlers themselves decide what an
+                        // anonymous caller may see by taking Optional<AuthPrincipal>.
+                        .requestMatchers(ApiPaths.CART, ApiPaths.CART + "/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .authenticationEntryPoint(securityErrorHandler)
@@ -152,6 +162,8 @@ public class SecurityConfig {
                 .macAlgorithm(MacAlgorithm.HS256)
                 .build();
 
+        // Expired tokens and clock skew are rejected here; anything semantic about
+        // who holds the token happens after it decodes.
         OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
                 new JwtTimestampValidator(),
                 new JwtIssuerValidator(properties.jwtIssuer()));
@@ -176,7 +188,15 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(properties.allowedOrigins());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+        config.setAllowedHeaders(List.of(
+                "Authorization",
+                "Content-Type",
+                "Accept",
+                "Idempotency-Key",
+                "X-Cart-Session"));
+        config.setExposedHeaders(List.of(
+                "X-Cart-Session",
+                "Idempotency-Key"));
         // Tokens travel in the Authorization header, never in a cookie.
         config.setAllowCredentials(false);
         config.setMaxAge(3600L);
