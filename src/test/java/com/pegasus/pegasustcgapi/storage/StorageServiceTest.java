@@ -123,4 +123,22 @@ class StorageServiceTest {
 
         verifyNoInteractions(client);
     }
+
+    @Test
+    @DisplayName("a key outside the public prefixes is never signed, whatever column it came from")
+    void privateKeyIsNotSigned() {
+        assertThat(service.readUrl("verifications/2026/09/bank-book.jpg")).isNull();
+        assertThat(service.readUrl("payments/2026/09/slip.png")).isNull();
+
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    @DisplayName("seeded pictures are public like catalogue art")
+    void seedKeyIsSigned() throws Exception {
+        given(client.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
+                .willReturn("http://localhost:9000/pegasus/seed/games/pokemon.png?X-Amz-Signature=abc");
+
+        assertThat(service.readUrl("seed/games/pokemon.png")).contains("seed/games/pokemon.png");
+    }
 }

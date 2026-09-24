@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
@@ -20,6 +21,8 @@ import com.pegasus.pegasustcgapi.repository.CardSetRepository;
 import com.pegasus.pegasustcgapi.repository.CardSetRepository.CardSetFields;
 import com.pegasus.pegasustcgapi.repository.CatalogCategoryRepository;
 import com.pegasus.pegasustcgapi.repository.CatalogCategoryRepository.CategoryFields;
+import com.pegasus.pegasustcgapi.storage.StorageService;
+import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.time.LocalDate;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,11 +47,14 @@ class CatalogTaxonomyServiceTest {
     @Mock
     private GameService games;
 
+    @Mock
+    private StorageService storage;
+
     private CatalogTaxonomyService service;
 
     @BeforeEach
     void setUp() {
-        service = new CatalogTaxonomyService(categories, cardSets, games);
+        service = new CatalogTaxonomyService(categories, cardSets, games, storage);
     }
 
     private static CatalogCategory singles() {
@@ -231,5 +237,32 @@ class CatalogTaxonomyServiceTest {
                 .isEqualTo(ErrorCode.CARD_SET_NOT_FOUND);
 
         verify(cardSets, never()).update(anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("a new tile picture has to be a finished catalogue upload, so a private file cannot go public")
+    void newImageMustBeACatalogUpload() {
+        String bankBook = "verifications/2026/09/bank-book.jpg";
+        given(storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, bankBook))
+                .willThrow(new ApiException(ErrorCode.VALIDATION_FAILED, "The key must come from a CATALOG_IMAGE upload"));
+
+        assertThatThrownBy(() -> service.createCategory(new CategoryFields(null, null,
+                "BOXES", "Boxes", null, (short) 0, true, bankBook)))
+                .isInstanceOf(ApiException.class);
+
+        verify(categories, never()).insert(any());
+    }
+
+    @Test
+    @DisplayName("keeping the picture a category already has needs no new upload")
+    void unchangedImageIsNotRechecked() {
+        given(categories.findById(201)).willReturn(Optional.of(new CatalogCategory(201, POKEMON, null,
+                "SINGLES", "Single cards", "single-cards", (short) 1, true, "seed/categories/singles.jpg")));
+        given(categories.codeTaken(POKEMON, "SINGLES", 201)).willReturn(false);
+
+        service.updateCategory(201, new CategoryFields(POKEMON, null, "SINGLES", "Singles", null,
+                (short) 1, true, "seed/categories/singles.jpg"));
+
+        verifyNoInteractions(storage);
     }
 }
