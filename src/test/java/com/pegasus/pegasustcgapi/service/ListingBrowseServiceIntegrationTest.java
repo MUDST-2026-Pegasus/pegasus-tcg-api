@@ -14,6 +14,7 @@ import com.pegasus.pegasustcgapi.support.TestData.Card;
 import com.pegasus.pegasustcgapi.support.TestData.Listing;
 import com.pegasus.pegasustcgapi.support.TestData.Seller;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -155,5 +157,88 @@ class ListingBrowseServiceIntegrationTest extends PostgresIntegrationTest {
                 new BigDecimal("500"), new BigDecimal("100"), null, 0, 20))
                 .isInstanceOfSatisfying(ApiException.class,
                         e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+    }
+
+    @Nested
+    @DisplayName("Sorting, price range and storefront")
+    class SortingAndStorefront {
+
+        private Seller shop;
+        private short gameId;
+        private List<Long> cheapToDear;
+
+        @BeforeEach
+        void threeListingsAtDifferentPrices() {
+            shop = data.seller();
+            gameId = data.game("Pokemon");
+            cheapToDear = new ArrayList<>();
+            for (String price : List.of("50.00", "150.00", "500.00")) {
+                Card card = data.card(gameId, "Card at " + price, "C");
+                cheapToDear.add(data.onSale(shop, card, CardCondition.NM, 1, price).id());
+            }
+        }
+
+        private List<Long> ids(PageResponse<PublicListingResponse> page) {
+            return page.items().stream().map(PublicListingResponse::id).toList();
+        }
+
+        @Test
+        @DisplayName("default and \"price\" sort cheapest first; \"price_desc\" dearest first")
+        void sortByPrice() {
+            assertThat(ids(browse.market(null, null, gameId, null, null, null, null, 0, 20)))
+                    .containsExactlyElementsOf(cheapToDear);
+            assertThat(ids(browse.market(null, null, gameId, null, null, null, "PRICE", 0, 20)))
+                    .containsExactlyElementsOf(cheapToDear);
+            assertThat(ids(browse.market(null, null, gameId, null, null, null, "price_desc", 0, 20)))
+                    .containsExactlyElementsOf(cheapToDear.reversed());
+        }
+
+        @Test
+        @DisplayName("\"newest\" puts the most recently published listing first")
+        void sortByNewest() {
+            assertThat(ids(browse.market(null, null, gameId, null, null, null, "newest", 0, 20)).getFirst())
+                    .isEqualTo(cheapToDear.getLast());
+        }
+
+        @Test
+        @DisplayName("an unknown sort is refused rather than silently ignored")
+        void unknownSortIsRefused() {
+            assertThatThrownBy(() -> browse.market(null, null, gameId, null, null, null, "rarity", 0, 20))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+        }
+
+        @Test
+        @DisplayName("minPrice and maxPrice are inclusive bounds")
+        void priceRangeIsInclusive() {
+            assertThat(ids(browse.market(null, null, gameId, null,
+                    new BigDecimal("150.00"), new BigDecimal("500.00"), null, 0, 20)))
+                    .containsExactly(cheapToDear.get(1), cheapToDear.get(2));
+            assertThat(ids(browse.market(null, null, gameId, null,
+                    null, new BigDecimal("149.99"), null, 0, 20)))
+                    .containsExactly(cheapToDear.getFirst());
+        }
+
+        @Test
+        @DisplayName("a seller's storefront lists only their own cards on sale")
+        void storefrontShowsTheSellersListings() {
+            Seller otherShop = data.seller();
+            data.onSale(otherShop, data.card(gameId, "Someone else's card", "C"), CardCondition.NM, 1, "10.00");
+
+            PageResponse<PublicListingResponse> storefront =
+                    browse.storefront(shop.principal().username(), null, null, null, 0, 20);
+
+            assertThat(ids(storefront)).containsExactlyElementsOf(cheapToDear);
+            assertThat(storefront.items()).allSatisfy(listing ->
+                    assertThat(listing.seller().username()).isEqualTo(shop.principal().username()));
+        }
+
+        @Test
+        @DisplayName("the storefront of a username nobody has is USER_NOT_FOUND")
+        void unknownStorefrontIsNotFound() {
+            assertThatThrownBy(() -> browse.storefront("nobody_" + data.tag(), null, null, null, 0, 20))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.USER_NOT_FOUND));
+        }
     }
 }
