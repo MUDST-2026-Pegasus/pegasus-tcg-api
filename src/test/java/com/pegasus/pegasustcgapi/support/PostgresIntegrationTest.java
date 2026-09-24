@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.support;
 
 import static org.mockito.Mockito.reset;
 
+import com.pegasus.pegasustcgapi.port.InventoryPort;
 import com.pegasus.pegasustcgapi.port.LedgerPort;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -66,10 +67,14 @@ public abstract class PostgresIntegrationTest {
     @MockitoSpyBean
     protected LedgerPort ledgerPort;
 
+    /** A spy, so a test can make stock release fail and check nothing half-commits. */
+    @MockitoSpyBean
+    protected InventoryPort inventoryPort;
+
     @BeforeEach
     void resetSharedState() {
         clock.reset();
-        reset(ledgerPort);
+        reset(ledgerPort, inventoryPort);
     }
 
     @AfterEach
