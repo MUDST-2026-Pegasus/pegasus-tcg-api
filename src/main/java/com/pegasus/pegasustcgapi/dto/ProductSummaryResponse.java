@@ -12,9 +12,11 @@ import java.util.Map;
  *                        bucket is private; null when the entry has no art yet
  * @param variantCount    how many printings exist, so a tile can say "3 versions"
  *                        without a second request
- * @param lowestPrice     the cheapest listing on sale now, in THB; null when nobody
- *                        is selling one, which a tile shows as out of stock
- * @param listingCount    listings on sale now, across every printing and condition
+ * @param lowestPrice     the cheapest listing on sale now, in THB, among the
+ *                        conditions the browse asked for; null when nobody is
+ *                        selling one, which a tile shows as out of stock
+ * @param listingCount    listings on sale now, across every printing, in the
+ *                        conditions the browse asked for (every condition when none)
  */
 public record ProductSummaryResponse(
         long id,

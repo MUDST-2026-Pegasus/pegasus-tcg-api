@@ -20,8 +20,6 @@ import java.util.Set;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
-import org.jooq.Record1;
-import org.jooq.Select;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -105,19 +103,6 @@ public class ProductMarketRepository {
     }
 
     /**
-     * The products someone could buy right now, as a sub-select for an {@code IN}
-     * test, so a browse page and its count filter on exactly the same thing.
-     */
-    static Select<Record1<Long>> productIdsOnSale() {
-        return DSL.selectDistinct(CATALOG_VARIANT.CATALOG_PRODUCT_ID)
-                .from(LISTING)
-                .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
-                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
-                .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
-                .where(onSale());
-    }
-
-    /**
      * Active products on sale now, most cards sold since {@code since} first.
      *
      * <p>A quiet week still fills the rail: ties, including everything at zero,
@@ -141,23 +126,21 @@ public class ProductMarketRepository {
         Field<Long> units = DSL.coalesce(sold.field("units", BigDecimal.class), BigDecimal.ZERO)
                 .cast(Long.class).as("units_sold");
 
-        Field<Integer> offers = DSL.field(DSL.selectCount()
-                .from(LISTING)
-                .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
-                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
-                .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
-                .where(onSale())
-                .and(CATALOG_VARIANT.CATALOG_PRODUCT_ID.eq(CATALOG_PRODUCT.ID)));
+        // Joining the offers keeps the rail to cards on sale and gives the tie-break
+        // in the same pass: one aggregate, not a count per product.
+        Table<?> offers = offers(Set.of());
+        Field<Long> offerProduct = offers.field(OFFER_PRODUCT_ID, Long.class);
+        Field<Integer> listings = offers.field(OFFER_LISTING_COUNT, Integer.class);
 
         Condition ofGame = gameId == null ? DSL.noCondition() : CATALOG_PRODUCT.GAME_ID.eq(gameId);
 
         return dsl.select(CATALOG_PRODUCT.ID, units)
                 .from(CATALOG_PRODUCT)
+                .join(offers).on(offerProduct.eq(CATALOG_PRODUCT.ID))
                 .leftJoin(sold).on(soldProduct.eq(CATALOG_PRODUCT.ID))
                 .where(CATALOG_PRODUCT.IS_ACTIVE.isTrue())
                 .and(ofGame)
-                .and(CATALOG_PRODUCT.ID.in(productIdsOnSale()))
-                .orderBy(units.desc(), offers.desc(), CATALOG_PRODUCT.CREATED_AT.desc(), CATALOG_PRODUCT.ID.desc())
+                .orderBy(units.desc(), listings.desc(), CATALOG_PRODUCT.CREATED_AT.desc(), CATALOG_PRODUCT.ID.desc())
                 .limit(limit)
                 .fetch(r -> new TrendingRow(r.get(CATALOG_PRODUCT.ID), r.get(units)));
     }
@@ -175,7 +158,7 @@ public class ProductMarketRepository {
                 .and(LISTING.QUANTITY_AVAILABLE.gt(0));
     }
 
-    /** @param listingCount listings on sale, across every printing and condition */
+    /** @param listingCount listings on sale in the conditions asked for (every condition when none were) */
     public record Offer(BigDecimal lowestPrice, int listingCount) {
     }
 

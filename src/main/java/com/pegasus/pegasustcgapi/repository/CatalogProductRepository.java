@@ -74,15 +74,17 @@ public class CatalogProductRepository {
     }
 
     /**
-     * One page of the browse result, ordered as asked. Each product is joined to
-     * its offer — cheapest matching listing on sale — which the price filters and
-     * sorts read; a product nobody is selling joins to nothing.
+     * One page of the browse result, ordered as asked.
+     *
+     * <p>When a filter or the order reads the market, each product is joined to its
+     * offer — cheapest matching listing on sale; a product nobody is selling joins
+     * to nothing. That join aggregates every listing on sale, so a plain browse by
+     * name or date leaves it out entirely.
      */
     public List<CatalogProduct> search(ProductSearchQuery query) {
-        Offers offers = new Offers(query);
+        Offers offers = query.needsOffer() || query.sortsByOffer() ? new Offers(query) : null;
         return dsl.select(CATALOG_PRODUCT.fields())
-                .from(CATALOG_PRODUCT)
-                .leftJoin(offers.table).on(offers.productId.eq(CATALOG_PRODUCT.ID))
+                .from(from(offers))
                 .where(conditions(query, offers))
                 .orderBy(ordering(query.sort(), offers))
                 .limit(query.limit())
@@ -90,14 +92,19 @@ public class CatalogProductRepository {
                 .fetch(r -> toProduct(r.into(CATALOG_PRODUCT)));
     }
 
-    /** The total behind that page, which is what makes a page count possible. */
+    /** The total behind that page. Order does not change a count, so only a market filter joins. */
     public long count(ProductSearchQuery query) {
-        Offers offers = new Offers(query);
+        Offers offers = query.needsOffer() ? new Offers(query) : null;
         return dsl.selectCount()
-                .from(CATALOG_PRODUCT)
-                .leftJoin(offers.table).on(offers.productId.eq(CATALOG_PRODUCT.ID))
+                .from(from(offers))
                 .where(conditions(query, offers))
                 .fetchSingle(0, long.class);
+    }
+
+    private static Table<?> from(Offers offers) {
+        return offers == null
+                ? CATALOG_PRODUCT
+                : CATALOG_PRODUCT.leftJoin(offers.table).on(offers.productId.eq(CATALOG_PRODUCT.ID));
     }
 
     /** The per-product market a browse query joins, narrowed to the conditions asked for. */
@@ -116,6 +123,7 @@ public class CatalogProductRepository {
         }
     }
 
+    /** @param offers present whenever {@link ProductSearchQuery#needsOffer()} is */
     private Condition conditions(ProductSearchQuery query, Offers offers) {
         Condition condition = query.activeOnly() ? CATALOG_PRODUCT.IS_ACTIVE.isTrue() : DSL.noCondition();
 
@@ -186,6 +194,7 @@ public class CatalogProductRepository {
                 DSL.val(JSONB.valueOf(json.writeValueAsString(attributes))));
     }
 
+    /** @param offers present whenever the sort reads the market */
     private static OrderField<?>[] ordering(ProductSearchQuery.Sort sort, Offers offers) {
         return switch (sort) {
             case PRICE_ASC -> new OrderField<?>[] {

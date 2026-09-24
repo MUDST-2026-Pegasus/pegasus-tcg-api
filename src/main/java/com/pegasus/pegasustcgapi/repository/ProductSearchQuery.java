@@ -49,6 +49,11 @@ public record ProductSearchQuery(
         return inStockOnly || !conditions.isEmpty() || minPrice != null || maxPrice != null;
     }
 
+    /** An order that reads the market: the price sorts and {@link Sort#POPULAR}. */
+    public boolean sortsByOffer() {
+        return sort == Sort.PRICE_ASC || sort == Sort.PRICE_DESC || sort == Sort.POPULAR;
+    }
+
     /**
      * What a browse page offers to order by. The price sorts go by the cheapest
      * matching listing on sale, with cards nobody is selling last either way.
