@@ -16,10 +16,12 @@ import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.CatalogImageService;
 import com.pegasus.pegasustcgapi.service.CatalogProductService;
 import com.pegasus.pegasustcgapi.service.CatalogSearchService;
+import com.pegasus.pegasustcgapi.service.ProductBrowse;
 import com.pegasus.pegasustcgapi.service.CatalogVariantService;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -82,8 +84,9 @@ public class AdminCatalogProductController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam Map<String, String> allParameters) {
 
-        return ApiResult.success(search.search(gameId, categoryId, cardSetId, productType, q,
-                allParameters, sort, activeOnly, false, page, size));
+        return ApiResult.success(search.search(new ProductBrowse(
+                gameId == null ? null : Set.of(gameId), categoryId, cardSetId, productType, q,
+                allParameters, sort, activeOnly, false, null, null, null, page, size)));
     }
 
     /**

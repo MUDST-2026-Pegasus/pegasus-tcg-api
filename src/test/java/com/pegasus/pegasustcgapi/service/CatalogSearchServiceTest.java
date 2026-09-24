@@ -15,6 +15,7 @@ import com.pegasus.pegasustcgapi.dto.TrendingProductResponse;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.model.AttributeDataType;
+import com.pegasus.pegasustcgapi.model.CardCondition;
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.GameAttribute;
 import com.pegasus.pegasustcgapi.model.ProductType;
@@ -33,6 +34,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -93,7 +95,8 @@ class CatalogSearchServiceTest {
     private PageResponse<ProductSummaryResponse> searchWith(
             Short gameId, Map<String, String> parameters, String sort, int page, int size) {
 
-        return service.search(gameId, null, null, null, null, parameters, sort, true, false, page, size);
+        return service.search(new ProductBrowse(gameId == null ? Set.of() : Set.of(gameId), null, null, null,
+                null, parameters, sort, true, false, Set.of(), null, null, page, size));
     }
 
     private ProductSearchQuery capturedQuery() {
@@ -162,7 +165,7 @@ class CatalogSearchServiceTest {
     void attributeFilterNeedsAGame() {
         assertThatThrownBy(() -> searchWith(null, Map.of("attr.hp", "200"), null, 0, 20))
                 .isInstanceOf(ApiException.class)
-                .hasMessageContaining("needs a gameId");
+                .hasMessageContaining("needs exactly one gameId");
 
         verifyNoInteractions(games);
     }
@@ -192,7 +195,7 @@ class CatalogSearchServiceTest {
     @Test
     @DisplayName("an unknown sort is an error, not a silently different order")
     void unknownSortIsRejected() {
-        assertThatThrownBy(() -> searchWith(POKEMON, Map.of(), "price", 0, 20))
+        assertThatThrownBy(() -> searchWith(POKEMON, Map.of(), "cheapest", 0, 20))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("sort must be one of");
     }
@@ -230,7 +233,8 @@ class CatalogSearchServiceTest {
     void adminSeesInactiveProducts() {
         given(products.search(any())).willReturn(List.of());
 
-        service.search(POKEMON, null, null, null, null, Map.of(), null, false, false, 0, 20);
+        service.search(new ProductBrowse(Set.of(POKEMON), null, null, null, null, Map.of(), null,
+                false, false, Set.of(), null, null, 0, 20));
 
         assertThat(capturedQuery().activeOnly()).isFalse();
     }
@@ -267,7 +271,7 @@ class CatalogSearchServiceTest {
     void summariesCarryLowestPrice() {
         given(products.search(any())).willReturn(List.of(pikachu()));
         given(products.count(any())).willReturn(1L);
-        given(market.offersOf(anyCollection())).willReturn(Map.of(501L, new Offer(new BigDecimal("150.00"), 3)));
+        given(market.offersOf(anyCollection(), any())).willReturn(Map.of(501L, new Offer(new BigDecimal("150.00"), 3)));
 
         PageResponse<ProductSummaryResponse> page = searchWith(POKEMON, Map.of(), null, 0, 20);
 
@@ -296,7 +300,8 @@ class CatalogSearchServiceTest {
     void inStockReachesTheQuery() {
         given(products.search(any())).willReturn(List.of());
 
-        service.search(POKEMON, null, null, null, null, Map.of(), null, true, true, 0, 20);
+        service.search(new ProductBrowse(Set.of(POKEMON), null, null, null, null, Map.of(), null,
+                true, true, Set.of(), null, null, 0, 20));
 
         assertThat(capturedQuery().inStockOnly()).isTrue();
     }
@@ -329,5 +334,49 @@ class CatalogSearchServiceTest {
                 .isEqualTo(ErrorCode.VALIDATION_FAILED);
 
         verifyNoInteractions(market);
+    }
+
+    @Test
+    @DisplayName("conditions and a price range reach the query, and the tile prices come from those conditions")
+    void conditionsAndPriceRangeNarrowTheSearch() {
+        given(products.search(any())).willReturn(List.of(pikachu()));
+        given(products.count(any())).willReturn(1L);
+        Set<CardCondition> nearMint = Set.of(CardCondition.NM);
+
+        service.search(new ProductBrowse(Set.of(), null, null, null, null, Map.of(), "price_desc",
+                true, false, nearMint, new BigDecimal("100"), new BigDecimal("500"), 0, 20));
+
+        ProductSearchQuery query = capturedQuery();
+        assertThat(query.conditions()).containsExactly(CardCondition.NM);
+        assertThat(query.minPrice()).isEqualByComparingTo("100");
+        assertThat(query.maxPrice()).isEqualByComparingTo("500");
+        assertThat(query.sort()).isEqualTo(ProductSearchQuery.Sort.PRICE_DESC);
+        assertThat(query.needsOffer()).isTrue();
+        verify(market).offersOf(List.of(501L), nearMint);
+    }
+
+    @Test
+    @DisplayName("a price floor above the ceiling is refused before anything is read")
+    void invertedPriceRangeIsRejected() {
+        assertThatThrownBy(() -> service.search(new ProductBrowse(Set.of(), null, null, null, null, Map.of(),
+                null, true, false, Set.of(), new BigDecimal("500"), new BigDecimal("100"), 0, 20)))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("minPrice cannot be above maxPrice");
+
+        verifyNoInteractions(products);
+    }
+
+    @Test
+    @DisplayName("several games at once search them all, but cannot be filtered by attribute")
+    void severalGamesRefuseAttributeFilters() {
+        given(products.search(any())).willReturn(List.of());
+        service.search(new ProductBrowse(Set.of(POKEMON, (short) 5), null, null, null, null, Map.of(), null,
+                true, false, Set.of(), null, null, 0, 20));
+        assertThat(capturedQuery().gameIds()).containsExactlyInAnyOrder(POKEMON, (short) 5);
+
+        assertThatThrownBy(() -> service.search(new ProductBrowse(Set.of(POKEMON, (short) 5), null, null, null,
+                null, Map.of("attr.hp", "200"), null, true, false, Set.of(), null, null, 0, 20)))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("exactly one gameId");
     }
 }

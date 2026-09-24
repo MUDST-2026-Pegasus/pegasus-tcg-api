@@ -1,18 +1,22 @@
 package com.pegasus.pegasustcgapi.repository;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogCategory.CATALOG_CATEGORY;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.CatalogProductRecord;
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.ProductType;
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.OrderField;
+import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import tools.jackson.core.type.TypeReference;
@@ -69,29 +73,61 @@ public class CatalogProductRepository {
                 .where(CATALOG_PRODUCT.SLUG.eq(slug)));
     }
 
-    /** One page of the browse result, ordered as asked. */
+    /**
+     * One page of the browse result, ordered as asked. Each product is joined to
+     * its offer — cheapest matching listing on sale — which the price filters and
+     * sorts read; a product nobody is selling joins to nothing.
+     */
     public List<CatalogProduct> search(ProductSearchQuery query) {
-        return dsl.selectFrom(CATALOG_PRODUCT)
-                .where(conditions(query))
-                .orderBy(ordering(query.sort()))
+        Offers offers = new Offers(query);
+        return dsl.select(CATALOG_PRODUCT.fields())
+                .from(CATALOG_PRODUCT)
+                .leftJoin(offers.table).on(offers.productId.eq(CATALOG_PRODUCT.ID))
+                .where(conditions(query, offers))
+                .orderBy(ordering(query.sort(), offers))
                 .limit(query.limit())
                 .offset(query.offset())
-                .fetch(this::toProduct);
+                .fetch(r -> toProduct(r.into(CATALOG_PRODUCT)));
     }
 
     /** The total behind that page, which is what makes a page count possible. */
     public long count(ProductSearchQuery query) {
-        return dsl.fetchCount(CATALOG_PRODUCT, conditions(query));
+        Offers offers = new Offers(query);
+        return dsl.selectCount()
+                .from(CATALOG_PRODUCT)
+                .leftJoin(offers.table).on(offers.productId.eq(CATALOG_PRODUCT.ID))
+                .where(conditions(query, offers))
+                .fetchSingle(0, long.class);
     }
 
-    private Condition conditions(ProductSearchQuery query) {
+    /** The per-product market a browse query joins, narrowed to the conditions asked for. */
+    private static final class Offers {
+
+        final Table<?> table;
+        final Field<Long> productId;
+        final Field<BigDecimal> lowestPrice;
+        final Field<Integer> listingCount;
+
+        Offers(ProductSearchQuery query) {
+            table = ProductMarketRepository.offers(query.conditions());
+            productId = table.field(ProductMarketRepository.OFFER_PRODUCT_ID, Long.class);
+            lowestPrice = table.field(ProductMarketRepository.OFFER_LOWEST_PRICE, BigDecimal.class);
+            listingCount = table.field(ProductMarketRepository.OFFER_LISTING_COUNT, Integer.class);
+        }
+    }
+
+    private Condition conditions(ProductSearchQuery query, Offers offers) {
         Condition condition = query.activeOnly() ? CATALOG_PRODUCT.IS_ACTIVE.isTrue() : DSL.noCondition();
 
-        if (query.gameId() != null) {
-            condition = condition.and(CATALOG_PRODUCT.GAME_ID.eq(query.gameId()));
+        if (!query.gameIds().isEmpty()) {
+            condition = condition.and(CATALOG_PRODUCT.GAME_ID.in(query.gameIds()));
         }
         if (query.categoryId() != null) {
-            condition = condition.and(CATALOG_PRODUCT.CATEGORY_ID.eq(query.categoryId()));
+            condition = condition.and(CATALOG_PRODUCT.CATEGORY_ID.in(
+                    DSL.select(CATALOG_CATEGORY.ID)
+                            .from(CATALOG_CATEGORY)
+                            .where(CATALOG_CATEGORY.ID.eq(query.categoryId()))
+                            .or(CATALOG_CATEGORY.PARENT_ID.eq(query.categoryId()))));
         }
         if (query.cardSetId() != null) {
             condition = condition.and(CATALOG_PRODUCT.CARD_SET_ID.eq(query.cardSetId()));
@@ -105,8 +141,14 @@ public class CatalogProductRepository {
         if (!query.attributes().isEmpty()) {
             condition = condition.and(attributesContain(query.attributes()));
         }
-        if (query.inStockOnly()) {
-            condition = condition.and(CATALOG_PRODUCT.ID.in(ProductMarketRepository.productIdsOnSale()));
+        if (query.needsOffer()) {
+            condition = condition.and(offers.productId.isNotNull());
+        }
+        if (query.minPrice() != null) {
+            condition = condition.and(offers.lowestPrice.ge(query.minPrice()));
+        }
+        if (query.maxPrice() != null) {
+            condition = condition.and(offers.lowestPrice.le(query.maxPrice()));
         }
         return condition;
     }
@@ -115,6 +157,8 @@ public class CatalogProductRepository {
      * Emitted as a real {@code ILIKE} rather than jOOQ's {@code lower(x) like lower(?)},
      * because the trigram indexes are on the columns themselves: wrapping them in
      * {@code lower()} would put the search back on a sequential scan.
+     *
+     * <p>The card number is matched too, so "OP09-119" typed off the card finds it.
      */
     private static Condition nameMatches(String text) {
         String pattern = "%" + text.trim()
@@ -124,7 +168,9 @@ public class CatalogProductRepository {
 
         return DSL.condition("{0} ILIKE {1} ESCAPE '\\'", CATALOG_PRODUCT.NAME, DSL.val(pattern))
                 .or(DSL.condition("{0} ILIKE {1} ESCAPE '\\'",
-                        CATALOG_PRODUCT.NAME_LOCAL, DSL.val(pattern)));
+                        CATALOG_PRODUCT.NAME_LOCAL, DSL.val(pattern)))
+                .or(DSL.condition("{0} ILIKE {1} ESCAPE '\\'",
+                        CATALOG_PRODUCT.CARD_NUMBER, DSL.val(pattern)));
     }
 
     /**
@@ -140,8 +186,14 @@ public class CatalogProductRepository {
                 DSL.val(JSONB.valueOf(json.writeValueAsString(attributes))));
     }
 
-    private static OrderField<?>[] ordering(ProductSearchQuery.Sort sort) {
+    private static OrderField<?>[] ordering(ProductSearchQuery.Sort sort, Offers offers) {
         return switch (sort) {
+            case PRICE_ASC -> new OrderField<?>[] {
+                offers.lowestPrice.asc().nullsLast(), CATALOG_PRODUCT.NAME.asc(), CATALOG_PRODUCT.ID.asc() };
+            case PRICE_DESC -> new OrderField<?>[] {
+                offers.lowestPrice.desc().nullsLast(), CATALOG_PRODUCT.NAME.asc(), CATALOG_PRODUCT.ID.asc() };
+            case POPULAR -> new OrderField<?>[] {
+                offers.listingCount.desc().nullsLast(), CATALOG_PRODUCT.CREATED_AT.desc(), CATALOG_PRODUCT.ID.desc() };
             case NEWEST -> new OrderField<?>[] {
                 CATALOG_PRODUCT.CREATED_AT.desc(), CATALOG_PRODUCT.ID.desc() };
             case CARD_NUMBER -> new OrderField<?>[] {
