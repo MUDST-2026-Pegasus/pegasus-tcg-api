@@ -162,7 +162,8 @@ public class CatalogTaxonomyService {
                 : Slugs.unique(requested.slug(), SLUG_WIDTH, unused -> false, requested.name());
 
         return new CategoryFields(requested.gameId(), requested.parentId(), code,
-                requested.name().trim(), slug, requested.displayOrder(), requested.active());
+                requested.name().trim(), slug, requested.displayOrder(), requested.active(),
+                blankToNull(requested.imageKey()));
     }
 
     private static CardSetFields withCode(CardSetFields requested, String code) {

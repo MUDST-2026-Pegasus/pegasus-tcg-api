@@ -72,6 +72,7 @@ public class CatalogCategoryRepository {
                 .set(CATALOG_CATEGORY.SLUG, fields.slug())
                 .set(CATALOG_CATEGORY.DISPLAY_ORDER, fields.displayOrder())
                 .set(CATALOG_CATEGORY.IS_ACTIVE, fields.active())
+                .set(CATALOG_CATEGORY.IMAGE_KEY, fields.imageKey())
                 .returningResult(CATALOG_CATEGORY.ID)
                 .fetchSingle(CATALOG_CATEGORY.ID);
     }
@@ -85,6 +86,7 @@ public class CatalogCategoryRepository {
                 .set(CATALOG_CATEGORY.SLUG, fields.slug())
                 .set(CATALOG_CATEGORY.DISPLAY_ORDER, fields.displayOrder())
                 .set(CATALOG_CATEGORY.IS_ACTIVE, fields.active())
+                .set(CATALOG_CATEGORY.IMAGE_KEY, fields.imageKey())
                 .where(CATALOG_CATEGORY.ID.eq(id))
                 .execute() > 0;
     }
@@ -98,10 +100,14 @@ public class CatalogCategoryRepository {
                 r.getName(),
                 r.getSlug(),
                 r.getDisplayOrder(),
-                r.getIsActive());
+                r.getIsActive(),
+                r.getImageKey());
     }
 
-    /** @param gameId null for a category that spans every game. */
+    /**
+     * @param gameId   null for a category that spans every game
+     * @param imageKey the tile picture's object key; null for none
+     */
     public record CategoryFields(
             Short gameId,
             Integer parentId,
@@ -109,6 +115,7 @@ public class CatalogCategoryRepository {
             String name,
             String slug,
             short displayOrder,
-            boolean active) {
+            boolean active,
+            String imageKey) {
     }
 }

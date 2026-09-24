@@ -71,6 +71,22 @@ public class StorageService {
         return presign(Method.GET, objectKey, properties.downloadUrlTtl());
     }
 
+    /**
+     * Something a browser can load, from a column that holds either an object key
+     * or a URL typed in by an admin (game and card-set logos are both). A key is
+     * signed; a full URL or a site path goes out as it is; null stays null.
+     */
+    public String readUrl(String keyOrUrl) {
+        if (keyOrUrl == null || keyOrUrl.isBlank()) {
+            return null;
+        }
+        String value = keyOrUrl.trim();
+        if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("/")) {
+            return value;
+        }
+        return presignDownload(value);
+    }
+
     /** @return empty when nothing was ever uploaded under this key. */
     public Optional<StoredObject> describe(String objectKey) {
         try {
