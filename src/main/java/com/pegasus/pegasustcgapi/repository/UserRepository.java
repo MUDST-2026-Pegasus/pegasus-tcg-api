@@ -82,6 +82,17 @@ public class UserRepository {
                 .execute();
     }
 
+    public void updateProfile(long userId, String displayName, String bio, String phone, String avatarUrl) {
+        dsl.update(USER_ACCOUNT)
+                .set(USER_ACCOUNT.DISPLAY_NAME, displayName)
+                .set(USER_ACCOUNT.BIO, bio)
+                .set(USER_ACCOUNT.PHONE, phone)
+                .set(USER_ACCOUNT.AVATAR_URL, avatarUrl)
+                .where(USER_ACCOUNT.ID.eq(userId))
+                .and(USER_ACCOUNT.DELETED_AT.isNull())
+                .execute();
+    }
+
     public void recordSuccessfulLogin(long userId, OffsetDateTime at) {
         dsl.update(USER_ACCOUNT)
                 .set(USER_ACCOUNT.LAST_LOGIN_AT, at)
