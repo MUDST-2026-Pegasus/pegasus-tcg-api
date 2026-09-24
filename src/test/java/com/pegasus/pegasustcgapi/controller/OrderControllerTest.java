@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -9,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.OrderDetailsResponse;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
@@ -99,13 +101,15 @@ class OrderControllerTest {
     @Test
     @DisplayName("GET /api/v1/orders returns list of orders")
     void listOrders_Success() throws Exception {
-        given(orderLifecycleService.listBuyerOrders(any())).willReturn(List.of(mockOrderDetails(1L, "PENDING_PAYMENT")));
+        given(orderLifecycleService.listBuyerOrders(any(), anyInt(), anyInt()))
+                .willReturn(PageResponse.of(List.of(mockOrderDetails(1L, "PENDING_PAYMENT")), 0, 20, 1));
 
         mockMvc.perform(get(ApiPaths.ORDERS))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data[0].id").value(1))
-                .andExpect(jsonPath("$.data[0].orderNumber").value("ORD-1"));
+                .andExpect(jsonPath("$.data.totalItems").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value(1))
+                .andExpect(jsonPath("$.data.items[0].orderNumber").value("ORD-1"));
     }
 
     @Test

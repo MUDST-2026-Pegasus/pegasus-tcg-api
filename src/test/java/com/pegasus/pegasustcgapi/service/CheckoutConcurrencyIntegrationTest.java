@@ -13,6 +13,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
@@ -342,7 +343,7 @@ class CheckoutConcurrencyIntegrationTest {
 
         // Stub ledgerPort.quoteCommission to throw mid-transaction exception
         doThrow(new RuntimeException("Simulated mid-transaction failure in commission service"))
-                .when(ledgerPort).quoteCommission(any());
+                .when(ledgerPort).quoteCommission(anyLong(), any());
 
         assertThatThrownBy(() -> checkoutService.checkout(buyer, key, null, null))
                 .isInstanceOf(RuntimeException.class)

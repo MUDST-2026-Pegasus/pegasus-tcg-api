@@ -26,6 +26,8 @@ public class PlatformSettingService {
     /** How long after delivery escrow releases on its own when the buyer never confirms. */
     public static final String ESCROW_AUTO_RELEASE_DAYS = "escrow.auto_release_days";
     public static final String ORDER_CANCEL_WINDOW_HOURS = "order.cancel_window_hours";
+    /** How long an unpaid order may hold its reserved cards before it is cancelled. */
+    public static final String ORDER_PAYMENT_TIMEOUT_MINUTES = "order.payment_timeout_minutes";
     public static final String RETURN_REQUEST_WINDOW_DAYS = "return.request_window_days";
     /** Percent applied when no commission_rule matches. */
     public static final String COMMISSION_DEFAULT_RATE = "commission.default_rate";
@@ -66,6 +68,10 @@ public class PlatformSettingService {
 
     public Duration getHours(String key) {
         return Duration.ofHours(getInt(key));
+    }
+
+    public Duration getMinutes(String key) {
+        return Duration.ofMinutes(getInt(key));
     }
 
     /**

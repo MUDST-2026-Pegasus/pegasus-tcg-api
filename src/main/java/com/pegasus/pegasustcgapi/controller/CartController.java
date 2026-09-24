@@ -15,6 +15,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -30,6 +31,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * REST controller for shopping cart operations.
+ *
+ * <p>Every handler takes {@code Optional<AuthPrincipal>}: that is how a route says
+ * it serves guests as well as signed-in callers. The argument resolver reads the
+ * parameter's type rather than the request's path, so a route only admits anonymous
+ * callers when its own signature says so.
  */
 @Tag(name = "Cart", description = "Shopping cart and guest session management")
 @RestController
@@ -52,9 +58,9 @@ public class CartController {
     public ResponseEntity<ApiResult<CartItemResponse>> addItem(
             @Valid @RequestBody CartItemRequest request,
             @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
-            AuthPrincipal principal) {
+            Optional<AuthPrincipal> principal) {
 
-        AddResult result = cartService.addItem(principal, sessionKey, request);
+        AddResult result = cartService.addItem(principal.orElse(null), sessionKey, request);
         ResponseEntity.BodyBuilder builder = ResponseEntity.status(HttpStatus.CREATED);
         if (result.sessionKey() != null) {
             builder.header("X-Cart-Session", result.sessionKey());
@@ -67,11 +73,11 @@ public class CartController {
     @GetMapping("/items")
     public ResponseEntity<ApiResult<List<CartItemResponse>>> getCartItems(
             @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
-            AuthPrincipal principal) {
+            Optional<AuthPrincipal> principal) {
 
-        List<CartItemResponse> items = cartService.getCartItems(principal, sessionKey);
+        List<CartItemResponse> items = cartService.getCartItems(principal.orElse(null), sessionKey);
         ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
-        if (principal == null && sessionKey != null && !sessionKey.isBlank()) {
+        if (principal.isEmpty() && sessionKey != null && !sessionKey.isBlank()) {
             builder.header("X-Cart-Session", sessionKey);
         }
         return builder.body(ApiResult.success(items));
@@ -82,11 +88,11 @@ public class CartController {
     @GetMapping
     public ResponseEntity<ApiResult<CartResponse>> getCart(
             @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
-            AuthPrincipal principal) {
+            Optional<AuthPrincipal> principal) {
 
-        CartResponse response = cartService.getCart(principal, sessionKey);
+        CartResponse response = cartService.getCart(principal.orElse(null), sessionKey);
         ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
-        if (principal == null && response.sessionKey() != null) {
+        if (principal.isEmpty() && response.sessionKey() != null) {
             builder.header("X-Cart-Session", response.sessionKey());
         }
         return builder.body(ApiResult.success(response));
@@ -104,11 +110,11 @@ public class CartController {
             @PathVariable long itemId,
             @Valid @RequestBody UpdateCartItemRequest request,
             @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
-            AuthPrincipal principal) {
+            Optional<AuthPrincipal> principal) {
 
-        CartItemResponse response = cartService.updateItemQuantity(principal, sessionKey, itemId, request.quantity());
+        CartItemResponse response = cartService.updateItemQuantity(principal.orElse(null), sessionKey, itemId, request.quantity());
         ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
-        if (principal == null && sessionKey != null && !sessionKey.isBlank()) {
+        if (principal.isEmpty() && sessionKey != null && !sessionKey.isBlank()) {
             builder.header("X-Cart-Session", sessionKey);
         }
         return builder.body(ApiResult.success("Cart item quantity updated", response));
@@ -126,7 +132,7 @@ public class CartController {
             @PathVariable long itemId,
             @Valid @RequestBody UpdateCartItemRequest request,
             @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
-            AuthPrincipal principal) {
+            Optional<AuthPrincipal> principal) {
 
         return updateItemQuantity(itemId, request, sessionKey, principal);
     }
@@ -140,11 +146,11 @@ public class CartController {
     public ResponseEntity<ApiResult<Void>> removeItem(
             @PathVariable long itemId,
             @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
-            AuthPrincipal principal) {
+            Optional<AuthPrincipal> principal) {
 
-        cartService.removeItem(principal, sessionKey, itemId);
+        cartService.removeItem(principal.orElse(null), sessionKey, itemId);
         ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
-        if (principal == null && sessionKey != null && !sessionKey.isBlank()) {
+        if (principal.isEmpty() && sessionKey != null && !sessionKey.isBlank()) {
             builder.header("X-Cart-Session", sessionKey);
         }
         return builder.body(ApiResult.success("Cart item removed", null));

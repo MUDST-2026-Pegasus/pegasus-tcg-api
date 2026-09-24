@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.SellerOrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
@@ -12,12 +13,12 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -35,11 +36,17 @@ public class SellerOrderController {
         this.orderLifecycleService = orderLifecycleService;
     }
 
-    @Operation(summary = "List seller orders", description = "Retrieves all sub-orders for the authenticated seller.")
+    @Operation(summary = "List seller orders",
+            description = "Retrieves a page of sub-orders for the authenticated seller, newest first. "
+                    + "Pass status to narrow to what needs packing, e.g. PAID or PREPARING.")
     @ApiResponse(responseCode = "200", description = "Orders retrieved")
     @GetMapping
-    public ApiResult<List<SellerOrderDetailsResponse>> list(AuthPrincipal principal) {
-        return ApiResult.success(orderLifecycleService.listSellerOrders(principal));
+    public ApiResult<PageResponse<SellerOrderDetailsResponse>> list(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            AuthPrincipal principal) {
+        return ApiResult.success(orderLifecycleService.listSellerOrders(principal, status, page, size));
     }
 
     @Operation(summary = "Get seller order by ID", description = "Retrieves details of a specific seller sub-order.")

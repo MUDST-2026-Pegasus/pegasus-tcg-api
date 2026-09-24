@@ -16,6 +16,7 @@ import com.pegasus.pegasustcgapi.dto.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.OrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.SellerOrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.ShipOrderRequest;
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -27,13 +28,15 @@ import com.pegasus.pegasustcgapi.model.SellerStatus;
 import com.pegasus.pegasustcgapi.port.CollectionPort;
 import com.pegasus.pegasustcgapi.port.InventoryPort;
 import com.pegasus.pegasustcgapi.port.LedgerPort;
+import com.pegasus.pegasustcgapi.port.SellerPort;
 import com.pegasus.pegasustcgapi.repository.OrderRepository;
-import com.pegasus.pegasustcgapi.repository.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -57,7 +60,7 @@ class OrderLifecycleServiceTest {
     private OrderRepository orderRepository;
 
     @Mock
-    private SellerProfileRepository sellerProfileRepository;
+    private SellerPort sellerPort;
 
     @Mock
     private PlatformSettingService platformSettingService;
@@ -93,6 +96,8 @@ class OrderLifecycleServiceTest {
         when(so.getDiscountTotal()).thenReturn(BigDecimal.ZERO);
         when(so.getGrandTotal()).thenReturn(new BigDecimal("110.00"));
         when(so.getPlacedAt()).thenReturn(placedAt);
+        // Unpaid orders have no cancellation window; paid ones are measured from paid_at.
+        when(so.getPaidAt()).thenReturn("PENDING_PAYMENT".equals(status) ? null : placedAt);
         return so;
     }
 
@@ -128,7 +133,8 @@ class OrderLifecycleServiceTest {
         SellerOrderRecord sellerOrder = mockSellerOrder(10L, 1L, 77L, "PENDING_PAYMENT");
 
         when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(salesOrder));
-        when(platformSettingService.getInt(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS)).thenReturn(24);
+        when(platformSettingService.getHours(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS))
+                .thenReturn(Duration.ofHours(24));
         when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
         when(orderRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("CANCELLED"), any(), any(), any(), any(), any(), anyString()))
                 .thenReturn(1);
@@ -144,11 +150,46 @@ class OrderLifecycleServiceTest {
     }
 
     @Test
+    @DisplayName("an unpaid order has no cancellation window")
+    void cancelBuyerOrder_UnpaidOrderIgnoresWindow() {
+        SalesOrderRecord salesOrder = mockSalesOrder(
+                1L, buyerPrincipal.userId(), "PENDING_PAYMENT", OffsetDateTime.now().minusDays(30));
+        SellerOrderRecord sellerOrder = mockSellerOrder(10L, 1L, 77L, "PENDING_PAYMENT");
+
+        when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(salesOrder));
+        when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
+        when(orderRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("CANCELLED"), any(), any(), any(), any(), any(), any()))
+                .thenReturn(1);
+        when(orderRepository.findUnitIdsBySellerOrderId(10L)).thenReturn(List.of(888L));
+        when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(salesOrder));
+        when(orderRepository.findSalesOrderById(1L)).thenReturn(Optional.of(salesOrder));
+
+        service.cancelBuyerOrder(buyerPrincipal, 1L, new CancelOrderRequest("Changed my mind"));
+
+        verify(inventoryPort).release(List.of(888L));
+    }
+
+    @Test
+    @DisplayName("listSellerOrders rejects a status name this build does not know")
+    void listSellerOrders_UnknownStatusIsRejected() {
+        SellerProfile profile = new SellerProfile(77L, sellerPrincipal.userId(), SellerStatus.VERIFIED,
+                OffsetDateTime.now(), null, (short) 1, false, true, OffsetDateTime.now());
+        when(sellerPort.requireProfile(sellerPrincipal.userId())).thenReturn(profile);
+
+        assertThatThrownBy(() -> service.listSellerOrders(sellerPrincipal, "SOLD", 0, 20))
+                .isInstanceOfSatisfying(BadRequestException.class,
+                        ex -> assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+    }
+
+    @Test
     @DisplayName("cancelBuyerOrder throws ConflictException if cancellation window closed")
     void cancelBuyerOrder_WindowClosed() {
-        SalesOrderRecord salesOrder = mockSalesOrder(1L, buyerPrincipal.userId(), "PENDING_PAYMENT", OffsetDateTime.now().minusHours(30));
+        // Paid 30 hours ago, against a 24-hour window. An *unpaid* order has no
+        // window at all — the payment timeout is what closes those.
+        SalesOrderRecord salesOrder = mockSalesOrder(1L, buyerPrincipal.userId(), "PAID", OffsetDateTime.now().minusHours(30));
         when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(salesOrder));
-        when(platformSettingService.getInt(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS)).thenReturn(24);
+        when(platformSettingService.getHours(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS))
+                .thenReturn(Duration.ofHours(24));
 
         assertThatThrownBy(() -> service.cancelBuyerOrder(buyerPrincipal, 1L, new CancelOrderRequest("Late cancel")))
                 .isInstanceOf(ConflictException.class)
@@ -183,18 +224,16 @@ class OrderLifecycleServiceTest {
     @DisplayName("shipSellerOrder transitions PAID seller order to SHIPPED and commits inventory sale")
     void shipSellerOrder_Success() {
         SellerProfile profile = new SellerProfile(77L, sellerPrincipal.userId(), SellerStatus.VERIFIED, OffsetDateTime.now(), null, (short) 1, false, true, OffsetDateTime.now());
-        when(sellerProfileRepository.findByUserId(sellerPrincipal.userId())).thenReturn(Optional.of(profile));
+        when(sellerPort.requireProfile(sellerPrincipal.userId())).thenReturn(profile);
 
         SellerOrderRecord sellerOrder = mockSellerOrder(10L, 1L, 77L, "PAID");
         when(orderRepository.findSellerOrderByIdAndSellerProfileId(10L, 77L)).thenReturn(Optional.of(sellerOrder));
-        when(platformSettingService.getInt(PlatformSettingService.ESCROW_AUTO_RELEASE_DAYS)).thenReturn(7);
+        when(platformSettingService.getDays(PlatformSettingService.ESCROW_AUTO_RELEASE_DAYS))
+                .thenReturn(Duration.ofDays(7));
         when(orderRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("SHIPPED"), any(), any(), any(), any(), any(), any()))
                 .thenReturn(1);
 
-        OrderItemRecord item = mock(OrderItemRecord.class);
-        when(item.getId()).thenReturn(100L);
-        when(orderRepository.findOrderItemsBySellerOrderId(10L)).thenReturn(List.of(item));
-        when(orderRepository.findUnitIdsByOrderItemId(100L)).thenReturn(List.of(888L));
+        when(orderRepository.findUnitIdsGroupedBySellerOrderId(10L)).thenReturn(Map.of(100L, List.of(888L)));
 
         SalesOrderRecord salesOrder = mockSalesOrder(1L, buyerPrincipal.userId(), "PAID", OffsetDateTime.now());
         when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(salesOrder));
