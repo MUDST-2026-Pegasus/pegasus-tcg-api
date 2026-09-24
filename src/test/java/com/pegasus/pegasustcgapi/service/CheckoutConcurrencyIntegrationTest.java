@@ -42,7 +42,9 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -224,8 +226,9 @@ class CheckoutConcurrencyIntegrationTest {
         CountDownLatch start = new CountDownLatch(1);
 
         AtomicInteger successes = new AtomicInteger();
-        AtomicInteger outOfStockFailures = new AtomicInteger();
-        AtomicInteger otherFailures = new AtomicInteger();
+        // The error code of each refused checkout, or the exception itself when it was not a
+        // ConflictException, so a failure message shows what the losers actually got.
+        Queue<Object> failures = new ConcurrentLinkedQueue<>();
         List<Future<?>> futures = new ArrayList<>();
 
         for (int i = 0; i < buyerCount; i++) {
@@ -238,13 +241,9 @@ class CheckoutConcurrencyIntegrationTest {
                     checkoutService.checkout(buyer, idempotencyKey, null, null);
                     successes.incrementAndGet();
                 } catch (ConflictException e) {
-                    if (e.errorCode() == ErrorCode.INSUFFICIENT_STOCK) {
-                        outOfStockFailures.incrementAndGet();
-                    } else {
-                        otherFailures.incrementAndGet();
-                    }
+                    failures.add(e.errorCode());
                 } catch (Exception e) {
-                    otherFailures.incrementAndGet();
+                    failures.add(e);
                 }
                 return null;
             }));
@@ -259,9 +258,14 @@ class CheckoutConcurrencyIntegrationTest {
         pool.shutdown();
 
         // 1. Concurrency assertions
+        // A loser that reaches the reservation while the winner holds the card finds nothing
+        // to lock (INSUFFICIENT_STOCK). One that reads the listing after the winner commits
+        // sees it SOLD_OUT and is refused before reserving (LISTING_NOT_PURCHASABLE). Which a
+        // loser gets depends on scheduling and on the connection pool, so both are accepted.
         assertThat(successes.get()).as("Exactly 1 buyer gets the card").isEqualTo(1);
-        assertThat(outOfStockFailures.get()).as("Exactly 19 buyers fail with INSUFFICIENT_STOCK").isEqualTo(19);
-        assertThat(otherFailures.get()).as("Zero other errors or 500s").isZero();
+        assertThat(failures).as("19 buyers refused as sold out, with no other errors or 500s")
+                .hasSize(19)
+                .isSubsetOf(ErrorCode.INSUFFICIENT_STOCK, ErrorCode.LISTING_NOT_PURCHASABLE);
 
         // 2. Listing and physical unit stock assertions
         ListingRecord listing = dsl.selectFrom(LISTING).where(LISTING.ID.eq(listingId)).fetchSingle();
