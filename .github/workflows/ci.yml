@@ -42,12 +42,16 @@ jobs:
       - name: Generate test JWT secret
         run: echo "JWT_SECRET=$(openssl rand -base64 48)" >> "$GITHUB_ENV"
 
+      # MinIO is not started: no test talks to it (StorageService and MinioClient are
+      # mocked, and the bucket initializer only logs when storage is unreachable), and
+      # its images on quay.io and Docker Hub stopped accepting anonymous pulls. The keys
+      # are still required because application.yaml gives them no default.
       - name: Start test services
         run: |
           : "${DB_PASSWORD:?Set the CI_DB_PASSWORD repository secret}"
           : "${MINIO_ACCESS_KEY:?Set the CI_MINIO_ACCESS_KEY repository secret}"
           : "${MINIO_SECRET_KEY:?Set the CI_MINIO_SECRET_KEY repository secret}"
-          docker compose up -d --wait postgres minio
+          docker compose up -d --wait postgres
 
       - name: Test and build
         run: ./gradlew build --no-daemon
