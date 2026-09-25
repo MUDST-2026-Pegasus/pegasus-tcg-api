@@ -34,4 +34,24 @@ public record UserResponse(
                 user.createdAt(),
                 user.lastLoginAt());
     }
+
+    /**
+     * Builds a response using the given {@code presignedAvatarUrl} instead of the
+     * raw object key stored in the database. Call this when the bucket is private
+     * and the client needs a short-lived read URL.
+     */
+    public static UserResponse from(AuthUser user, String presignedAvatarUrl) {
+        return new UserResponse(
+                user.id(),
+                user.email(),
+                user.username(),
+                user.displayName(),
+                user.bio(),
+                user.phone(),
+                presignedAvatarUrl,
+                user.status(),
+                user.roles(),
+                user.createdAt(),
+                user.lastLoginAt());
+    }
 }
