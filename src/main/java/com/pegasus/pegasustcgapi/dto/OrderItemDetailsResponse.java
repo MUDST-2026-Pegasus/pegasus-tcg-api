@@ -18,6 +18,22 @@ public record OrderItemDetailsResponse(
         String condition,
         String gameName,
         String imageKey,
+        String imageUrl,
         List<Long> unitIds
 ) {
+    public OrderItemDetailsResponse(
+            long id,
+            Long listingId,
+            long catalogVariantId,
+            int quantity,
+            BigDecimal unitPrice,
+            BigDecimal lineTotal,
+            String productName,
+            String variantLabel,
+            String condition,
+            String gameName,
+            String imageKey,
+            List<Long> unitIds) {
+        this(id, listingId, catalogVariantId, quantity, unitPrice, lineTotal, productName, variantLabel, condition, gameName, imageKey, null, unitIds);
+    }
 }

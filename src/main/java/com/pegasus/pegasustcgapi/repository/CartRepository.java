@@ -2,6 +2,12 @@ package com.pegasus.pegasustcgapi.repository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.Cart.CART;
 import static com.pegasus.pegasustcgapi.jooq.tables.CartItem.CART_ITEM;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogImage.CATALOG_IMAGE;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
+import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
+import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.CartItemRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.CartRecord;
@@ -10,8 +16,11 @@ import com.pegasus.pegasustcgapi.model.CartItem;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -174,17 +183,50 @@ public class CartRepository {
             return;
         }
         List<CartItem> guestItems = findItemsByCartId(guestCartId);
+        if (guestItems.isEmpty()) {
+            dsl.deleteFrom(CART).where(CART.ID.eq(guestCartId)).execute();
+            return;
+        }
+
+        List<CartItem> userItems = findItemsByCartId(userCartId);
+        Map<Long, CartItem> userItemByListing = userItems.stream()
+                .collect(Collectors.toMap(CartItem::listingId, item -> item, (a, b) -> a));
+
+        List<Long> listingIds = guestItems.stream().map(CartItem::listingId).distinct().toList();
+        Map<Long, Integer> stockMap = dsl.select(LISTING.ID, LISTING.QUANTITY_AVAILABLE)
+                .from(LISTING)
+                .where(LISTING.ID.in(listingIds))
+                .fetchMap(LISTING.ID, r -> r.get(LISTING.QUANTITY_AVAILABLE));
+
         for (CartItem guestItem : guestItems) {
-            dsl.insertInto(CART_ITEM)
-                    .set(CART_ITEM.CART_ID, userCartId)
-                    .set(CART_ITEM.LISTING_ID, guestItem.listingId())
-                    .set(CART_ITEM.QUANTITY, guestItem.quantity())
-                    .set(CART_ITEM.UNIT_PRICE_AT_ADD, guestItem.unitPriceAtAdd())
-                    .onConflict(CART_ITEM.CART_ID, CART_ITEM.LISTING_ID)
-                    .doUpdate()
-                    .set(CART_ITEM.QUANTITY, CART_ITEM.QUANTITY.plus(guestItem.quantity()))
-                    .set(CART_ITEM.UPDATED_AT, DSL.currentOffsetDateTime())
-                    .execute();
+            long listingId = guestItem.listingId();
+            Integer availableStock = stockMap.get(listingId);
+            if (availableStock == null || availableStock <= 0) {
+                continue;
+            }
+
+            CartItem existing = userItemByListing.get(listingId);
+            if (existing != null) {
+                int sum = existing.quantity() + guestItem.quantity();
+                int finalQty = Math.min(sum, availableStock);
+                if (finalQty > 0) {
+                    dsl.update(CART_ITEM)
+                            .set(CART_ITEM.QUANTITY, finalQty)
+                            .set(CART_ITEM.UPDATED_AT, DSL.currentOffsetDateTime())
+                            .where(CART_ITEM.ID.eq(existing.id()))
+                            .execute();
+                }
+            } else {
+                int finalQty = Math.min(guestItem.quantity(), availableStock);
+                if (finalQty > 0) {
+                    dsl.insertInto(CART_ITEM)
+                            .set(CART_ITEM.CART_ID, userCartId)
+                            .set(CART_ITEM.LISTING_ID, listingId)
+                            .set(CART_ITEM.QUANTITY, finalQty)
+                            .set(CART_ITEM.UNIT_PRICE_AT_ADD, guestItem.unitPriceAtAdd())
+                            .execute();
+                }
+            }
         }
         dsl.deleteFrom(CART).where(CART.ID.eq(guestCartId)).execute();
     }
@@ -230,6 +272,59 @@ public class CartRepository {
                 .and(CART.EXPIRES_AT.isNotNull())
                 .and(CART.EXPIRES_AT.lt(cutoff))
                 .execute();
+    }
+
+    public record CartListingDetails(
+            long listingId,
+            String productName,
+            String variantLabel,
+            String sellerName,
+            String imageKey) {
+    }
+
+    public Map<Long, CartListingDetails> findCartListingDetails(Collection<Long> listingIds) {
+        if (listingIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(
+                LISTING.ID,
+                CATALOG_PRODUCT.NAME,
+                CATALOG_VARIANT.LANGUAGE_CODE,
+                CATALOG_VARIANT.FINISH,
+                CATALOG_VARIANT.EDITION,
+                CATALOG_VARIANT.PRINTING_NOTE,
+                DSL.coalesce(USER_ACCOUNT.DISPLAY_NAME, USER_ACCOUNT.USERNAME),
+                CATALOG_IMAGE.IMAGE_KEY)
+                .from(LISTING)
+                .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
+                .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .leftJoin(CATALOG_IMAGE).on(CATALOG_IMAGE.CATALOG_PRODUCT_ID.eq(CATALOG_PRODUCT.ID)
+                        .and(CATALOG_IMAGE.IS_PRIMARY.isTrue()))
+                .where(LISTING.ID.in(listingIds))
+                .fetchMap(LISTING.ID, r -> {
+                    String languageCode = r.get(CATALOG_VARIANT.LANGUAGE_CODE);
+                    String finish = r.get(CATALOG_VARIANT.FINISH);
+                    String edition = r.get(CATALOG_VARIANT.EDITION);
+                    String printingNote = r.get(CATALOG_VARIANT.PRINTING_NOTE);
+                    StringBuilder label = new StringBuilder(languageCode != null ? languageCode : "EN");
+                    if (finish != null && !"NOT_APPLICABLE".equals(finish)) {
+                        label.append(" / ").append(finish);
+                    }
+                    if (edition != null && !"NOT_APPLICABLE".equals(edition)) {
+                        label.append(" / ").append(edition);
+                    }
+                    if (printingNote != null && !printingNote.isBlank()) {
+                        label.append(" / ").append(printingNote);
+                    }
+                    return new CartListingDetails(
+                            r.get(LISTING.ID),
+                            r.get(CATALOG_PRODUCT.NAME),
+                            label.toString(),
+                            r.value7(),
+                            r.get(CATALOG_IMAGE.IMAGE_KEY));
+                });
     }
 
     static Cart toCart(CartRecord r) {

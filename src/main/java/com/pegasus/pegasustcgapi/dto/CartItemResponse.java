@@ -22,5 +22,30 @@ public record CartItemResponse(
         CardCondition condition,
         String currency,
         OffsetDateTime addedAt,
-        OffsetDateTime updatedAt) {
+        OffsetDateTime updatedAt,
+        String productName,
+        String variantLabel,
+        String sellerName,
+        String imageUrl) {
+
+    public CartItemResponse(
+            long id,
+            long cartId,
+            long listingId,
+            int quantity,
+            BigDecimal unitPriceAtAdd,
+            BigDecimal currentPrice,
+            boolean priceChanged,
+            boolean purchasable,
+            Integer quantityAvailable,
+            Long sellerProfileId,
+            Long catalogVariantId,
+            CardCondition condition,
+            String currency,
+            OffsetDateTime addedAt,
+            OffsetDateTime updatedAt) {
+        this(id, cartId, listingId, quantity, unitPriceAtAdd, currentPrice, priceChanged, purchasable,
+                quantityAvailable, sellerProfileId, catalogVariantId, condition, currency, addedAt, updatedAt,
+                null, null, null, null);
+    }
 }
