@@ -62,7 +62,23 @@ public record CheckoutResponse(
             BigDecimal grandTotal,
             BigDecimal commissionAmount,
             BigDecimal sellerNetAmount,
-            List<OrderItemResponse> items) {
+            List<OrderItemResponse> items,
+            String sellerName) {
+
+        public SellerOrderResponse(
+                long id,
+                long sellerProfileId,
+                String sellerOrderNumber,
+                String status,
+                BigDecimal itemsSubtotal,
+                BigDecimal shippingFee,
+                BigDecimal grandTotal,
+                BigDecimal commissionAmount,
+                BigDecimal sellerNetAmount,
+                List<OrderItemResponse> items) {
+            this(id, sellerProfileId, sellerOrderNumber, status, itemsSubtotal, shippingFee,
+                    grandTotal, commissionAmount, sellerNetAmount, items, null);
+        }
     }
 
     public record OrderItemResponse(
@@ -75,6 +91,21 @@ public record CheckoutResponse(
             int quantity,
             BigDecimal unitPrice,
             BigDecimal lineTotal,
-            List<Long> unitIds) {
+            List<Long> unitIds,
+            String imageUrl) {
+
+        public OrderItemResponse(
+                long id,
+                Long listingId,
+                long catalogVariantId,
+                String productName,
+                String variantLabel,
+                String condition,
+                int quantity,
+                BigDecimal unitPrice,
+                BigDecimal lineTotal,
+                List<Long> unitIds) {
+            this(id, listingId, catalogVariantId, productName, variantLabel, condition, quantity, unitPrice, lineTotal, unitIds, null);
+        }
     }
 }
