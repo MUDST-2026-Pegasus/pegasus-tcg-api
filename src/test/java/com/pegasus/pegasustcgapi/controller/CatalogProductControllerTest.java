@@ -2,12 +2,8 @@ package com.pegasus.pegasustcgapi.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -33,9 +29,11 @@ import com.pegasus.pegasustcgapi.service.CatalogImageService;
 import com.pegasus.pegasustcgapi.service.CatalogProductService;
 import com.pegasus.pegasustcgapi.service.CatalogSearchService;
 import com.pegasus.pegasustcgapi.service.CatalogVariantService;
+import com.pegasus.pegasustcgapi.service.ProductBrowse;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -89,14 +87,13 @@ class CatalogProductControllerTest {
     }
 
     private static ProductSummaryResponse summary(CatalogProduct product) {
-        return ProductSummaryResponse.of(product, "https://cdn.example/charizard.png", 2);
+        return ProductSummaryResponse.of(product, "https://cdn.example/charizard.png", 2, null, 0);
     }
 
     @Test
     @DisplayName("GET /products hands name, game, type, sort and paging to the public search")
     void browsePassesEveryFilterToThePublicSearch() throws Exception {
-        given(search.search(any(), any(), any(), any(), any(), anyMap(), any(), anyBoolean(), anyInt(), anyInt()))
-                .willReturn(PageResponse.of(List.of(summary(charizard(true))), 1, 5, 6));
+        given(search.search(any())).willReturn(PageResponse.of(List.of(summary(charizard(true))), 1, 5, 6));
 
         mockMvc.perform(get(PRODUCTS)
                         .param("q", "charizard")
@@ -113,36 +110,51 @@ class CatalogProductControllerTest {
                 .andExpect(jsonPath("$.data.totalItems").value(6))
                 .andExpect(jsonPath("$.data.totalPages").value(2));
 
-        verify(search).search(eq((short) 1), eq(3), isNull(), eq(ProductType.SINGLE_CARD), eq("charizard"),
-                anyMap(), eq("name"), eq(true), eq(1), eq(5));
+        verify(search).search(argThat(browse -> browse.gameIds().equals(Set.of((short) 1))
+                && Integer.valueOf(3).equals(browse.categoryId())
+                && browse.cardSetId() == null
+                && browse.productType() == ProductType.SINGLE_CARD
+                && "charizard".equals(browse.nameQuery())
+                && "name".equals(browse.sort())
+                && browse.activeOnly()
+                && browse.page() == 1
+                && browse.size() == 5));
     }
 
     @Test
     @DisplayName("GET /products with no parameters is the whole active catalogue, page 0 of 20")
     void browseWithoutParametersUsesDefaults() throws Exception {
-        given(search.search(any(), any(), any(), any(), any(), anyMap(), any(), anyBoolean(), anyInt(), anyInt()))
-                .willReturn(PageResponse.of(List.of(), 0, 20, 0));
+        given(search.search(any())).willReturn(PageResponse.of(List.of(), 0, 20, 0));
 
         mockMvc.perform(get(PRODUCTS))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items").isEmpty());
 
-        verify(search).search(isNull(), isNull(), isNull(), isNull(), isNull(),
-                anyMap(), isNull(), eq(true), eq(0), eq(20));
+        verify(search).search(argThat((ProductBrowse browse) -> browse.gameIds().isEmpty()
+                && browse.categoryId() == null
+                && browse.cardSetId() == null
+                && browse.productType() == null
+                && browse.nameQuery() == null
+                && browse.sort() == null
+                && browse.activeOnly()
+                && !browse.inStockOnly()
+                && browse.conditions().isEmpty()
+                && browse.minPrice() == null
+                && browse.maxPrice() == null
+                && browse.page() == 0
+                && browse.size() == 20));
     }
 
     @Test
     @DisplayName("attr.* filters travel to the search in the raw parameter map")
     void attributeFiltersReachTheSearch() throws Exception {
-        given(search.search(any(), any(), any(), any(), any(), anyMap(), any(), anyBoolean(), anyInt(), anyInt()))
-                .willReturn(PageResponse.of(List.of(), 0, 20, 0));
+        given(search.search(any())).willReturn(PageResponse.of(List.of(), 0, 20, 0));
 
         mockMvc.perform(get(PRODUCTS).param("gameId", "1").param("attr.hp", "330"))
                 .andExpect(status().isOk());
 
-        verify(search).search(eq((short) 1), isNull(), isNull(), isNull(), isNull(),
-                argThat((Map<String, String> raw) -> "330".equals(raw.get("attr.hp"))),
-                isNull(), eq(true), eq(0), eq(20));
+        verify(search).search(argThat((ProductBrowse browse) -> browse.gameIds().equals(Set.of((short) 1))
+                && "330".equals(browse.rawParameters().get("attr.hp"))));
     }
 
     @ParameterizedTest(name = "{0}={1} -> 400 VALIDATION_FAILED naming {0}")
@@ -164,7 +176,7 @@ class CatalogProductControllerTest {
     @Test
     @DisplayName("a refusal from the search (e.g. unknown sort) comes back as its own 400")
     void searchRefusalIsPassedThrough() throws Exception {
-        given(search.search(any(), any(), any(), any(), any(), anyMap(), eq("cheapest"), anyBoolean(), anyInt(), anyInt()))
+        given(search.search(argThat((ProductBrowse browse) -> "cheapest".equals(browse.sort()))))
                 .willThrow(new ApiException(ErrorCode.VALIDATION_FAILED, "sort must be one of name, newest"));
 
         mockMvc.perform(get(PRODUCTS).param("sort", "cheapest"))
