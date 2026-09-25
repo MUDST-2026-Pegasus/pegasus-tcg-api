@@ -26,12 +26,12 @@ import com.pegasus.pegasustcgapi.service.JwtService;
 import com.pegasus.pegasustcgapi.service.ListingService;
 import com.pegasus.pegasustcgapi.service.ListingUnitService;
 import com.pegasus.pegasustcgapi.service.ListingUnitService.StockIn;
-import com.pegasus.pegasustcgapi.service.PlatformSettingService;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
@@ -46,11 +46,6 @@ import org.jooq.JSONB;
  */
 public class TestData {
 
-    /** The seeded values of the settings tests are allowed to change. */
-    private static final Map<String, String> DEFAULT_SETTINGS = Map.of(
-            PlatformSettingService.ORDER_PAYMENT_TIMEOUT_MINUTES, "60",
-            PlatformSettingService.COMMISSION_DEFAULT_RATE, "5.0");
-
     private static final AtomicLong SEQUENCE = new AtomicLong(System.nanoTime());
 
     private final DSLContext dsl;
@@ -58,6 +53,9 @@ public class TestData {
     private final ListingUnitService units;
     private final AddressService addresses;
     private final JwtService jwt;
+
+    /** What each setting held before a test changed it, so it can be put back exactly. */
+    private final Map<String, String> originalSettings = new ConcurrentHashMap<>();
 
     public TestData(DSLContext dsl, ListingService listings, ListingUnitService units,
             AddressService addresses, JwtService jwt) {
@@ -195,14 +193,28 @@ public class TestData {
 
     // ---------- settings ----------
 
+    /** Changes a seeded setting for the current test; {@link #restoreDefaultSettings} puts it back. */
     public void setting(String key, String value) {
-        dsl.update(PLATFORM_SETTING)
-                .set(PLATFORM_SETTING.SETTING_VALUE, JSONB.valueOf(value))
-                .where(PLATFORM_SETTING.SETTING_KEY.eq(key))
-                .execute();
+        originalSettings.computeIfAbsent(key, k -> dsl.select(PLATFORM_SETTING.SETTING_VALUE)
+                .from(PLATFORM_SETTING)
+                .where(PLATFORM_SETTING.SETTING_KEY.eq(k))
+                .fetchSingle(PLATFORM_SETTING.SETTING_VALUE)
+                .data());
+        write(key, value);
     }
 
     public void restoreDefaultSettings() {
-        DEFAULT_SETTINGS.forEach(this::setting);
+        originalSettings.forEach(this::write);
+        originalSettings.clear();
+    }
+
+    private void write(String key, String value) {
+        int updated = dsl.update(PLATFORM_SETTING)
+                .set(PLATFORM_SETTING.SETTING_VALUE, JSONB.valueOf(value))
+                .where(PLATFORM_SETTING.SETTING_KEY.eq(key))
+                .execute();
+        if (updated != 1) {
+            throw new IllegalArgumentException("No seeded platform setting named " + key);
+        }
     }
 }
