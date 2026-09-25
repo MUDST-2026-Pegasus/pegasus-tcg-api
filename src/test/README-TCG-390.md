@@ -13,14 +13,14 @@
 
 | ประเภท | จำนวน (ตามที่ Gradle นับ) | เครื่องมือ |
 |---|:---:|---|
-| Unit | 41 | JUnit 5 + Mockito |
+| Unit | 53 | JUnit 5 + Mockito |
 | API / Controller | 23 | MockMvc (standalone) |
 | Integration | 73 | Spring Boot Test + Testcontainers (PostgreSQL 17) |
 | Concurrency (API + Integration) | 30 รอบ | JDK `HttpClient` + `ExecutorService` + `CountDownLatch` |
 | Acceptance (BDD) | 18 scenarios | Cucumber-JVM 8 |
-| **รวมที่เพิ่ม** | **185** | ทั้งโปรเจกต์ 431 → 616 เทส ผ่านหมด |
+| **รวมที่เพิ่ม** | **197** | ทั้งโปรเจกต์ 431 → 628 เทส: ผ่าน 625, ข้าม 3 (bug ที่รู้แล้ว ดูข้อ 8), fail 0 |
 
-Coverage ของ package `service/` (JaCoCo): **Line 87.1% / Branch 76.2%** ผ่านเกณฑ์ Plan A (≥ 80% / ≥ 75%) ก่อนเริ่มงานอยู่ที่ Line 82.7% / Branch 71.2%
+Coverage ของ package `service/` (JaCoCo): **Line 87.8% / Branch 76.4%** ผ่านเกณฑ์ Plan A (≥ 80% / ≥ 75%) ก่อนเริ่มงานอยู่ที่ Line 82.7% / Branch 71.2%
 
 ---
 
@@ -33,14 +33,14 @@ Coverage ของ package `service/` (JaCoCo): **Line 87.1% / Branch 76.2%** �
 
 ### คำสั่ง (รันใน `pegasus-tcg-api`, PowerShell ใช้ `.\gradlew.bat` แทน `./gradlew`)
 
-รันเทสทั้งโปรเจกต์:
+รันเทสทั้งโปรเจกต์ (รวม Cucumber ด้วย เพราะ `CucumberTestRunner` เป็น JUnit `@Suite` ที่ task `test` เจอเองอัตโนมัติ):
 ```bash
 ./gradlew test
 ```
 
 รันเฉพาะเทสของ TCG-390 ทั้งหมดในคำสั่งเดียว:
 ```bash
-./gradlew test --tests '*AddressServiceTest' --tests '*CartServiceTest' --tests '*LedgerServiceTest' --tests '*CatalogProductControllerTest' --tests '*AddressControllerTest' --tests '*CatalogSearchServiceIntegrationTest' --tests '*ListingBrowseServiceIntegrationTest' --tests '*CheckoutServiceIntegrationTest' --tests '*OrderStateTransitionIntegrationTest' --tests '*CheckoutRaceConditionIntegrationTest' --tests '*CucumberTestRunner'
+./gradlew test --tests '*AddressServiceTest' --tests '*CartServiceTest' --tests '*LedgerServiceTest' --tests '*PlatformSettingServiceTest' --tests '*CatalogProductControllerTest' --tests '*AddressControllerTest' --tests '*CatalogSearchServiceIntegrationTest' --tests '*ListingBrowseServiceIntegrationTest' --tests '*CheckoutServiceIntegrationTest' --tests '*OrderStateTransitionIntegrationTest' --tests '*CheckoutRaceConditionIntegrationTest' --tests '*CucumberTestRunner'
 ```
 
 รันเฉพาะ Cucumber:
@@ -78,6 +78,7 @@ src/test/
 │   │   ├── AddressServiceTest.java                   Unit
 │   │   ├── CartServiceTest.java                      Unit   (เพิ่มกลุ่ม ECC ในไฟล์เดิม)
 │   │   ├── LedgerServiceTest.java                    Unit
+│   │   ├── PlatformSettingServiceTest.java           Unit
 │   │   ├── CatalogSearchServiceIntegrationTest.java  Integration
 │   │   ├── ListingBrowseServiceIntegrationTest.java  Integration (PWC)
 │   │   ├── CheckoutServiceIntegrationTest.java       Integration
@@ -124,13 +125,19 @@ src/test/
 | qty > stock (Invalid) | 11, 50, `Integer.MAX_VALUE` | 409 `INSUFFICIENT_STOCK` |
 | แก้จำนวนในตะกร้า | 0, -3 / = 10 / = 11 | 400 / สำเร็จ / 409 |
 
-#### `LedgerServiceTest` (18 เคส) · CR6/CR7 ค่าคอมมิชชัน
+#### `LedgerServiceTest` (17 เคส) · CR6/CR7 ค่าคอมมิชชัน
 | กลุ่ม | เคส |
 |---|---|
 | ปัดเศษ 2 ตำแหน่ง (HALF_UP) | **3% ของ 175.50 = 5.27** · 5% ของ 0.01 = 0.00 · 5% ของ 0.10 = 0.01 · 3% ของ 33.33 = 1.00 · 7.5% ของ 12.34 = 0.93 · 3.5% ของ 999,999.99 = 35,000.00 และค่าที่ได้มีทศนิยม 2 ตำแหน่งเสมอ |
-| ECC ของ rate | 0% ได้ 0 · 3.5% · 100% ได้เท่ายอดขาย · **−5% และ 105% ระบบไม่ปฏิเสธ** (assert ตามพฤติกรรมจริง ดูข้อ 7) |
+| ECC ของ rate | 0% ได้ 0 · 3.5% · 100% ได้เท่ายอดขาย · **−5%, −0.01%, 100.01%, 105% ต้องถูกปฏิเสธ** (`@Disabled` รอแก้ bug ดูข้อ 8) |
 | ไม่มีอะไรให้คิด | ยอด ≤ 0 หรือ null ได้ `NONE` โดยไม่ไปอ่านค่า rate |
 | Escrow release | เรียก `release()` แล้วต้องไม่ error |
+
+#### `PlatformSettingServiceTest` (13 เคส) · CR6 ค่าที่แอดมินตั้งได้
+| กลุ่ม | เคส |
+|---|---|
+| อ่านค่า | ตัวเลขมีหรือไม่มีเครื่องหมายคำพูดแบบ JSON ก็อ่านได้ · แปลงเป็นนาที ชั่วโมง วัน ได้ · ไม่มี setting นั้นได้ `SETTING_NOT_FOUND` · ค่าที่ไม่ใช่ตัวเลขทำให้ error ทันที |
+| แก้ commission rate | 0, 3, 3.5, 100 บันทึกได้ · key ที่ไม่มีได้ 404 และไม่มีการเขียน · ค่าที่ไม่ใช่ JSON ได้ 400 · **ค่าที่อยู่นอก 0–100 หรือไม่ใช่ตัวเลขต้องได้ 400** (`@Disabled` รอแก้ bug ดูข้อ 8) |
 
 ### 4.2 API Test (MockMvc): ยิง HTTP เข้า controller โดย service เป็น mock
 
@@ -176,8 +183,8 @@ src/test/
 | ค่าคอมถูกบันทึกค้างไว้ | 3% ของ 175.50 = **5.27** ผู้ขายได้ **170.23** และถ้าแอดมินเปลี่ยน rate ภายหลังออเดอร์เดิมไม่เปลี่ยน |
 | ที่อยู่ถูก snapshot | แก้สมุดที่อยู่ภายหลังแล้วออเดอร์เดิมไม่เปลี่ยน |
 | สต็อกหมดระหว่างทาง | ได้ 409 ไม่มีออเดอร์ค้างครึ่งๆ กลางๆ และตะกร้ายังอยู่ |
-| ECC rate −5% | DB CHECK ปฏิเสธ ทุกอย่าง rollback |
-| ECC rate 105% | ระบบรับ และผู้ขายได้เงินติดลบ (ดูข้อ 7) |
+| ECC rate −5% | checkout ถูกปฏิเสธ ไม่มีออเดอร์ การ์ดยังขายอยู่ ตะกร้ายังอยู่ (ตอนนี้ DB CHECK เป็นตัวปฏิเสธ ถ้าแก้ bug แล้วเทสนี้ก็ยังผ่าน) |
+| ECC rate 105% | checkout ต้องถูกปฏิเสธ และไม่มี sub-order ที่ยอดผู้ขายติดลบ (`@Disabled` รอแก้ bug ดูข้อ 8) |
 
 #### `OrderStateTransitionIntegrationTest` (37 เคส) · CR7 US-40..49
 | กลุ่ม | เคส |
@@ -227,7 +234,7 @@ src/test/
 | ตัวแปร | Invalid (ต่ำ) | Valid | Invalid (สูง) | ไฟล์ |
 |---|---|---|---|---|
 | Quantity vs Stock | qty ≤ 0 ได้ 400 | 1..stock ใส่ได้ | qty > stock ได้ 409 | `CartServiceTest`, `browse_and_cart.feature` |
-| Commission Rate | −5% | 0%, 3%, 3.5%, 100% | 105% | `LedgerServiceTest`, `CheckoutServiceIntegrationTest` |
+| Commission Rate | −5%, −0.01% ต้องถูกปฏิเสธ | 0%, 3%, 3.5%, 100% | 100.01%, 105% ต้องถูกปฏิเสธ | `LedgerServiceTest`, `PlatformSettingServiceTest`, `CheckoutServiceIntegrationTest` |
 
 ### 5.2 PWC (Pairwise): Game × Rarity × Condition × In-stock
 ถ้าทำครบทุกกรณีต้องเทส 3 × 3 × 3 × 2 = **54 เคส** แต่ใช้ L9 orthogonal array เหลือ **9 เคส** และทุกคู่ของค่าจาก 2 ตัวแปรใดก็ได้ยังถูกเทสอย่างน้อย 1 ครั้ง
@@ -290,7 +297,7 @@ src/test/
 
 | # | เรื่อง | เอกสาร / Ticket | โค้ดจริง | ควรทำอะไร |
 |:---:|---|---|---|---|
-| 1 | Commission rate ไม่มี validation | −5% และ 105% ต้องได้ 400 | −5%: DB CHECK ปฏิเสธ ทำให้ **checkout ทั้งแพลตฟอร์มล้ม** · 105%: รับออเดอร์และผู้ขายได้เงินติดลบ | เจ้าของโค้ดเพิ่ม validation 0–100 ใน `PlatformSettingService.update` หรือ `LedgerService` |
+| 1 | **Bug:** Commission rate ไม่มี validation | −5% และ 105% ต้องได้ 400 | −5%: DB CHECK ปฏิเสธ ทำให้ **checkout ทั้งแพลตฟอร์มล้ม** · 105%: รับออเดอร์และผู้ขายได้เงินติดลบ | ดูข้อ 8 |
 | 2 | Escrow | สถานะ `ESCROW_HELD` และห้ามเบิก payout ก่อนยืนยัน | ไม่มีโค้ดส่วนไหนเขียนตาราง `escrow_hold` · `LedgerService.release()` แค่เขียน log · ยังไม่มี payout | เทสได้แค่ "ไม่ปล่อยเงินก่อนยืนยัน" |
 | 3 | Optimistic Locking | ใช้ optimistic lock | ใช้ pessimistic lock (`FOR UPDATE SKIP LOCKED`) | ผลที่ต้องได้เหมือนกัน (201 / 409, สต็อก ≥ 0) |
 | 4 | Status ของ race | คนแรกได้ 200 | checkout สำเร็จได้ **201 Created** | — |
@@ -303,3 +310,24 @@ src/test/
 | 11 | ชื่อ class | `CatalogService`, `OrderService` | `CatalogSearchService` + `ListingBrowseService`, `CheckoutService` + `OrderLifecycleService` + `LedgerService` | ตั้งชื่อไฟล์เทสตาม class จริง |
 
 ข้อสังเกตเพิ่มเติม (ยังไม่เคยเกิดใน 120 รอบ): ถ้ากดสั่งซื้อซ้ำด้วย Idempotency-Key เดิม แล้ว request ที่สองอ่านตะกร้าหลังจาก request แรก commit ไปแล้ว อาจได้ `409 CART_EMPTY` แทนการ replay
+
+---
+
+## 8. Known bug ที่มีเทสรออยู่ (`@Disabled`)
+
+เทสที่ต้องแก้ production code ถึงจะผ่าน ถูกเขียนให้ **assert พฤติกรรมที่ถูกต้อง** แล้วใส่ `@Disabled` ไว้ CI จึงยังเขียว และเทสไม่ได้รับรองพฤติกรรมที่ผิด พอ Code Owner แก้เสร็จ แค่ลบ `@Disabled` ก็ใช้เป็นเทสยืนยันได้เลย
+
+**Bug: `commission.default_rate` ไม่ถูกตรวจว่าอยู่ในช่วง 0–100**
+- **ผลกระทบ:** แอดมินตั้งค่าติดลบได้ ทำให้ checkout ของทุกคนล้ม (DB CHECK ปฏิเสธ) · ตั้งเกิน 100 ได้ ทำให้ผู้ขายได้เงินติดลบ
+- **ทางแก้ที่แนะนำ** (Code Owner ต้องทำ เพราะเป็น `src/main`): ตรวจค่าใน `PlatformSettingService.update` (ต้องเป็นตัวเลข 0–100 ไม่งั้นได้ 400 `VALIDATION_FAILED`) และกันซ้ำใน `LedgerService.quoteCommission`
+- **เทสที่รออยู่** (ใช้ข้อความเดียวกันจาก `LedgerServiceTest.KNOWN_BUG_COMMISSION_RATE`):
+
+| เทส | ตรวจอะไร |
+|---|---|
+| `PlatformSettingServiceTest#rateOutsideZeroToHundredIsRejected` | −5, −0.01, 100.01, 105, "abc" ได้ 400 และไม่ถูกบันทึก |
+| `LedgerServiceTest#rateOutsideZeroToHundredIsRefused` | rate นอก 0–100 ต้องไม่ถูกคำนวณเป็นค่าคอม |
+| `CheckoutServiceIntegrationTest#commissionAboveHundredRefusesTheOrder` | checkout ที่ 105% ต้องถูกปฏิเสธและ rollback |
+
+ทดสอบแล้ว: ถ้าปิด `@Disabled` ทั้ง 10 เคสนี้ fail ตามคาด (แปลว่าเทสจับ bug ได้จริง) และไม่มีเทสอื่นพัง
+
+ถ้าอยากลองรันเทสที่ถูก `@Disabled` ในเครื่อง ให้สร้างไฟล์ `src/test/resources/junit-platform.properties` ชั่วคราว ใส่บรรทัด `junit.jupiter.conditions.deactivate=org.junit.*DisabledCondition` แล้วรัน (อย่า commit ไฟล์นี้)
