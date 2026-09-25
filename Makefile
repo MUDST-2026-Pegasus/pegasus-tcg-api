@@ -8,7 +8,7 @@
         codegen compile \
         env check deps bootjar \
         docker-build docker-run docker-stop \
-        swagger api-docs seed-catalog test-swagger
+        swagger api-docs seed-catalog seed-home test-swagger
 
 # ── Tool aliases ──────────────────────────────────────────────
 ifeq ($(OS),Windows_NT)
@@ -122,3 +122,11 @@ test-swagger: ## Run the OpenAPI / Swagger smoke tests (Command: ./gradlew test 
 
 seed-catalog: ## Load sample catalog data into the local DB (Command: docker exec … psql … < dev_seed.sql)
 	@docker exec -i pegasus-tcg-postgres psql -U postgres -d pegasus_tcg -v ON_ERROR_STOP=1 < src/test/resources/db/dev_seed.sql
+
+# The bucket the app reads from; override with `make seed-home MINIO_BUCKET=...`.
+MINIO_BUCKET ?= pegasus
+
+seed-home: ## Load home page sample data and upload its pictures to MinIO; run the app once first so migrations exist (Command: docker cp … && upload.sh && psql … < home_seed.sql)
+	docker cp src/test/resources/db/seed-images/. pegasus-tcg-minio:/tmp/seed-images
+	docker exec pegasus-tcg-minio sh -c "sh /tmp/seed-images/upload.sh $(MINIO_BUCKET)"
+	@docker exec -i pegasus-tcg-postgres psql -U postgres -d pegasus_tcg -v ON_ERROR_STOP=1 < src/test/resources/db/home_seed.sql
