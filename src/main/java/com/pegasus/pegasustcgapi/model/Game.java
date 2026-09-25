@@ -20,4 +20,9 @@ public record Game(
         boolean active,
         Long createdBy,
         OffsetDateTime createdAt) {
+
+    /** The same game showing another logo, e.g. a stored key swapped for a readable URL. */
+    public Game withLogoUrl(String url) {
+        return new Game(id, code, name, nameLocal, slug, url, displayOrder, active, createdBy, createdAt);
+    }
 }
