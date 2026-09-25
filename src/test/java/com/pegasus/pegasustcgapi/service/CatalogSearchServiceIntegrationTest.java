@@ -7,7 +7,6 @@ import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.ProductSummaryResponse;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import com.pegasus.pegasustcgapi.support.TestData.Card;
-import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,8 +26,12 @@ class CatalogSearchServiceIntegrationTest extends PostgresIntegrationTest {
     private CatalogSearchService search;
 
     private PageResponse<ProductSummaryResponse> publicSearch(Short gameId, String q) {
-        Set<Short> gameIds = gameId != null ? Set.of(gameId) : Set.of();
-        return search.search(new ProductBrowse(gameIds, null, null, null, q, Map.of(), null, true, false, Set.of(), null, null, 0, 50));
+        return search.search(browse(gameId, q, true));
+    }
+
+    private static ProductBrowse browse(Short gameId, String q, boolean activeOnly) {
+        return new ProductBrowse(gameId == null ? Set.of() : Set.of(gameId), null, null, null, q, null, null,
+                activeOnly, false, null, null, null, 0, 50);
     }
 
     @ParameterizedTest(name = "\"{0}\" finds Charizard ex")
@@ -97,7 +100,7 @@ class CatalogSearchServiceIntegrationTest extends PostgresIntegrationTest {
                 .where(CATALOG_PRODUCT.ID.eq(luffy.productId())).execute();
 
         assertThat(publicSearch(game, "luffy").items()).isEmpty();
-        assertThat(search.search(new ProductBrowse(Set.of(game), null, null, null, "luffy", Map.of(), null, false, false, Set.of(), null, null, 0, 50)).items())
+        assertThat(search.search(browse(game, "luffy", false)).items())
                 .extracting(ProductSummaryResponse::id).containsExactly(luffy.productId());
     }
 
