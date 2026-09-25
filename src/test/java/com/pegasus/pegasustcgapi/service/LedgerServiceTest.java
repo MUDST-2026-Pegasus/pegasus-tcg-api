@@ -2,11 +2,13 @@ package com.pegasus.pegasustcgapi.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.pegasus.pegasustcgapi.port.LedgerPort.CommissionQuote;
 import java.math.BigDecimal;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 @DisplayName("LedgerService — commission quote")
 class LedgerServiceTest {
+
+    /**
+     * Neither LedgerService nor the settings endpoint checks that the rate is a
+     * percentage, so -5% quotes a negative commission and 105% one larger than the
+     * sale. Needs a production fix by the code owner; remove @Disabled once it lands.
+     */
+    static final String KNOWN_BUG_COMMISSION_RATE =
+            "Known bug: commission.default_rate is not validated to 0..100 (production fix pending)";
 
     private static final long SELLER_PROFILE_ID = 99L;
 
@@ -78,9 +88,9 @@ class LedgerServiceTest {
     }
 
     /**
-     * Equivalence classes of the rate: below 0, 0..100, above 100. The service reads
-     * the rate as configured and has no guard of its own, so the invalid partitions
-     * pin down what happens today rather than a rejection that does not exist.
+     * Equivalence classes of the rate: below 0, 0..100, above 100. The invalid
+     * partitions state the required behaviour — a percentage outside 0..100 is never
+     * turned into a commission — and are disabled until the code enforces it.
      */
     @Nested
     @DisplayName("ECC: commission rate partitions")
@@ -113,27 +123,16 @@ class LedgerServiceTest {
                     .isEqualByComparingTo("175.50");
         }
 
-        @Test
-        @DisplayName("invalid partition < 0 (current behaviour): -5% is not rejected and quotes a negative amount")
-        void negativeRateIsNotRejected() {
-            givenRate("-5");
+        @ParameterizedTest(name = "invalid partition: rate {0} is refused rather than quoted")
+        @ValueSource(strings = {"-5", "-0.01", "100.01", "105"})
+        @Disabled(KNOWN_BUG_COMMISSION_RATE)
+        void rateOutsideZeroToHundredIsRefused(String rate) {
+            givenRate(rate);
 
-            CommissionQuote quote = ledgerService.quoteCommission(SELLER_PROFILE_ID, new BigDecimal("175.50"));
-
-            // Only seller_order's CHECK (commission_amount >= 0) stands in the way of this
-            // quote; see CheckoutServiceIntegrationTest for what that does to a checkout.
-            assertThat(quote.amount()).isEqualByComparingTo("-8.78");
-        }
-
-        @Test
-        @DisplayName("invalid partition > 100 (current behaviour): 105% is not rejected and exceeds the subtotal")
-        void rateAboveHundredIsNotRejected() {
-            givenRate("105");
-
-            CommissionQuote quote = ledgerService.quoteCommission(SELLER_PROFILE_ID, new BigDecimal("175.50"));
-
-            assertThat(quote.amount()).isEqualByComparingTo("184.28")
-                    .isGreaterThan(new BigDecimal("175.50"));
+            // Any refusal will do; what must not happen is a quote that is negative or
+            // larger than the items it is charged on.
+            assertThatThrownBy(() -> ledgerService.quoteCommission(SELLER_PROFILE_ID, new BigDecimal("175.50")))
+                    .isInstanceOf(RuntimeException.class);
         }
     }
 

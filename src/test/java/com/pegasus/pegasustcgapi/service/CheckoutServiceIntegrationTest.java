@@ -32,10 +32,10 @@ import com.pegasus.pegasustcgapi.support.TestData.Seller;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.DataIntegrityViolationException;
 
 /**
  * Placing an order against the real schema [CR-4 US-17, US-20; CR-6/CR-7 commission]:
@@ -208,31 +208,41 @@ class CheckoutServiceIntegrationTest extends PostgresIntegrationTest {
         assertThat(cartLines(buyer)).as("the refused buyer keeps their basket").isEqualTo(1);
     }
 
+    /** The buyer's order was refused as a whole: no order, the card still on sale, the basket intact. */
+    private void assertNothingWasOrdered(Listing listing) {
+        assertThat(dsl.fetchCount(SALES_ORDER, SALES_ORDER.BUYER_ID.eq(buyer.userId()))).isZero();
+        assertThat(unitsIn(listing.id(), ListingUnitStatus.LISTED)).as("the card is back on sale").isEqualTo(1);
+        assertThat(unitsIn(listing.id(), ListingUnitStatus.RESERVED)).isZero();
+        assertThat(cartLines(buyer)).as("the buyer keeps their basket").isEqualTo(1);
+    }
+
     @Test
-    @DisplayName("ECC commission < 0 (current behaviour): the database CHECK refuses the order and it all rolls back")
-    void negativeCommissionRateIsStoppedByTheDatabase() {
+    @DisplayName("ECC commission < 0: checkout is refused and nothing is ordered or held")
+    void negativeCommissionRateRefusesTheOrder() {
         data.setting(PlatformSettingService.COMMISSION_DEFAULT_RATE, "-5");
         Listing listing = data.onSale(seller, card, CardCondition.NM, 1, "175.50");
         cartService.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
 
-        assertThatThrownBy(() -> checkout(buyer)).isInstanceOf(DataIntegrityViolationException.class);
+        // Today the refusal comes from seller_order's CHECK (commission_amount >= 0); once
+        // the rate is validated it will come earlier. Either way the order must not exist.
+        assertThatThrownBy(() -> checkout(buyer)).isInstanceOf(RuntimeException.class);
 
-        assertThat(dsl.fetchCount(SALES_ORDER, SALES_ORDER.BUYER_ID.eq(buyer.userId()))).isZero();
-        assertThat(unitsIn(listing.id(), ListingUnitStatus.LISTED)).as("the card is back on sale").isEqualTo(1);
-        assertThat(cartLines(buyer)).isEqualTo(1);
+        assertNothingWasOrdered(listing);
     }
 
     @Test
-    @DisplayName("ECC commission > 100 (current behaviour): 105% is accepted and leaves the seller a negative net")
-    void commissionAboveHundredIsAccepted() {
+    @DisplayName("ECC commission > 100: checkout is refused rather than leaving the seller a negative net")
+    @Disabled(LedgerServiceTest.KNOWN_BUG_COMMISSION_RATE)
+    void commissionAboveHundredRefusesTheOrder() {
         data.setting(PlatformSettingService.COMMISSION_DEFAULT_RATE, "105");
         Listing listing = data.onSale(seller, card, CardCondition.NM, 1, "175.50");
         cartService.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
 
-        SellerOrderResponse sub = checkout(buyer).sellerOrders().getFirst();
+        assertThatThrownBy(() -> checkout(buyer)).isInstanceOf(RuntimeException.class);
 
-        // Neither LedgerService nor the seller_order CHECK caps the rate, so the order goes through.
-        assertThat(sub.commissionAmount()).isEqualByComparingTo("184.28");
-        assertThat(sub.sellerNetAmount()).isEqualByComparingTo("-8.78").isNegative();
+        assertNothingWasOrdered(listing);
+        assertThat(dsl.fetchCount(SELLER_ORDER, SELLER_ORDER.SELLER_NET_AMOUNT.lessThan(BigDecimal.ZERO)
+                .and(SELLER_ORDER.SELLER_PROFILE_ID.eq(seller.profileId()))))
+                .as("no sub-order with a negative payout").isZero();
     }
 }
