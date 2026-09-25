@@ -11,6 +11,7 @@ import io.cucumber.java.Before;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
+import java.util.Locale;
 import java.util.Map;
 import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -96,7 +97,7 @@ public class AuthLoginSteps {
     public void userSignsIn(String email, String password) {
         Map<String, String> body = Map.of(
                 "email", savedEmail,
-                "password", savedPassword
+                "password", password
         );
         lastResponse = client.post("/api/v1/auth/login", null, body);
     }
@@ -164,7 +165,12 @@ public class AuthLoginSteps {
 
     @Given("An authenticated user with role {string}")
     public void authenticatedUserWithRole(String role) {
-        this.buyerPrincipal = data.buyer();
+        this.buyerPrincipal = switch (role.toUpperCase(Locale.ROOT)) {
+            case "BUYER" -> data.buyer();
+            case "SELLER" -> data.seller().principal();
+            case "ADMIN" -> data.admin();
+            default -> throw new IllegalArgumentException("Unknown role: " + role);
+        };
     }
 
     @When("The buyer attempts to access the admin endpoint {string}")
