@@ -6,8 +6,11 @@ import com.pegasus.pegasustcgapi.model.AuthUser;
 import com.pegasus.pegasustcgapi.model.UserStatus;
 import com.pegasus.pegasustcgapi.jooq.tables.records.UserAccountRecord;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.jooq.Field;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
@@ -82,15 +85,43 @@ public class UserRepository {
                 .execute();
     }
 
-    public void updateProfile(long userId, String displayName, String bio, String phone, String avatarUrl) {
+    /**
+     * Updates only the profile columns whose keys appear in {@code fields}.
+     * This prevents a lost-update when two concurrent requests each touch
+     * different columns.
+     *
+     * <p>Recognised keys: {@code displayName}, {@code bio}, {@code phone},
+     * {@code avatarUrl}. A {@code null} value in the map sets the column to
+     * SQL {@code NULL} (clears the field).
+     */
+    public void updateProfileSelective(long userId, Map<String, Object> fields) {
+        Map<Field<?>, Object> columns = new LinkedHashMap<>();
+        fields.forEach((name, value) -> {
+            switch (name) {
+                case "displayName" -> columns.put(USER_ACCOUNT.DISPLAY_NAME, value);
+                case "bio"         -> columns.put(USER_ACCOUNT.BIO, value);
+                case "phone"       -> columns.put(USER_ACCOUNT.PHONE, value);
+                case "avatarUrl"   -> columns.put(USER_ACCOUNT.AVATAR_URL, value);
+            }
+        });
+        if (columns.isEmpty()) return;
         dsl.update(USER_ACCOUNT)
-                .set(USER_ACCOUNT.DISPLAY_NAME, displayName)
-                .set(USER_ACCOUNT.BIO, bio)
-                .set(USER_ACCOUNT.PHONE, phone)
-                .set(USER_ACCOUNT.AVATAR_URL, avatarUrl)
+                .set(columns)
                 .where(USER_ACCOUNT.ID.eq(userId))
                 .and(USER_ACCOUNT.DELETED_AT.isNull())
                 .execute();
+    }
+
+    /**
+     * Whether the given avatar key is already claimed by a different user. The
+     * key is visible inside presigned URLs on public pages, so without this
+     * check another user could copy it.
+     */
+    public boolean avatarKeyUsedByAnother(String avatarUrl, long userId) {
+        return dsl.fetchExists(dsl.selectOne().from(USER_ACCOUNT)
+                .where(USER_ACCOUNT.AVATAR_URL.eq(avatarUrl))
+                .and(USER_ACCOUNT.ID.ne(userId))
+                .and(USER_ACCOUNT.DELETED_AT.isNull()));
     }
 
     public void recordSuccessfulLogin(long userId, OffsetDateTime at) {
