@@ -80,6 +80,10 @@ public class TestData {
         return principal(user("buyer"), Set.of(RoleCode.BUYER));
     }
 
+    public AuthPrincipal admin() {
+        return principal(user("admin"), Set.of(RoleCode.BUYER, RoleCode.ADMIN));
+    }
+
     /** A verified seller, open for business, who can list and ship. */
     public Seller seller() {
         AuthPrincipal user = principal(user("seller"), Set.of(RoleCode.BUYER, RoleCode.SELLER));
