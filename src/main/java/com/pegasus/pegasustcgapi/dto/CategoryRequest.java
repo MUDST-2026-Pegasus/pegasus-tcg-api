@@ -11,6 +11,8 @@ import jakarta.validation.constraints.Size;
  * @param gameId   left out, the category applies to every game — which is what an
  *                 Accessory shelf wants. Fixed once the category exists.
  * @param parentId optional; categories nest one inside another
+ * @param imageKey optional tile picture, from {@code POST /uploads/presign} with
+ *                 purpose CATALOG_IMAGE
  */
 public record CategoryRequest(
 
@@ -31,11 +33,15 @@ public record CategoryRequest(
 
         Short displayOrder,
 
-        Boolean active) {
+        Boolean active,
+
+        @Size(max = 500)
+        String imageKey) {
 
     public CategoryFields toFields() {
         return new CategoryFields(gameId, parentId, code, name, slug,
                 displayOrder == null ? 0 : displayOrder,
-                active == null || active);
+                active == null || active,
+                imageKey);
     }
 }

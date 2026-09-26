@@ -6,7 +6,9 @@ import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.dto.ProductDetailResponse;
 import com.pegasus.pegasustcgapi.dto.ProductSummaryResponse;
+import com.pegasus.pegasustcgapi.dto.TrendingProductResponse;
 import com.pegasus.pegasustcgapi.dto.VariantLookupResponse;
+import com.pegasus.pegasustcgapi.model.CardCondition;
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.CatalogVariant;
 import com.pegasus.pegasustcgapi.model.ProductType;
@@ -14,6 +16,9 @@ import com.pegasus.pegasustcgapi.service.CatalogImageService;
 import com.pegasus.pegasustcgapi.service.CatalogProductService;
 import com.pegasus.pegasustcgapi.service.CatalogSearchService;
 import com.pegasus.pegasustcgapi.service.CatalogVariantService;
+import com.pegasus.pegasustcgapi.service.ProductBrowse;
+import java.math.BigDecimal;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -57,23 +62,54 @@ public class CatalogProductController {
      * taken as well as the named ones: which keys exist depends on the game, and
      * only its registry knows them.
      *
-     * @param gameId worth sending: the browse index starts with it, and attribute
-     *               filters need it to know what {@code attr.hp} means
+     * @param gameId     repeat for several games; attribute filters need exactly
+     *                   one, to know what {@code attr.hp} means
+     * @param categoryId also finds what is filed in its child categories
+     * @param q          matched against names and the card number
+     * @param sort       name (default), newest, cardNumber, price_asc, price_desc or popular
+     * @param inStock    true for only the cards someone is selling right now
+     * @param condition  repeat for several; only cards on sale in one of them, priced by those listings
+     * @param minPrice   THB, against the cheapest matching listing on sale
+     * @param maxPrice   THB, same
      */
     @GetMapping("/products")
     public ApiResult<PageResponse<ProductSummaryResponse>> browse(
-            @RequestParam(required = false) Short gameId,
+            @RequestParam(required = false) List<Short> gameId,
             @RequestParam(required = false) Integer categoryId,
             @RequestParam(required = false) Integer cardSetId,
             @RequestParam(required = false) ProductType productType,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "false") boolean inStock,
+            @RequestParam(required = false) List<CardCondition> condition,
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam Map<String, String> allParameters) {
 
-        return ApiResult.success(search.search(
-                gameId, categoryId, cardSetId, productType, q, allParameters, sort, true, page, size));
+        return ApiResult.success(search.search(new ProductBrowse(
+                gameId == null ? null : new HashSet<>(gameId), categoryId, cardSetId, productType, q,
+                allParameters, sort, true, inStock,
+                condition == null ? null : new HashSet<>(condition),
+                minPrice, maxPrice, page, size)));
+    }
+
+    /**
+     * The cards that have been selling: most sold over the last {@code days} first,
+     * then the ones more sellers are offering. Only cards on sale now are ranked.
+     *
+     * @param gameId optional; left out, every game is ranked together
+     * @param days   1–365, default 30
+     * @param limit  1–50, default 10
+     */
+    @GetMapping("/trending")
+    public ApiResult<List<TrendingProductResponse>> trending(
+            @RequestParam(required = false) Short gameId,
+            @RequestParam(required = false) Integer days,
+            @RequestParam(required = false) Integer limit) {
+
+        return ApiResult.success(search.trending(gameId, days, limit));
     }
 
     /**

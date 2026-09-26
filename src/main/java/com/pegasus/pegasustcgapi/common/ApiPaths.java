@@ -14,6 +14,8 @@ public final class ApiPaths {
     public static final String CATEGORIES = API_V1 + "/categories";
     public static final String CARD_SETS = API_V1 + "/card-sets";
     public static final String CATALOG = API_V1 + "/catalog";
+    /** Content that exists only for the home page, such as the carousel slides. */
+    public static final String HOME = API_V1 + "/home";
     /** The signed-in user's own collection; the public view lives at /users/{username}/collection. */
     public static final String COLLECTION = API_V1 + "/collection";
     /** The market: every listing on sale, whoever sells it. A seller's own are under /sellers/me/listings. */

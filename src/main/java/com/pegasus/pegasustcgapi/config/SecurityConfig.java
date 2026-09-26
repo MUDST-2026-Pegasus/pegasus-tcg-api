@@ -74,6 +74,7 @@ public class SecurityConfig {
         ApiPaths.CATEGORIES + "/**",
         ApiPaths.CARD_SETS + "/**",
         ApiPaths.CATALOG + "/**",
+        ApiPaths.HOME + "/**",
         // A profile's shown cards; the owner's own list stays behind sign-in.
         ApiPaths.USERS + "/*/collection",
         // The market and a seller's storefront. A seller's own dashboard is under /sellers/me.

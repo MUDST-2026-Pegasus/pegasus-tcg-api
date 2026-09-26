@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
+import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
@@ -101,5 +102,43 @@ class StorageServiceTest {
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).errorCode())
                 .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
+    }
+
+    @Test
+    @DisplayName("a stored key is signed before it goes to a browser")
+    void keyIsSignedForReading() throws Exception {
+        given(client.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
+                .willReturn("http://localhost:9000/pegasus/" + KEY + "?X-Amz-Signature=abc");
+
+        assertThat(service.readUrl(KEY)).startsWith("http://localhost:9000/pegasus/" + KEY);
+    }
+
+    @Test
+    @DisplayName("a full URL or site path typed in by an admin goes out untouched, and nothing is signed")
+    void urlPassesThrough() {
+        assertThat(service.readUrl("https://cdn.example.com/logo.png")).isEqualTo("https://cdn.example.com/logo.png");
+        assertThat(service.readUrl("/images/logo.png")).isEqualTo("/images/logo.png");
+        assertThat(service.readUrl(null)).isNull();
+        assertThat(service.readUrl("  ")).isNull();
+
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    @DisplayName("a key outside the public prefixes is never signed, whatever column it came from")
+    void privateKeyIsNotSigned() {
+        assertThat(service.readUrl("verifications/2026/09/bank-book.jpg")).isNull();
+        assertThat(service.readUrl("payments/2026/09/slip.png")).isNull();
+
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    @DisplayName("seeded pictures are public like catalogue art")
+    void seedKeyIsSigned() throws Exception {
+        given(client.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
+                .willReturn("http://localhost:9000/pegasus/seed/games/pokemon.png?X-Amz-Signature=abc");
+
+        assertThat(service.readUrl("seed/games/pokemon.png")).contains("seed/games/pokemon.png");
     }
 }

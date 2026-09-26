@@ -68,6 +68,20 @@ public class CartController {
         return builder.body(ApiResult.success("Item added to cart", result.item()));
     }
 
+    @Operation(summary = "Merge guest cart", description = "Merges guest cart items into authenticated user cart")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Guest cart merged into user cart"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized")
+    })
+    @PostMapping("/merge")
+    public ResponseEntity<ApiResult<CartResponse>> mergeCart(
+            @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
+            AuthPrincipal principal) {
+
+        CartResponse response = cartService.mergeCart(principal, sessionKey);
+        return ResponseEntity.ok(ApiResult.success("Cart merged successfully", response));
+    }
+
     @Operation(summary = "View cart items", description = "Retrieves all items in the current cart with latest pricing and price-change indicators.")
     @ApiResponse(responseCode = "200", description = "Cart items retrieved")
     @GetMapping("/items")
