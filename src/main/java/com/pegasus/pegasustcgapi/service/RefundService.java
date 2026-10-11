@@ -63,8 +63,11 @@ public class RefundService {
         if (refunds.byKey(key).isPresent()) return;
         var payment = payments.succeededForOrder(sellerOrder.getSalesOrderId())
                 .orElseThrow(() -> new ConflictException(ErrorCode.PAYMENT_STATE));
-        refunds.create(sellerOrder.getSalesOrderId(), sellerOrderId,
+        var refund = refunds.create(sellerOrder.getSalesOrderId(), sellerOrderId,
                 hold.getAmount().subtract(hold.getRefundedAmount()), reason, payment.getMethod(), key);
+        if ("MOCK_GATEWAY".equals(payment.getMethod())) {
+            processed(refund.getId(), 0L);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -83,8 +86,11 @@ public class RefundService {
         if (hold.getAmount().subtract(hold.getRefundedAmount()).compareTo(amount) < 0) {
             throw new ConflictException(ErrorCode.REFUND_EXCEEDS_REFUNDABLE);
         }
-        refunds.createForReturn(sellerOrder.getSalesOrderId(), sellerOrderId,
+        var refund = refunds.createForReturn(sellerOrder.getSalesOrderId(), sellerOrderId,
                 returnId, amount, reason, payment.getMethod());
+        if ("MOCK_GATEWAY".equals(payment.getMethod())) {
+            processed(refund.getId(), 0L);
+        }
     }
 
     @Transactional
