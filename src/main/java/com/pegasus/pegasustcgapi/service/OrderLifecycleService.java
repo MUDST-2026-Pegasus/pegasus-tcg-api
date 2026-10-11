@@ -167,12 +167,24 @@ public class OrderLifecycleService {
 
     private OrderDetailsResponse cancelSalesOrder(AuthPrincipal principal, SalesOrderRecord salesOrder, CancelOrderRequest request) {
         requireWithinCancelWindow(salesOrder);
+        if (orderRepository.hasPaymentUnderReview(salesOrder.getId())) {
+            throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
+        }
 
         List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(salesOrder.getId());
         boolean anyShippedOrCompleted = sellerOrders.stream()
                 .anyMatch(so -> List.of("SHIPPED", "DELIVERED", "COMPLETED").contains(so.getStatus()));
         if (anyShippedOrCompleted) {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        }
+        salesOrder = orderRepository.findSalesOrderByIdForUpdate(salesOrder.getId())
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+        requireWithinCancelWindow(salesOrder);
+        sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(salesOrder.getId());
+        if (sellerOrders.stream().anyMatch(so -> List.of("SHIPPED", "DELIVERED", "COMPLETED")
+                .contains(so.getStatus()))) throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        if (orderRepository.hasPaymentUnderReview(salesOrder.getId())) {
+            throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
         }
 
         String reason = cancelReason(request);
@@ -190,6 +202,7 @@ public class OrderLifecycleService {
                 if (updated > 0) {
                     orderRepository.insertStatusHistory(so.getId(), so.getStatus(), "CANCELLED", principal.userId(), reason);
                     allUnitsToRelease.addAll(orderRepository.findUnitIdsBySellerOrderId(so.getId()));
+                    ledgerPort.refundOnCancel(so.getId(), reason, principal.userId());
                 }
             }
         }
@@ -204,9 +217,23 @@ public class OrderLifecycleService {
 
     private OrderDetailsResponse cancelSingleSellerOrder(AuthPrincipal principal, SalesOrderRecord parentOrder, SellerOrderRecord sellerOrder, CancelOrderRequest request) {
         requireWithinCancelWindow(parentOrder);
+        if (orderRepository.hasPaymentUnderReview(parentOrder.getId())) {
+            throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
+        }
 
         if (!CANCELLABLE_STATUSES.contains(sellerOrder.getStatus())) {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        }
+        parentOrder = orderRepository.findSalesOrderByIdForUpdate(parentOrder.getId())
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+        requireWithinCancelWindow(parentOrder);
+        sellerOrder = orderRepository.findSellerOrderById(sellerOrder.getId())
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+        if (!CANCELLABLE_STATUSES.contains(sellerOrder.getStatus())) {
+            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        }
+        if (orderRepository.hasPaymentUnderReview(parentOrder.getId())) {
+            throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
         }
 
         String reason = cancelReason(request);
@@ -227,6 +254,7 @@ public class OrderLifecycleService {
         if (!unitIds.isEmpty()) {
             inventoryPort.release(unitIds);
         }
+        ledgerPort.refundOnCancel(sellerOrder.getId(), reason, principal.userId());
 
         rollupSalesOrderStatus(parentOrder.getId());
         return toOrderDetailsResponse(parentOrder.getId());
@@ -304,19 +332,23 @@ public class OrderLifecycleService {
         collectionPort.grant(buyerUserId, sellerOrder.getId());
     }
 
-    /**
-     * Moves an order to PAID without taking a payment.
-     *
-     * <p>There is no payment provider yet, so nothing here proves money changed
-     * hands. The endpoint that reaches it is registered only when the mock payment
-     * flag is on; see {@code MockPaymentController}.
-     */
+    /** Legacy test helper; production payment goes through PaymentService and its ledger. */
     @Transactional
     public OrderDetailsResponse markOrderPaid(AuthPrincipal principal, long orderId) {
         requireAuthenticated(principal);
         SalesOrderRecord salesOrder = orderRepository.findSalesOrderByIdAndBuyerId(orderId, principal.userId())
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+        if (!"PENDING_PAYMENT".equals(salesOrder.getStatus())) {
+            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        }
+        markOrderPaidBySystem(salesOrder.getId(), principal.userId());
+        return toOrderDetailsResponse(salesOrder.getId());
+    }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void markOrderPaidBySystem(long orderId, Long actorUserId) {
+        SalesOrderRecord salesOrder = orderRepository.findSalesOrderById(orderId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
         if (!"PENDING_PAYMENT".equals(salesOrder.getStatus())) {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
@@ -329,12 +361,26 @@ public class OrderLifecycleService {
                         List.of("PENDING_PAYMENT"),
                         "PAID",
                         null, null, null, null, null, null);
-                orderRepository.insertStatusHistory(so.getId(), "PENDING_PAYMENT", "PAID", principal.userId(), "Payment completed");
+                orderRepository.insertStatusHistory(so.getId(), "PENDING_PAYMENT", "PAID", actorUserId, "Payment completed");
             }
         }
 
         rollupSalesOrderStatus(salesOrder.getId());
-        return toOrderDetailsResponse(salesOrder.getId());
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void transitionAfterSales(long sellerOrderId, SellerOrderStatus target, Long actorUserId,
+            String reason) {
+        SellerOrderRecord order = orderRepository.findSellerOrderById(sellerOrderId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+        SellerOrderStatus current = SellerOrderStatus.of(order.getStatus());
+        if (!current.canMoveTo(target)) throw new ConflictException(ErrorCode.RETURN_STATE);
+        if (orderRepository.updateSellerOrderStatus(sellerOrderId, List.of(current.name()), target.name(),
+                null, null, null, null, null, null) != 1) {
+            throw new ConflictException(ErrorCode.RETURN_STATE);
+        }
+        orderRepository.insertStatusHistory(sellerOrderId, current.name(), target.name(), actorUserId, reason);
+        rollupSalesOrderStatus(order.getSalesOrderId());
     }
 
     // ==========================================
@@ -435,6 +481,8 @@ public class OrderLifecycleService {
                 principal.userId(),
                 "Order shipped with tracking " + request.trackingNumber());
 
+        ledgerPort.scheduleRelease(sellerOrderId, autoCompleteAt);
+
         rollupSalesOrderStatus(sellerOrder.getSalesOrderId());
         return toSellerOrderDetailsResponse(sellerOrderId);
     }
@@ -490,6 +538,10 @@ public class OrderLifecycleService {
         if (so == null || !SellerOrderStatus.PENDING_PAYMENT.name().equals(so.getStatus())) {
             return;
         }
+        orderRepository.findSalesOrderByIdForUpdate(so.getSalesOrderId());
+        so = orderRepository.findSellerOrderById(sellerOrderId).orElse(null);
+        if (so == null || !SellerOrderStatus.PENDING_PAYMENT.name().equals(so.getStatus())) return;
+        if (orderRepository.hasPaymentUnderReview(so.getSalesOrderId())) return;
 
         String reason = "Cancelled automatically: payment was not received in time";
         int updated = orderRepository.updateSellerOrderStatus(
@@ -509,6 +561,8 @@ public class OrderLifecycleService {
         if (!unitIds.isEmpty()) {
             inventoryPort.release(unitIds);
         }
+
+        ledgerPort.refundOnCancel(sellerOrderId, reason, null);
 
         rollupSalesOrderStatus(so.getSalesOrderId());
     }

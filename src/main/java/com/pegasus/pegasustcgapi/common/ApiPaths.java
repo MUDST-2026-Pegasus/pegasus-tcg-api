@@ -31,6 +31,7 @@ public final class ApiPaths {
     public static final String CHECKOUT = API_V1 + "/checkout";
     /** The signed-in buyer's orders. */
     public static final String ORDERS = API_V1 + "/orders";
+    public static final String PAYMENTS = API_V1 + "/payments";
     /** The signed-in seller's own orders. */
     public static final String SELLERS_ME_ORDERS = SELLERS_ME + "/orders";
 

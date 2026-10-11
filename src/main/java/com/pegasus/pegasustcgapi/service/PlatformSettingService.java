@@ -32,6 +32,8 @@ public class PlatformSettingService {
     /** Percent applied when no commission_rule matches. */
     public static final String COMMISSION_DEFAULT_RATE = "commission.default_rate";
     public static final String PAYOUT_MINIMUM_AMOUNT = "payout.minimum_amount";
+    public static final String PAYMENT_SLIP_AUTO_APPROVE = "payment.slip_auto_approve";
+    public static final String PAYMENT_TRANSFER_ACCOUNT = "payment.transfer_account";
     /** Below this many listings the median is noise and AUTO_MEDIAN should skip the variant. */
     public static final String PRICING_MEDIAN_MIN_SAMPLE = "pricing.median_min_sample";
 
@@ -60,6 +62,14 @@ public class PlatformSettingService {
 
     public BigDecimal getDecimal(String key) {
         return readValue(key);
+    }
+
+    public boolean getBoolean(String key) {
+        String raw = settings.findValue(key)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.SETTING_NOT_FOUND, key));
+        if ("true".equals(raw)) return true;
+        if ("false".equals(raw)) return false;
+        throw new IllegalStateException("Setting " + key + " is not a boolean: " + raw);
     }
 
     public Duration getDays(String key) {
@@ -91,6 +101,21 @@ public class PlatformSettingService {
         } catch (JacksonException e) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED,
                     "Value for " + key + " is not valid JSON");
+        }
+        if (COMMISSION_DEFAULT_RATE.equals(key)) {
+            try {
+                BigDecimal rate = new BigDecimal(rawJson.replace("\"", "").trim());
+                if (rate.signum() < 0 || rate.compareTo(new BigDecimal("100")) > 0 || rate.scale() > 3) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                        "Commission rate must be between 0 and 100 with at most three decimal places");
+            }
+        }
+        if (PAYMENT_SLIP_AUTO_APPROVE.equals(key) && !"false".equals(rawJson)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "Bank transfers require manual admin approval");
         }
         settings.update(key, rawJson, adminId);
         return get(key);

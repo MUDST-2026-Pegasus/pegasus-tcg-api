@@ -290,6 +290,43 @@ POST   /users/{userId}/roles                     ADMIN
 DELETE /users/{userId}/roles/{role}              ADMIN
 ```
 
+### Finance and after-sales
+
+Bank transfers are manual: the buyer creates a payment, uploads a `PAYMENT_SLIP`, and an admin checks the actual bank receipt before approving it. No banking or payout provider is called. `payment.slip_auto_approve` must remain `false`; the API rejects enabling it. `payment.transfer_account` contains a placeholder until an admin supplies the real receiving account.
+
+```text
+POST /payments                              buyer; Idempotency-Key required
+POST /payments/{id}/slip                    buyer; uploaded PAYMENT_SLIP key
+GET  /payments/{id}                         buyer; poll PENDING/AWAITING_VERIFICATION/SUCCEEDED/FAILED
+GET  /admin/payments?status=AWAITING_VERIFICATION  ADMIN
+POST /admin/payments/{id}/verify            ADMIN; {"approved":true} or {"approved":false,"reason":"..."}
+GET  /me/wallet?page=0&size=20             seller; balances and ledger
+GET  /sellers/me/payouts                    seller
+POST /sellers/me/payouts                   seller; requires verified payout account
+GET  /admin/payouts?status=                ADMIN
+POST /admin/payouts/{id}/approve           ADMIN
+POST /admin/payouts/{id}/processing        ADMIN
+POST /admin/payouts/{id}/paid              ADMIN; confirms external transfer with proof
+POST /admin/payouts/{id}/reject            ADMIN
+POST /admin/payouts/{id}/fail              ADMIN
+GET  /admin/refunds?status=APPROVED        ADMIN
+POST /admin/refunds/{id}/processed         ADMIN; confirms external refund transfer
+GET  /orders/{sellerOrderId}/returns       buyer
+POST /orders/{sellerOrderId}/returns       buyer
+POST /orders/{sellerOrderId}/returns/{returnId}/ship buyer
+GET  /sellers/me/returns?status=           seller
+POST /sellers/me/returns/{id}/approve      seller
+POST /sellers/me/returns/{id}/reject       seller
+POST /sellers/me/returns/{id}/receive      seller
+POST /orders/{sellerOrderId}/reviews       buyer
+GET  /u/{username}/reviews                 public
+POST /sellers/me/reviews/{id}/reply        seller
+PUT  /admin/reviews/{id}/visibility        ADMIN
+```
+
+The buyer's payment is first credited to the platform wallet and held per seller order. Completing a seller order releases its non-refunded amount to the seller after commission. Cancellation or return creates an `APPROVED` refund obligation; the platform wallet is debited only when an admin confirms the bank refund via `/processed`. Likewise a seller payout is debited only when an admin confirms it as paid. These manual confirmations must follow the real bank transfers to keep the ledger in sync with cash.
+
+
 ## API conventions
 
 - JSON requests use `Content-Type: application/json`.

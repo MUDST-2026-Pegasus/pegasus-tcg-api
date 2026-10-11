@@ -169,10 +169,8 @@ class OrderStateTransitionIntegrationTest extends PostgresIntegrationTest {
             "ST-04, PREPARING,        SHIPPED,          true",
             "ST-05, SHIPPED,          DELIVERED,        true",
             "ST-06, DELIVERED,        COMPLETED,        true",
-            // The strategy document lists ST-07 and ST-08 as valid; the code leaves
-            // after-sales statuses to another module and allows neither move.
-            "ST-07, DELIVERED,        RETURN_REQUESTED, false",
-            "ST-08, RETURN_REQUESTED, REFUNDED,         false",
+            "ST-07, DELIVERED,        RETURN_REQUESTED, true",
+            "ST-08, RETURN_REQUESTED, REFUNDED,         true",
             "ST-09, COMPLETED,        PENDING_PAYMENT,  false",
             "ST-10, CANCELLED,        PAID,             false",
             "ST-11, PENDING_PAYMENT,  SHIPPED,          false",
@@ -373,11 +371,11 @@ class OrderStateTransitionIntegrationTest extends PostgresIntegrationTest {
         }
 
         @Test
-        @DisplayName("ST-07/ST-08: no after-sales status has any onward move in this module")
+        @DisplayName("ST-07/ST-08: after-sales owns its explicit return transitions")
         void afterSalesStatusesAreNotDrivenHere() {
-            assertThat(SellerOrderStatus.DELIVERED.targets()).doesNotContain(SellerOrderStatus.RETURN_REQUESTED);
-            assertThat(SellerOrderStatus.RETURN_REQUESTED.targets()).isEmpty();
-            assertThat(SellerOrderStatus.RETURNED.targets()).isEmpty();
+            assertThat(SellerOrderStatus.DELIVERED.targets()).contains(SellerOrderStatus.RETURN_REQUESTED);
+            assertThat(SellerOrderStatus.RETURN_REQUESTED.targets()).contains(SellerOrderStatus.REFUNDED);
+            assertThat(SellerOrderStatus.RETURNED.targets()).contains(SellerOrderStatus.COMPLETED);
             assertThat(SellerOrderStatus.REFUNDED.terminal()).isTrue();
         }
     }

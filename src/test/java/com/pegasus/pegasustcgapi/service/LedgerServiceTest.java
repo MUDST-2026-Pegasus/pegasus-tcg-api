@@ -7,8 +7,12 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.pegasus.pegasustcgapi.port.LedgerPort.CommissionQuote;
+import com.pegasus.pegasustcgapi.repository.CommissionRuleRepository;
+import com.pegasus.pegasustcgapi.repository.CommissionRuleRepository.ProductScope;
+import com.pegasus.pegasustcgapi.repository.CommissionRuleRepository.Rule;
 import java.math.BigDecimal;
-import org.junit.jupiter.api.Disabled;
+import java.time.Clock;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -19,6 +23,7 @@ import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
@@ -30,18 +35,22 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @DisplayName("LedgerService — commission quote")
 class LedgerServiceTest {
 
-    /**
-     * Neither LedgerService nor the settings endpoint checks that the rate is a
-     * percentage, so -5% quotes a negative commission and 105% one larger than the
-     * sale. Needs a production fix by the code owner; remove @Disabled once it lands.
-     */
-    static final String KNOWN_BUG_COMMISSION_RATE =
-            "Known bug: commission.default_rate is not validated to 0..100 (production fix pending)";
-
     private static final long SELLER_PROFILE_ID = 99L;
 
     @Mock
     private PlatformSettingService settings;
+
+    @Mock
+    private CommissionRuleRepository rules;
+
+    @Mock
+    private EscrowReleaseService escrowRelease;
+
+    @Mock
+    private RefundService refunds;
+
+    @Spy
+    private Clock clock = Clock.systemUTC();
 
     @InjectMocks
     private LedgerService ledgerService;
@@ -49,6 +58,31 @@ class LedgerServiceTest {
     private void givenRate(String ratePercent) {
         given(settings.getDecimal(PlatformSettingService.COMMISSION_DEFAULT_RATE))
                 .willReturn(new BigDecimal(ratePercent));
+    }
+
+    @Test
+    void sellerRuleWinsOverCategoryAndGlobal() {
+        given(rules.productScopes(org.mockito.ArgumentMatchers.anyCollection()))
+                .willReturn(List.of(new ProductScope(1L, (short) 2, 3)));
+        given(rules.activeAt(org.mockito.ArgumentMatchers.any())).willReturn(List.of(
+                new Rule(1L, "GLOBAL", null, null, null, new BigDecimal("5"), BigDecimal.ZERO, null, null, (short) 0),
+                new Rule(2L, "CATEGORY", null, 3, null, new BigDecimal("4"), BigDecimal.ZERO, null, null, (short) 0),
+                new Rule(3L, "SELLER", null, null, SELLER_PROFILE_ID, new BigDecimal("3"), BigDecimal.ZERO, null, null, (short) 0)));
+
+        assertThat(ledgerService.quoteCommission(SELLER_PROFILE_ID, new BigDecimal("100.00"), List.of(1L)).amount())
+                .isEqualByComparingTo("3.00");
+    }
+
+    @Test
+    void mixedCategoriesSkipCategoryRule() {
+        given(rules.productScopes(org.mockito.ArgumentMatchers.anyCollection())).willReturn(List.of(
+                new ProductScope(1L, (short) 2, 3), new ProductScope(2L, (short) 2, 4)));
+        given(rules.activeAt(org.mockito.ArgumentMatchers.any())).willReturn(List.of(
+                new Rule(1L, "GAME", (short) 2, null, null, new BigDecimal("2"), BigDecimal.ZERO, null, null, (short) 0),
+                new Rule(2L, "CATEGORY", null, 3, null, new BigDecimal("4"), BigDecimal.ZERO, null, null, (short) 0)));
+
+        assertThat(ledgerService.quoteCommission(SELLER_PROFILE_ID, new BigDecimal("100.00"), List.of(1L, 2L)).amount())
+                .isEqualByComparingTo("2.00");
     }
 
     @Nested
@@ -89,8 +123,7 @@ class LedgerServiceTest {
 
     /**
      * Equivalence classes of the rate: below 0, 0..100, above 100. The invalid
-     * partitions state the required behaviour — a percentage outside 0..100 is never
-     * turned into a commission — and are disabled until the code enforces it.
+     * partitions ensure a percentage outside 0..100 is never turned into a commission.
      */
     @Nested
     @DisplayName("ECC: commission rate partitions")
@@ -125,7 +158,6 @@ class LedgerServiceTest {
 
         @ParameterizedTest(name = "invalid partition: rate {0} is refused rather than quoted")
         @ValueSource(strings = {"-5", "-0.01", "100.01", "105"})
-        @Disabled(KNOWN_BUG_COMMISSION_RATE)
         void rateOutsideZeroToHundredIsRefused(String rate) {
             givenRate(rate);
 
@@ -154,9 +186,10 @@ class LedgerServiceTest {
     }
 
     @Test
-    @DisplayName("escrow release is a logged no-op until payouts exist: it must not fail a completion")
+    @DisplayName("escrow release delegates to the money service")
     void releaseDoesNotFail() {
         assertThatCode(() -> ledgerService.release(123L)).doesNotThrowAnyException();
+        org.mockito.Mockito.verify(escrowRelease).release(123L);
         verifyNoInteractions(settings);
     }
 }

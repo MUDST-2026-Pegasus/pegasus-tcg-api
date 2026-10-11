@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.OrderDetailsResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.OrderLifecycleService;
+import com.pegasus.pegasustcgapi.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -17,14 +18,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Marks an order paid without taking a payment, for local work and sandboxes.
+ * Simulates a payment only in local work and sandboxes.
  *
  * <p>This used to sit on {@code OrderController} and was therefore mapped in every
  * environment. Nothing in it verifies that money moved — the buyer asks, and the
- * order becomes PAID — so on a live deployment it is a way to have cards posted for
- * free. It is registered only when {@code pegasus.payment.mock-enabled} is true,
- * which defaults to false; a real payment provider would call the same transition
- * from a webhook after verifying the provider's signature.
+ * order becomes PAID — so it must never be enabled on a live deployment.
  */
 @Tag(name = "Orders", description = "Mock payment transition for development environments")
 @SecurityRequirement(name = "BearerAuth")
@@ -34,9 +32,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class MockPaymentController {
 
     private final OrderLifecycleService orderLifecycleService;
+    private final PaymentService paymentService;
 
-    public MockPaymentController(OrderLifecycleService orderLifecycleService) {
+    public MockPaymentController(OrderLifecycleService orderLifecycleService, PaymentService paymentService) {
         this.orderLifecycleService = orderLifecycleService;
+        this.paymentService = paymentService;
     }
 
     @Operation(summary = "Mark order paid (mock)",
@@ -48,6 +48,7 @@ public class MockPaymentController {
     })
     @PostMapping("/{id}/pay")
     public ApiResult<OrderDetailsResponse> pay(@PathVariable long id, AuthPrincipal principal) {
-        return ApiResult.success("Order payment processed successfully", orderLifecycleService.markOrderPaid(principal, id));
+        paymentService.payMock(principal, id);
+        return ApiResult.success("Order payment processed successfully", orderLifecycleService.getBuyerOrder(principal, id));
     }
 }

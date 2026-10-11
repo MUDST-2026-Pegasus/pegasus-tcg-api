@@ -17,7 +17,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -52,6 +51,18 @@ class PlatformSettingServiceTest {
     @Nested
     @DisplayName("Reading values")
     class Reading {
+
+        @Test
+        void booleanSettingAcceptsOnlyJsonBooleans() {
+            String key = PlatformSettingService.PAYMENT_SLIP_AUTO_APPROVE;
+            given(repository.findValue(key)).willReturn(Optional.of("true"),
+                    Optional.of("false"), Optional.of("\"true\""));
+
+            assertThat(settings.getBoolean(key)).isTrue();
+            assertThat(settings.getBoolean(key)).isFalse();
+            assertThatThrownBy(() -> settings.getBoolean(key))
+                    .isInstanceOf(IllegalStateException.class);
+        }
 
         @ParameterizedTest(name = "stored as {0} reads as 5.0")
         @ValueSource(strings = {"5.0", "\"5.0\"", " 5.0 "})
@@ -133,7 +144,6 @@ class PlatformSettingServiceTest {
 
         @ParameterizedTest(name = "invalid partition: {0} is refused with 400 and nothing is written")
         @ValueSource(strings = {"-5", "-0.01", "100.01", "105", "\"abc\""})
-        @Disabled(LedgerServiceTest.KNOWN_BUG_COMMISSION_RATE)
         void rateOutsideZeroToHundredIsRejected(String rate) {
             given(repository.exists(RATE)).willReturn(true);
 

@@ -1,0 +1,149 @@
+package com.pegasus.pegasustcgapi.controller;
+
+import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
+import static com.pegasus.pegasustcgapi.jooq.tables.ReturnRequest.RETURN_REQUEST;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.pegasus.pegasustcgapi.dto.CancelOrderRequest;
+import com.pegasus.pegasustcgapi.dto.CartItemRequest;
+import com.pegasus.pegasustcgapi.dto.ShipOrderRequest;
+import com.pegasus.pegasustcgapi.model.CardCondition;
+import com.pegasus.pegasustcgapi.repository.PaymentRepository;
+import com.pegasus.pegasustcgapi.service.CartService;
+import com.pegasus.pegasustcgapi.service.CheckoutService;
+import com.pegasus.pegasustcgapi.service.OrderLifecycleService;
+import com.pegasus.pegasustcgapi.service.PaymentService;
+import com.pegasus.pegasustcgapi.storage.StorageService;
+import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+class FinanceApiIntegrationTest extends PostgresIntegrationTest {
+
+    @Autowired WebApplicationContext context;
+    @Autowired CartService cart;
+    @Autowired CheckoutService checkout;
+    @Autowired OrderLifecycleService orders;
+    @Autowired PaymentRepository paymentRows;
+    @Autowired PaymentService payments;
+    @MockitoBean StorageService storage;
+
+    private MockMvc mvc;
+
+    @BeforeEach
+    void setUpMvc() {
+        mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+    }
+
+    @Test
+    void bankPaymentAndManualRefundAreAccessibleOnlyToTheirActors() throws Exception {
+        var seller = data.seller();
+        var buyer = data.buyer();
+        var outsider = data.buyer();
+        long adminId = data.admin().userId();
+        var card = data.card(data.game("Pokemon"), "HTTP finance " + data.tag(), "AR");
+        var listing = data.onSale(seller, card, CardCondition.NM, 1, "100.00");
+        cart.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
+        var order = checkout.checkout(buyer, "http-checkout-" + data.tag(), null, null);
+
+        mvc.perform(post("/api/v1/payments")
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(buyer.userId()))))
+                        .header("Idempotency-Key", "http-payment-" + data.tag())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"salesOrderId\":" + order.orderId()
+                                + ",\"method\":\"BANK_TRANSFER\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("PENDING"));
+        long paymentId = paymentRows.activeForOrder(order.orderId()).orElseThrow().getId();
+
+        mvc.perform(get("/api/v1/payments/{id}", paymentId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(outsider.userId())))))
+                .andExpect(status().isNotFound());
+        paymentRows.attachSlip(paymentId, "payments/http-" + data.tag() + ".png", "BANK-HTTP");
+        mvc.perform(post("/api/v1/admin/payments/{id}/verify", paymentId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(buyer.userId()))))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"approved\":true}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/admin/payments/{id}/verify", paymentId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(adminId)))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"approved\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("SUCCEEDED"));
+
+        orders.cancelBuyerOrder(buyer, order.orderId(), new CancelOrderRequest("Test refund"));
+        long refundId = dsl.select(REFUND.ID).from(REFUND)
+                .where(REFUND.SELLER_ORDER_ID.eq(order.sellerOrders().getFirst().id()))
+                .fetchSingle(REFUND.ID);
+        mvc.perform(post("/api/v1/admin/refunds/{id}/processed", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(adminId)))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+    }
+
+    @Test
+    void returnAndReviewEndpointsRespondWithJsonSafeViews() throws Exception {
+        var seller = data.seller();
+        var buyer = data.buyer();
+        var card = data.card(data.game("Pokemon"), "HTTP return " + data.tag(), "AR");
+        var listing = data.onSale(seller, card, CardCondition.NM, 1, "100.00");
+        cart.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
+        var order = checkout.checkout(buyer, "http-return-" + data.tag(), null, null);
+        long suborderId = order.sellerOrders().getFirst().id();
+        long itemId = order.sellerOrders().getFirst().items().getFirst().id();
+        var payment = payments.create(buyer, order.orderId(), "BANK_TRANSFER", "http-pay-return-" + data.tag());
+        paymentRows.attachSlip(payment.id(), "payments/http-return-" + data.tag() + ".png", "BANK-RETURN");
+        payments.verify(data.admin().userId(), payment.id(), true, null);
+        orders.shipSellerOrder(seller.principal(), suborderId,
+                new ShipOrderRequest("Thailand Post", "HTTP-RETURN", "TH_POST", null, null));
+
+        mvc.perform(post("/api/v1/orders/{id}/returns", suborderId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(buyer.userId()))))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reasonCode\":\"DAMAGED\",\"description\":\"Test\","
+                                + "\"evidenceKeys\":[],\"items\":[{\"orderItemId\":" + itemId
+                                + ",\"quantity\":1}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("REQUESTED"))
+                .andExpect(jsonPath("$.data.evidenceKeys").isArray());
+        long returnId = dsl.select(RETURN_REQUEST.ID).from(RETURN_REQUEST)
+                .where(RETURN_REQUEST.SELLER_ORDER_ID.eq(suborderId))
+                .fetchSingle(RETURN_REQUEST.ID);
+        mvc.perform(post("/api/v1/sellers/me/returns/{id}/approve", returnId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(seller.userId()))))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"resolution\":\"PARTIAL_REFUND\",\"refundAmount\":40,"
+                                + "\"requireShipBack\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("REFUNDED"));
+        long refundId = dsl.select(REFUND.ID).from(REFUND)
+                .where(REFUND.RETURN_REQUEST_ID.eq(returnId)).fetchSingle(REFUND.ID);
+        mvc.perform(post("/api/v1/admin/refunds/{id}/processed", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(data.admin().userId())))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/orders/{id}/reviews", suborderId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(buyer.userId()))))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"rating\":5,\"title\":\"Great\",\"comment\":\"Fast response\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.rating").value(5));
+        mvc.perform(get("/api/v1/u/{username}/reviews", seller.principal().username()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reviews.length()").value(1))
+                .andExpect(jsonPath("$.data.summary.ratingCount").value(1));
+    }
+}

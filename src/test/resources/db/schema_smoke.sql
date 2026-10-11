@@ -12,7 +12,8 @@
 -- seller/variant/condition is allowed) and 5 (one price edit reaches every card
 -- in the group). Test 3 (20 concurrent buyers, 1 card) needs real concurrent
 -- sessions and lives in ListingInventoryIntegrationTest; test 1 (ledger sums to
--- wallet.balance) waits for the payment code.
+-- wallet.balance) lives in WalletLedgerConsistencyIntegrationTest and the
+-- payment/return/payout integration tests.
 
 \set ON_ERROR_STOP on
 BEGIN;
