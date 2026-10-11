@@ -68,7 +68,7 @@ public class EscrowReleaseService {
                         .divide(order.getItemsSubtotal(), 2, RoundingMode.HALF_UP);
         commission = commission.min(release);
         BigDecimal sellerNet = release.subtract(commission);
-        if (sellerNet.signum() < 0) throw new ConflictException(ErrorCode.INSUFFICIENT_BALANCE);
+        if (sellerNet.signum() < 0) throw new ConflictException(ErrorCode.REFUND_EXCEEDS_REFUNDABLE);
         long sellerUserId = dsl.select(SELLER_PROFILE.USER_ID).from(SELLER_PROFILE)
                 .where(SELLER_PROFILE.ID.eq(order.getSellerProfileId()))
                 .fetchSingle(SELLER_PROFILE.USER_ID);
