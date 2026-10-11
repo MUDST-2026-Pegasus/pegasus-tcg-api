@@ -14,8 +14,29 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 
 /**
- * Commission quote implementation. Active rules take precedence over the
- * configurable platform default [RQ-14].
+ * Core ledger and commission service implementation [RQ-11, RQ-14, RQ-15, CR-4].
+ *
+ * <p><h3>Financial & Accounting Invariants:</h3>
+ * <ul>
+ *   <li><b>Precision & Rounding:</b> All calculations strictly use {@link BigDecimal} with scale 2
+ *       and {@link java.math.RoundingMode#HALF_UP}. Rounding occurs ONLY at commission calculation.
+ *       Seller net earning is derived by subtraction ({@code seller_net = total - commission}),
+ *       never by separate rounding, to prevent one-satang ledger drift.</li>
+ *   <li><b>Single-Legged External Entries:</b> Movements entering or leaving the system
+ *       ({@code PAYMENT_IN}, {@code REFUND_OUT}, {@code PAYOUT_OUT}) post a single ledger row
+ *       because {@code ck_wallet_kind} does not define an internal clearing wallet; the opposite
+ *       leg resides in the real external banking system.</li>
+ *   <li><b>Zero Amount Rule:</b> Zero-amount rows are forbidden. If a commission fee resolves to 0,
+ *       the {@code COMMISSION_FEE} ledger entry is skipped.</li>
+ *   <li><b>SELLER Wallets:</b> Seller wallets maintain zero pending balance because escrow funds
+ *       reside in the PLATFORM wallet pending bucket until sub-order completion.</li>
+ *   <li><b>Corrections:</b> Mispostings may only be corrected via {@code ADJUSTMENT} entries
+ *       pairing DEBIT and CREDIT across wallets.</li>
+ *   <li><b>Concurrency & Locking:</b> Lock ordering strictly follows:
+ *       {@code sales_order} &rarr; {@code payment/escrow_hold} &rarr; {@code PLATFORM wallet} &rarr; {@code SELLER wallet}.
+ *       Ledger posting methods require active transaction ({@code MANDATORY}) and rely on
+ *       {@code ux_ledger_entry_once} as a final database guard against duplicate postings.</li>
+ * </ul>
  */
 @Service
 public class LedgerService implements LedgerPort {
