@@ -9,6 +9,7 @@ import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.ReviewService;
 import com.pegasus.pegasustcgapi.service.ReviewService.PublicReviews;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -40,7 +41,9 @@ public class ReviewController {
     @Operation(summary = "Review a seller after completing a sub-order")
     @SecurityRequirement(name = "BearerAuth")
     @PostMapping(ApiPaths.ORDERS + "/{sellerOrderId}/reviews")
-    public ApiResult<Review> create(@PathVariable long sellerOrderId,
+    public ApiResult<Review> create(
+            @Parameter(description = "seller_order.id (from sellerOrders[].id in GET /orders/{id}) only; does not accept sales_order.id")
+            @PathVariable long sellerOrderId,
             @Valid @RequestBody CreateRequest body, AuthPrincipal principal) {
         return ApiResult.success(Review.from(reviews.create(principal.userId(), sellerOrderId,
                 body.rating(), body.title(), body.comment())));

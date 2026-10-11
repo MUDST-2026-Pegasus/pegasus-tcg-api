@@ -7,6 +7,7 @@ import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.ReturnService;
 import com.pegasus.pegasustcgapi.service.ReturnService.Item;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -41,21 +42,27 @@ public class ReturnController {
 
     @Operation(summary = "My return requests for a seller order")
     @GetMapping(ApiPaths.ORDERS + "/{sellerOrderId}/returns")
-    public ApiResult<List<ReturnRequest>> mine(@PathVariable long sellerOrderId, AuthPrincipal principal) {
+    public ApiResult<List<ReturnRequest>> mine(
+            @Parameter(description = "seller_order.id (from sellerOrders[].id in GET /orders/{id}) only; does not accept sales_order.id")
+            @PathVariable long sellerOrderId, AuthPrincipal principal) {
         return ApiResult.success(returns.buyerReturns(principal.userId(), sellerOrderId).stream()
                 .map(row -> ReturnRequest.from(row, json)).toList());
     }
 
     @Operation(summary = "Request a return before escrow release")
     @PostMapping(ApiPaths.ORDERS + "/{sellerOrderId}/returns")
-    public ApiResult<ReturnRequest> request(@PathVariable long sellerOrderId,
+    public ApiResult<ReturnRequest> request(
+            @Parameter(description = "seller_order.id (from sellerOrders[].id in GET /orders/{id}) only; does not accept sales_order.id")
+            @PathVariable long sellerOrderId,
             @Valid @RequestBody Create body, AuthPrincipal principal) {
         return ApiResult.success(ReturnRequest.from(returns.request(principal.userId(), sellerOrderId,
                 body.reasonCode(), body.description(), body.evidenceKeys(), body.items()), json));
     }
 
     @PostMapping(ApiPaths.ORDERS + "/{sellerOrderId}/returns/{returnId}/ship")
-    public ApiResult<ReturnRequest> ship(@PathVariable long sellerOrderId,
+    public ApiResult<ReturnRequest> ship(
+            @Parameter(description = "seller_order.id (from sellerOrders[].id in GET /orders/{id}) only; does not accept sales_order.id")
+            @PathVariable long sellerOrderId,
             @PathVariable long returnId, @Valid @RequestBody Ship body, AuthPrincipal principal) {
         return ApiResult.success(ReturnRequest.from(returns.ship(principal.userId(), sellerOrderId,
                 returnId, body.trackingNumber()), json));
