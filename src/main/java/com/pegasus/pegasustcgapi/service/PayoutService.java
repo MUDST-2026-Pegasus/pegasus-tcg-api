@@ -110,6 +110,7 @@ public class PayoutService {
                 slipImageKey, OffsetDateTime.now(clock)) != 1) {
             throw new ConflictException(ErrorCode.PAYOUT_STATE);
         }
+        payouts.linkPaidOrders(id, payout.getSellerProfileId(), payout.getAmount());
         return payouts.lock(id).orElseThrow();
     }
 
