@@ -113,9 +113,12 @@ public class PlatformSettingService {
                         "Commission rate must be between 0 and 100 with at most three decimal places");
             }
         }
-        if (PAYMENT_SLIP_AUTO_APPROVE.equals(key) && !"false".equals(rawJson)) {
-            throw new ApiException(ErrorCode.VALIDATION_FAILED,
-                    "Bank transfers require manual admin approval");
+        if (PAYMENT_SLIP_AUTO_APPROVE.equals(key)) {
+            String trimmed = rawJson.replace("\"", "").trim();
+            if (!"true".equals(trimmed) && !"false".equals(trimmed)) {
+                throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                        "Setting " + key + " must be a boolean: true or false");
+            }
         }
         settings.update(key, rawJson, adminId);
         return get(key);

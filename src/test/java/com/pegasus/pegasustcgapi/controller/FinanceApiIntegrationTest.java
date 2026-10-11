@@ -1,7 +1,12 @@
 package com.pegasus.pegasustcgapi.controller;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.Payment.PAYMENT;
+import static com.pegasus.pegasustcgapi.jooq.tables.PlatformSetting.PLATFORM_SETTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
 import static com.pegasus.pegasustcgapi.jooq.tables.ReturnRequest.RETURN_REQUEST;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -19,7 +24,10 @@ import com.pegasus.pegasustcgapi.service.CheckoutService;
 import com.pegasus.pegasustcgapi.service.OrderLifecycleService;
 import com.pegasus.pegasustcgapi.service.PaymentService;
 import com.pegasus.pegasustcgapi.storage.StorageService;
+import com.pegasus.pegasustcgapi.storage.StoredObject;
+import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
+import org.jooq.JSONB;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -145,5 +153,45 @@ class FinanceApiIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.reviews.length()").value(1))
                 .andExpect(jsonPath("$.data.summary.ratingCount").value(1));
+    }
+
+    @Test
+    void slipAutoApproveSettingTransitionsPaymentDirectlyToSucceeded() throws Exception {
+        dsl.update(PLATFORM_SETTING)
+                .set(PLATFORM_SETTING.SETTING_VALUE, JSONB.valueOf("true"))
+                .where(PLATFORM_SETTING.SETTING_KEY.eq("payment.slip_auto_approve"))
+                .execute();
+        try {
+            var seller = data.seller();
+            var buyer = data.buyer();
+            var card = data.card(data.game("Pokemon"), "Auto Slip " + data.tag(), "AR");
+            var listing = data.onSale(seller, card, CardCondition.NM, 1, "100.00");
+            cart.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
+            var order = checkout.checkout(buyer, "auto-slip-chk-" + data.tag(), null, null);
+
+            var pending = payments.create(buyer, order.orderId(), "BANK_TRANSFER", "auto-slip-pay-" + data.tag());
+            String slipKey = "payments/auto-" + data.tag() + ".png";
+            given(storage.requireUploadedFor(UploadPurpose.PAYMENT_SLIP, slipKey))
+                    .willReturn(new StoredObject(slipKey, 1024L, "image/png"));
+
+            mvc.perform(post("/api/v1/payments/{id}/slip", pending.id())
+                            .with(jwt().jwt(j -> j.subject(String.valueOf(buyer.userId()))))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"slipImageKey\":\"" + slipKey + "\",\"referenceCode\":\"AUTO-REF\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.status").value("SUCCEEDED"));
+
+            assertThat(dsl.select(PAYMENT.STATUS).from(PAYMENT)
+                    .where(PAYMENT.ID.eq(pending.id()))
+                    .fetchSingle(PAYMENT.STATUS)).isEqualTo("SUCCEEDED");
+            assertThat(dsl.select(SELLER_ORDER.STATUS).from(SELLER_ORDER)
+                    .where(SELLER_ORDER.SALES_ORDER_ID.eq(order.orderId()))
+                    .fetchSingle(SELLER_ORDER.STATUS)).isEqualTo("PAID");
+        } finally {
+            dsl.update(PLATFORM_SETTING)
+                    .set(PLATFORM_SETTING.SETTING_VALUE, JSONB.valueOf("false"))
+                    .where(PLATFORM_SETTING.SETTING_KEY.eq("payment.slip_auto_approve"))
+                    .execute();
+        }
     }
 }

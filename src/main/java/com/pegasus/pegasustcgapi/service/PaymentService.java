@@ -98,6 +98,9 @@ public class PaymentService {
         if (payments.attachSlip(paymentId, slipKey, referenceCode) != 1) {
             throw new ConflictException(ErrorCode.PAYMENT_STATE);
         }
+        if (settings.getBoolean(PlatformSettingService.PAYMENT_SLIP_AUTO_APPROVE)) {
+            succeed(payments.find(paymentId).orElseThrow(), null);
+        }
         return view(payments.find(paymentId).orElseThrow(), order);
     }
 

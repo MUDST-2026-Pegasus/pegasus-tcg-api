@@ -153,4 +153,34 @@ class PlatformSettingServiceTest {
             verify(repository, never()).update(anyString(), anyString(), anyLong());
         }
     }
+
+    @Nested
+    @DisplayName("Updating slip auto approve")
+    class UpdatingSlipAutoApprove {
+
+        @ParameterizedTest
+        @ValueSource(strings = {"true", "false"})
+        void validBooleansAreSaved(String value) {
+            String key = PlatformSettingService.PAYMENT_SLIP_AUTO_APPROVE;
+            given(repository.exists(key)).willReturn(true);
+            given(repository.findAll()).willReturn(List.of(new Setting(key, value, "Slip auto approve", ADMIN_ID)));
+
+            Setting saved = settings.update(key, value, ADMIN_ID);
+
+            verify(repository).update(key, value, ADMIN_ID);
+            assertThat(saved.value()).isEqualTo(value);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"yes", "no", "1", "0", "TRUE", "invalid"})
+        void invalidBooleansAreRejected(String value) {
+            String key = PlatformSettingService.PAYMENT_SLIP_AUTO_APPROVE;
+            given(repository.exists(key)).willReturn(true);
+
+            assertThatThrownBy(() -> settings.update(key, value, ADMIN_ID))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+            verify(repository, never()).update(anyString(), anyString(), anyLong());
+        }
+    }
 }
