@@ -1,5 +1,8 @@
 package com.pegasus.pegasustcgapi.dto;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
@@ -10,10 +13,10 @@ public record CommissionRuleRequest(
         Short gameId,
         Integer categoryId,
         Long sellerProfileId,
-        @NotNull BigDecimal ratePercent,
-        @NotNull BigDecimal fixedFee,
-        BigDecimal minFee,
-        BigDecimal maxFee,
+        @NotNull @DecimalMin("0.00") @DecimalMax("100.00") @Digits(integer = 3, fraction = 3) BigDecimal ratePercent,
+        @NotNull @DecimalMin("0.00") @Digits(integer = 12, fraction = 2) BigDecimal fixedFee,
+        @DecimalMin("0.00") @Digits(integer = 12, fraction = 2) BigDecimal minFee,
+        @DecimalMin("0.00") @Digits(integer = 12, fraction = 2) BigDecimal maxFee,
         short priority,
         @NotNull OffsetDateTime effectiveFrom,
         OffsetDateTime effectiveTo,
