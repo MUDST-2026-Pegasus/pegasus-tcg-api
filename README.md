@@ -504,3 +504,7 @@ are private by default; review package visibility and access after first publish
 See [GitHub Container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
 
 This publishes the backend image only; it does not deploy it to a server.
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
