@@ -1,0 +1,134 @@
+# MinIO สำหรับคลัสเตอร์ในเครื่องเท่านั้น: replica เดียว ไม่มี backup ไม่มี HA
+# ใช้ key จาก Secret pegasus-backend-secret ตัวเดียวกับ backend
+apiVersion: v1
+kind: Service
+metadata:
+  name: pegasus-minio-service
+  labels:
+    app: pegasus-minio
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: pegasus-minio
+    app.kubernetes.io/component: object-storage
+    app.kubernetes.io/part-of: pegasus-tcg
+spec:
+  # headless: StatefulSet ต้องการ และ DNS จะชี้ตรงไปที่ Pod ตัวเดียวที่มี
+  clusterIP: None
+  selector:
+    app: pegasus-minio
+  ports:
+    # 9000 คือ S3 API ที่ backend และ browser เรียก ส่วน 9001 คือ web console
+    - name: api
+      protocol: TCP
+      port: 9000
+      targetPort: api
+    - name: console
+      protocol: TCP
+      port: 9001
+      targetPort: console
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pegasus-minio
+  labels:
+    app: pegasus-minio
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: pegasus-minio
+    app.kubernetes.io/component: object-storage
+    app.kubernetes.io/part-of: pegasus-tcg
+spec:
+  serviceName: pegasus-minio-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pegasus-minio
+  template:
+    metadata:
+      labels:
+        app: pegasus-minio
+        app.kubernetes.io/name: minio
+        app.kubernetes.io/instance: pegasus-minio
+        app.kubernetes.io/component: object-storage
+        app.kubernetes.io/part-of: pegasus-tcg
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: minio
+          # image เดียวกับ docker-compose.yaml (image ทางการของ MinIO pull แบบไม่ login ไม่ได้แล้ว)
+          image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+          imagePullPolicy: IfNotPresent
+          args: ["server", "/data", "--console-address", ":9001"]
+          ports:
+            - name: api
+              containerPort: 9000
+              protocol: TCP
+            - name: console
+              containerPort: 9001
+              protocol: TCP
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: pegasus-backend-secret
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pegasus-backend-secret
+                  key: MINIO_SECRET_KEY
+            # browser PUT ไฟล์ตรงเข้า MinIO ด้วย presigned URL จึงต้องยอม origin ของ frontend
+            - name: MINIO_API_CORS_ALLOW_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: pegasus-backend-config
+                  key: CORS_ALLOWED_ORIGINS
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: api
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

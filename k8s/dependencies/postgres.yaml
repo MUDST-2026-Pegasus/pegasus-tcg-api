@@ -1,0 +1,121 @@
+# Postgres สำหรับคลัสเตอร์ในเครื่องเท่านั้น: replica เดียว ไม่มี backup ไม่มี HA
+# ใช้รหัสจาก Secret pegasus-backend-secret ตัวเดียวกับ backend
+apiVersion: v1
+kind: Service
+metadata:
+  name: pegasus-postgres-service
+  labels:
+    app: pegasus-postgres
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: pegasus-postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: pegasus-tcg
+spec:
+  # headless: StatefulSet ต้องการ และ DNS จะชี้ตรงไปที่ Pod ตัวเดียวที่มี
+  clusterIP: None
+  selector:
+    app: pegasus-postgres
+  ports:
+    - name: postgres
+      protocol: TCP
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pegasus-postgres
+  labels:
+    app: pegasus-postgres
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: pegasus-postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: pegasus-tcg
+spec:
+  serviceName: pegasus-postgres-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pegasus-postgres
+  template:
+    metadata:
+      labels:
+        app: pegasus-postgres
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/instance: pegasus-postgres
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: pegasus-tcg
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # UID/GID ของ user postgres ใน image alpine
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: pegasus_tcg
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: pegasus-backend-secret
+                  key: DB_USERNAME
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pegasus-backend-secret
+                  key: DB_PASSWORD
+            # ใช้โฟลเดอร์ย่อย เพราะ root ของ volume อาจมี lost+found ที่ initdb ไม่ยอมรับ
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
