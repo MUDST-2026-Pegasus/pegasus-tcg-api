@@ -66,7 +66,7 @@ class CatalogProductServiceTest {
 
     private static CatalogCategory singlesOf(Short gameId) {
         return new CatalogCategory(201, gameId, null, "SINGLES", "Single cards",
-                "single-cards", (short) 1, true);
+                "single-cards", (short) 1, true, null);
     }
 
     @Test
@@ -145,7 +145,7 @@ class CatalogProductServiceTest {
     void updateKeepsSlugAndGame() {
         given(products.findById(501L)).willReturn(Optional.of(pikachu()));
         given(taxonomy.requireCategory(202)).willReturn(
-                new CatalogCategory(202, POKEMON, null, "SEALED", "Sealed", "sealed", (short) 2, true));
+                new CatalogCategory(202, POKEMON, null, "SEALED", "Sealed", "sealed", (short) 2, true, null));
         given(games.attributesOf(POKEMON)).willReturn(List.of());
 
         service.update(501L, new ProductFields(MAGIC, 202, null, ProductType.BOOSTER_BOX,

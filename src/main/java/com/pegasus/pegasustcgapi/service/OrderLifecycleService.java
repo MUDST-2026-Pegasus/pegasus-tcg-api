@@ -27,6 +27,7 @@ import com.pegasus.pegasustcgapi.port.LedgerPort;
 import com.pegasus.pegasustcgapi.port.SellerPort;
 import com.pegasus.pegasustcgapi.repository.OrderRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -72,6 +73,7 @@ public class OrderLifecycleService {
     private final LedgerPort ledgerPort;
     private final CollectionPort collectionPort;
     private final Clock clock;
+    private final StorageService storageService;
 
     @Autowired
     public OrderLifecycleService(
@@ -81,7 +83,8 @@ public class OrderLifecycleService {
             InventoryPort inventoryPort,
             LedgerPort ledgerPort,
             CollectionPort collectionPort,
-            Clock clock) {
+            Clock clock,
+            @Autowired(required = false) StorageService storageService) {
         this.orderRepository = orderRepository;
         this.sellerPort = sellerPort;
         this.platformSettingService = platformSettingService;
@@ -89,6 +92,19 @@ public class OrderLifecycleService {
         this.ledgerPort = ledgerPort;
         this.collectionPort = collectionPort;
         this.clock = clock != null ? clock : Clock.systemUTC();
+        this.storageService = storageService;
+    }
+
+    public OrderLifecycleService(
+            OrderRepository orderRepository,
+            SellerPort sellerPort,
+            PlatformSettingService platformSettingService,
+            InventoryPort inventoryPort,
+            LedgerPort ledgerPort,
+            CollectionPort collectionPort,
+            Clock clock) {
+        this(orderRepository, sellerPort, platformSettingService,
+                inventoryPort, ledgerPort, collectionPort, clock, null);
     }
 
     public OrderLifecycleService(
@@ -99,7 +115,7 @@ public class OrderLifecycleService {
             LedgerPort ledgerPort,
             CollectionPort collectionPort) {
         this(orderRepository, sellerPort, platformSettingService,
-                inventoryPort, ledgerPort, collectionPort, Clock.systemUTC());
+                inventoryPort, ledgerPort, collectionPort, Clock.systemUTC(), null);
     }
 
     // ==========================================
@@ -703,23 +719,37 @@ public class OrderLifecycleService {
         Map<Long, List<SellerOrderStatusHistoryRecord>> historyBySellerOrder =
                 orderRepository.findStatusHistoryBySellerOrderIds(sellerOrderIds);
 
+        List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
+        Map<Long, String> sellerNames = orderRepository.findSellerNamesByProfileIds(profileIds);
+
         Map<Long, SellerOrderDetailsResponse> responses = new LinkedHashMap<>();
         for (SellerOrderRecord so : sellerOrders) {
             List<OrderItemDetailsResponse> itemResponses =
                     itemsBySellerOrder.getOrDefault(so.getId(), List.of()).stream()
-                            .map(oi -> new OrderItemDetailsResponse(
-                                    oi.getId(),
-                                    oi.getListingId(),
-                                    oi.getCatalogVariantId(),
-                                    oi.getQuantity(),
-                                    oi.getUnitPrice(),
-                                    oi.getLineTotal(),
-                                    oi.getProductNameSnapshot(),
-                                    oi.getVariantLabelSnapshot(),
-                                    oi.getConditionSnapshot(),
-                                    oi.getGameNameSnapshot(),
-                                    oi.getImageKeySnapshot(),
-                                    unitIdsByItem.getOrDefault(oi.getId(), List.of())))
+                            .map(oi -> {
+                                String imageUrl = null;
+                                if (storageService != null && oi.getImageKeySnapshot() != null && !oi.getImageKeySnapshot().isBlank()) {
+                                    try {
+                                        imageUrl = storageService.presignDownload(oi.getImageKeySnapshot());
+                                    } catch (Exception e) {
+                                        // Ignore storage failure, keep imageUrl null
+                                    }
+                                }
+                                return new OrderItemDetailsResponse(
+                                        oi.getId(),
+                                        oi.getListingId(),
+                                        oi.getCatalogVariantId(),
+                                        oi.getQuantity(),
+                                        oi.getUnitPrice(),
+                                        oi.getLineTotal(),
+                                        oi.getProductNameSnapshot(),
+                                        oi.getVariantLabelSnapshot(),
+                                        oi.getConditionSnapshot(),
+                                        oi.getGameNameSnapshot(),
+                                        oi.getImageKeySnapshot(),
+                                        imageUrl,
+                                        unitIdsByItem.getOrDefault(oi.getId(), List.of()));
+                            })
                             .toList();
 
             List<ShipmentResponse> shipmentResponses =
@@ -774,7 +804,8 @@ public class OrderLifecycleService {
                     so.getCreatedAt(),
                     itemResponses,
                     shipmentResponses,
-                    historyResponses));
+                    historyResponses,
+                    sellerNames.get(so.getSellerProfileId())));
         }
         return responses;
     }

@@ -8,20 +8,24 @@ import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
+import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
 import com.pegasus.pegasustcgapi.model.Cart;
 import com.pegasus.pegasustcgapi.model.CartItem;
 import com.pegasus.pegasustcgapi.model.SellerProfile;
 import com.pegasus.pegasustcgapi.port.PricingPort;
 import com.pegasus.pegasustcgapi.port.PricingPort.ListingOffer;
 import com.pegasus.pegasustcgapi.repository.CartRepository;
+import com.pegasus.pegasustcgapi.repository.CartRepository.CartListingDetails;
 import com.pegasus.pegasustcgapi.repository.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,14 +45,25 @@ public class CartService {
     private final CartRepository cartRepository;
     private final PricingPort pricingPort;
     private final SellerProfileRepository sellerProfileRepository;
+    private final StorageService storageService;
 
     public CartService(
             CartRepository cartRepository,
             PricingPort pricingPort,
             SellerProfileRepository sellerProfileRepository) {
+        this(cartRepository, pricingPort, sellerProfileRepository, null);
+    }
+
+    @Autowired
+    public CartService(
+            CartRepository cartRepository,
+            PricingPort pricingPort,
+            SellerProfileRepository sellerProfileRepository,
+            @Autowired(required = false) StorageService storageService) {
         this.cartRepository = cartRepository;
         this.pricingPort = pricingPort;
         this.sellerProfileRepository = sellerProfileRepository;
+        this.storageService = storageService;
     }
 
     public record AddResult(CartItemResponse item, String sessionKey) {
@@ -120,6 +135,9 @@ public class CartService {
 
         CartItem item = cartRepository.upsertItem(cart.id(), request.listingId(), cumulativeQuantity, offer.price());
 
+        CartListingDetails details = cartRepository.findCartListingDetails(List.of(request.listingId())).get(request.listingId());
+        String imageUrl = resolveImageUrl(details);
+
         CartItemResponse response = new CartItemResponse(
                 item.id(),
                 item.cartId(),
@@ -135,7 +153,11 @@ public class CartService {
                 offer.condition(),
                 offer.currency(),
                 item.addedAt(),
-                item.updatedAt());
+                item.updatedAt(),
+                details != null ? details.productName() : null,
+                details != null ? details.variantLabel() : null,
+                details != null ? details.sellerName() : null,
+                imageUrl);
 
         return new AddResult(response, returnSessionKey);
     }
@@ -159,6 +181,18 @@ public class CartService {
         resolveCartForUser(principal.userId(), guestKey);
     }
 
+    @Transactional
+    public CartResponse mergeCart(AuthPrincipal principal, String sessionKey) {
+        if (principal == null) {
+            throw new UnauthorizedException(ErrorCode.UNAUTHENTICATED);
+        }
+        String guestKey = CartSessionKey.normalize(sessionKey);
+        if (guestKey != null && !guestKey.isBlank()) {
+            resolveCartForUser(principal.userId(), guestKey);
+        }
+        return getCart(principal, null);
+    }
+
     /**
      * Retrieves all items in the caller's cart, enriched with current batch-queried pricing.
      */
@@ -170,9 +204,13 @@ public class CartService {
 
     /**
      * Retrieves the full cart with items and financial summary.
+     * Auto-merges guest cart if both authenticated principal and sessionKey are passed.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public CartResponse getCart(AuthPrincipal principal, String sessionKey) {
+        if (principal != null && sessionKey != null && !sessionKey.isBlank()) {
+            mergeGuestCartIfPresent(principal, sessionKey);
+        }
         String guestKey = principal == null ? CartSessionKey.normalize(sessionKey) : null;
         Optional<Cart> found = findCart(principal, sessionKey);
 
@@ -244,6 +282,9 @@ public class CartService {
 
         boolean priceChanged = updated.unitPriceAtAdd().compareTo(offer.price()) != 0;
 
+        CartListingDetails details = cartRepository.findCartListingDetails(List.of(existingItem.listingId())).get(existingItem.listingId());
+        String imageUrl = resolveImageUrl(details);
+
         return new CartItemResponse(
                 updated.id(),
                 updated.cartId(),
@@ -259,7 +300,11 @@ public class CartService {
                 offer.condition(),
                 offer.currency(),
                 updated.addedAt(),
-                updated.updatedAt());
+                updated.updatedAt(),
+                details != null ? details.productName() : null,
+                details != null ? details.variantLabel() : null,
+                details != null ? details.sellerName() : null,
+                imageUrl);
     }
 
     /**
@@ -324,12 +369,17 @@ public class CartService {
         List<Long> listingIds = items.stream().map(CartItem::listingId).distinct().toList();
         Map<Long, ListingOffer> offers = pricingPort.offers(listingIds);
 
+        Map<Long, CartListingDetails> listingDetails = cartRepository.findCartListingDetails(listingIds);
+
         return items.stream().map(item -> {
             ListingOffer offer = offers.get(item.listingId());
             BigDecimal currentPrice = offer != null ? offer.price() : null;
             boolean priceChanged = offer == null || offer.price() == null
                     || item.unitPriceAtAdd().compareTo(offer.price()) != 0;
             boolean purchasable = offer != null && offer.purchasable();
+
+            CartListingDetails details = listingDetails.get(item.listingId());
+            String imageUrl = resolveImageUrl(details);
 
             return new CartItemResponse(
                     item.id(),
@@ -346,7 +396,23 @@ public class CartService {
                     offer != null ? offer.condition() : null,
                     offer != null ? offer.currency() : "THB",
                     item.addedAt(),
-                    item.updatedAt());
+                    item.updatedAt(),
+                    details != null ? details.productName() : null,
+                    details != null ? details.variantLabel() : null,
+                    details != null ? details.sellerName() : null,
+                    imageUrl);
         }).toList();
+    }
+
+    private String resolveImageUrl(CartListingDetails details) {
+        if (details == null || details.imageKey() == null || storageService == null) {
+            return null;
+        }
+        try {
+            return storageService.presignDownload(details.imageKey());
+        } catch (Exception e) {
+            log.warn("Failed to presign download for image {}: {}", details.imageKey(), e.getMessage());
+            return null;
+        }
     }
 }

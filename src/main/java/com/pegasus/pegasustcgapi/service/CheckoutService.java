@@ -32,13 +32,16 @@ import com.pegasus.pegasustcgapi.repository.OrderRepository;
 import com.pegasus.pegasustcgapi.repository.OrderRepository.ListingSnapshotDetails;
 import com.pegasus.pegasustcgapi.repository.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.jooq.JSONB;
 import org.jooq.exception.IntegrityConstraintViolationException;
@@ -71,6 +74,7 @@ public class CheckoutService {
     private final PricingPort pricingPort;
     private final InventoryPort inventoryPort;
     private final LedgerPort ledgerPort;
+    private final StorageService storageService;
     private final ObjectMapper json;
     private final TransactionTemplate transactionTemplate;
 
@@ -88,15 +92,32 @@ public class CheckoutService {
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             @Autowired(required = false) ShippingOptionService shippingOptionService,
+            @Autowired(required = false) StorageService storageService,
             PricingPort pricingPort,
             InventoryPort inventoryPort,
             LedgerPort ledgerPort,
             ObjectMapper json,
             PlatformTransactionManager transactionManager) {
         this(cartRepository, cartService, orderRepository, addressService, sellerProfileRepository,
-                shippingOptionService, pricingPort, inventoryPort, ledgerPort, json,
+                shippingOptionService, storageService, pricingPort, inventoryPort, ledgerPort, json,
                 new TransactionTemplate(Objects.requireNonNull(
                         transactionManager, "a PlatformTransactionManager is required for checkout")));
+    }
+
+    public CheckoutService(
+            CartRepository cartRepository,
+            CartService cartService,
+            OrderRepository orderRepository,
+            AddressService addressService,
+            SellerProfileRepository sellerProfileRepository,
+            ShippingOptionService shippingOptionService,
+            PricingPort pricingPort,
+            InventoryPort inventoryPort,
+            LedgerPort ledgerPort,
+            ObjectMapper json,
+            PlatformTransactionManager transactionManager) {
+        this(cartRepository, cartService, orderRepository, addressService, sellerProfileRepository,
+                shippingOptionService, null, pricingPort, inventoryPort, ledgerPort, json, transactionManager);
     }
 
     /**
@@ -110,6 +131,7 @@ public class CheckoutService {
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             ShippingOptionService shippingOptionService,
+            StorageService storageService,
             PricingPort pricingPort,
             InventoryPort inventoryPort,
             LedgerPort ledgerPort,
@@ -121,11 +143,28 @@ public class CheckoutService {
         this.addressService = addressService;
         this.sellerProfileRepository = sellerProfileRepository;
         this.shippingOptionService = shippingOptionService;
+        this.storageService = storageService;
         this.pricingPort = pricingPort;
         this.inventoryPort = inventoryPort;
         this.ledgerPort = ledgerPort;
         this.json = json != null ? json : new ObjectMapper();
         this.transactionTemplate = transactionTemplate;
+    }
+
+    CheckoutService(
+            CartRepository cartRepository,
+            CartService cartService,
+            OrderRepository orderRepository,
+            AddressService addressService,
+            SellerProfileRepository sellerProfileRepository,
+            ShippingOptionService shippingOptionService,
+            PricingPort pricingPort,
+            InventoryPort inventoryPort,
+            LedgerPort ledgerPort,
+            ObjectMapper json,
+            TransactionTemplate transactionTemplate) {
+        this(cartRepository, cartService, orderRepository, addressService, sellerProfileRepository,
+                shippingOptionService, null, pricingPort, inventoryPort, ledgerPort, json, transactionTemplate);
     }
 
     /**
@@ -229,9 +268,19 @@ public class CheckoutService {
         if (cart == null) {
             throw new ConflictException(ErrorCode.CART_EMPTY);
         }
-        List<CartItem> items = cartRepository.findItemsByCartId(cart.id());
-        if (items.isEmpty()) {
+        List<CartItem> allItems = cartRepository.findItemsByCartId(cart.id());
+        if (allItems.isEmpty()) {
             throw new ConflictException(ErrorCode.CART_EMPTY);
+        }
+        List<CartItem> items;
+        if (request != null && request.cartItemIds() != null && !request.cartItemIds().isEmpty()) {
+            Set<Long> allowedIds = new HashSet<>(request.cartItemIds());
+            items = allItems.stream().filter(item -> allowedIds.contains(item.id())).toList();
+            if (items.isEmpty()) {
+                throw new ConflictException(ErrorCode.CART_EMPTY);
+            }
+        } else {
+            items = allItems;
         }
 
         // 2. Batch validate pricing and purchasability
@@ -437,7 +486,13 @@ public class CheckoutService {
         }
 
         // 8. Cleanup: the basket is emptied, not deleted — the buyer keeps using it.
-        cartRepository.deleteItemsByCartId(cart.id());
+        if (items.size() == allItems.size()) {
+            cartRepository.deleteItemsByCartId(cart.id());
+        } else {
+            for (CartItem item : items) {
+                cartRepository.deleteItem(item.id(), cart.id());
+            }
+        }
 
         // 9. Return complete order outcome
         return getOrderDetails(salesOrder.getId(), false);
@@ -506,12 +561,22 @@ public class CheckoutService {
                 .map(OrderItemRecord::getId)
                 .toList();
         Map<Long, List<Long>> unitIdsByItem = orderRepository.findUnitIdsByOrderItemIds(orderItemIds);
+        List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
+        Map<Long, String> sellerNames = orderRepository.findSellerNamesByProfileIds(profileIds);
 
         List<SellerOrderResponse> sellerResponses = new ArrayList<>();
         for (SellerOrderRecord so : sellerOrders) {
             List<OrderItemResponse> itemResponses = new ArrayList<>();
 
             for (OrderItemRecord oi : itemsBySellerOrder.getOrDefault(so.getId(), List.of())) {
+                String imageUrl = null;
+                if (storageService != null && oi.getImageKeySnapshot() != null && !oi.getImageKeySnapshot().isBlank()) {
+                    try {
+                        imageUrl = storageService.presignDownload(oi.getImageKeySnapshot());
+                    } catch (Exception e) {
+                        // ignore storage errors
+                    }
+                }
                 itemResponses.add(new OrderItemResponse(
                         oi.getId(),
                         oi.getListingId(),
@@ -522,7 +587,8 @@ public class CheckoutService {
                         oi.getQuantity(),
                         oi.getUnitPrice(),
                         oi.getLineTotal(),
-                        unitIdsByItem.getOrDefault(oi.getId(), List.of())));
+                        unitIdsByItem.getOrDefault(oi.getId(), List.of()),
+                        imageUrl));
             }
 
             sellerResponses.add(new SellerOrderResponse(
@@ -535,7 +601,8 @@ public class CheckoutService {
                     so.getGrandTotal(),
                     so.getCommissionAmount(),
                     so.getSellerNetAmount(),
-                    itemResponses));
+                    itemResponses,
+                    sellerNames.get(so.getSellerProfileId())));
         }
 
         return new CheckoutResponse(

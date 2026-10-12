@@ -72,6 +72,26 @@ public final class AuthUserBuilder {
         return this;
     }
 
+    public AuthUserBuilder withDisplayName(String value) {
+        this.displayName = value;
+        return this;
+    }
+
+    public AuthUserBuilder withBio(String value) {
+        this.bio = value;
+        return this;
+    }
+
+    public AuthUserBuilder withPhone(String value) {
+        this.phone = value;
+        return this;
+    }
+
+    public AuthUserBuilder withAvatarUrl(String value) {
+        this.avatarUrl = value;
+        return this;
+    }
+
     public AuthUserBuilder withRoles(RoleCode... values) {
         this.roles = Set.of(values);
         return this;

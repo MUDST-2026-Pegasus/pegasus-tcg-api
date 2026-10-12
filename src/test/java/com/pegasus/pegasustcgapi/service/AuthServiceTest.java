@@ -31,6 +31,7 @@ import com.pegasus.pegasustcgapi.model.TokenPurpose;
 import com.pegasus.pegasustcgapi.model.UserStatus;
 import com.pegasus.pegasustcgapi.repository.UserRepository;
 import com.pegasus.pegasustcgapi.security.ClientInfo;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.support.FakePasswordEncoder;
 import java.sql.SQLException;
 import java.time.Clock;
@@ -85,6 +86,9 @@ class AuthServiceTest {
     @Spy
     private PasswordEncoder passwordEncoder = new FakePasswordEncoder();
 
+    @Mock
+    private StorageService storageService;
+
     private Clock clock;
     private AuthService service;
 
@@ -101,7 +105,7 @@ class AuthServiceTest {
                 LOCKOUT,
                 false);
 
-        service = new AuthService(users, roles, authTokens, jwtService, passwordEncoder, properties, clock);
+        service = new AuthService(users, roles, authTokens, jwtService, passwordEncoder, properties, storageService, clock);
     }
 
     @Nested

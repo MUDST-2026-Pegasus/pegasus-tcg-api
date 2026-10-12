@@ -11,6 +11,8 @@ import com.pegasus.pegasustcgapi.repository.CardSetRepository;
 import com.pegasus.pegasustcgapi.repository.CardSetRepository.CardSetFields;
 import com.pegasus.pegasustcgapi.repository.CatalogCategoryRepository;
 import com.pegasus.pegasustcgapi.repository.CatalogCategoryRepository.CategoryFields;
+import com.pegasus.pegasustcgapi.storage.StorageService;
+import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.stereotype.Service;
@@ -33,13 +35,16 @@ public class CatalogTaxonomyService {
     private final CatalogCategoryRepository categories;
     private final CardSetRepository cardSets;
     private final GameService games;
+    private final StorageService storage;
 
     public CatalogTaxonomyService(
-            CatalogCategoryRepository categories, CardSetRepository cardSets, GameService games) {
+            CatalogCategoryRepository categories, CardSetRepository cardSets, GameService games,
+            StorageService storage) {
 
         this.categories = categories;
         this.cardSets = cardSets;
         this.games = games;
+        this.storage = storage;
     }
 
     // ---------- categories ----------
@@ -63,6 +68,7 @@ public class CatalogTaxonomyService {
             games.require(requested.gameId());
         }
         requireParentUsable(requested.parentId(), null, requested.gameId());
+        requireImageUsable(requested.imageKey(), null);
 
         String code = normaliseCode(requested.code());
         if (categories.codeTaken(requested.gameId(), code, null)) {
@@ -77,6 +83,7 @@ public class CatalogTaxonomyService {
     public CatalogCategory updateCategory(int categoryId, CategoryFields requested) {
         CatalogCategory existing = requireCategory(categoryId);
         requireParentUsable(requested.parentId(), categoryId, existing.gameId());
+        requireImageUsable(requested.imageKey(), existing.imageKey());
 
         String code = normaliseCode(requested.code());
         if (categories.codeTaken(existing.gameId(), code, categoryId)) {
@@ -135,9 +142,11 @@ public class CatalogTaxonomyService {
      * would do the same in every other game. The game is fixed at creation, so
      * checking here is enough.
      *
-     * <p>Only one level is checked, so a deeper loop is still possible in theory.
-     * Categories are a short, admin-curated list, and the check that would rule it
-     * out reads the whole chain on every save.
+     * <p>Categories are two levels deep at most: a parent has to be top level, and
+     * a category that already has children cannot take a parent. Browsing by a
+     * category finds what is filed under it and under its children, and the search
+     * page lists the shelves the same way, so a third level would be a shelf nobody
+     * can reach. It also makes a parent loop impossible without reading the chain.
      *
      * @param gameId the child's game; null for a cross-game category
      */
@@ -149,10 +158,34 @@ public class CatalogTaxonomyService {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, "A category cannot be its own parent");
         }
         CatalogCategory parent = requireCategory(parentId);
+        if (parent.parentId() != null) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "Categories nest one level deep: the parent has to be a top-level category");
+        }
+        if (categoryId != null && categories.hasChildren(categoryId)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "A category with categories under it cannot be moved under another one");
+        }
         if (!parent.isCrossGame() && !parent.gameId().equals(gameId)) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED,
                     "A parent category must be cross-game or belong to the same game");
         }
+    }
+
+    /**
+     * The tile picture goes out on the public home page, so it has to be a finished
+     * CATALOG_IMAGE upload — the same rule as product art. Anything else, a bank-book
+     * scan for one, would be handed to every visitor as a signed link.
+     *
+     * @param current the key already on the category; sending it back unchanged
+     *                needs no new upload, which is what keeps seeded pictures editable
+     */
+    private void requireImageUsable(String imageKey, String current) {
+        String key = blankToNull(imageKey);
+        if (key == null || key.equals(current)) {
+            return;
+        }
+        storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, key);
     }
 
     /** Keeps the existing slug on update: it is in URLs, so it is set once. */
@@ -162,7 +195,8 @@ public class CatalogTaxonomyService {
                 : Slugs.unique(requested.slug(), SLUG_WIDTH, unused -> false, requested.name());
 
         return new CategoryFields(requested.gameId(), requested.parentId(), code,
-                requested.name().trim(), slug, requested.displayOrder(), requested.active());
+                requested.name().trim(), slug, requested.displayOrder(), requested.active(),
+                blankToNull(requested.imageKey()));
     }
 
     private static CardSetFields withCode(CardSetFields requested, String code) {

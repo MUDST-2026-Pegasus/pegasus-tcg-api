@@ -35,7 +35,7 @@ pegasus:
     dev-expose-tokens: ${AUTH_DEV_EXPOSE_TOKENS:false}
 
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
 
   cart:
     # Signed-out baskets past their expires_at. Anyone can create one without an
@@ -52,7 +52,7 @@ pegasus:
     # POST /orders/{id}/pay marks an order paid without taking any money, which is
     # only ever wanted on a developer machine or a sandbox. Off unless asked for:
     # on a live deployment it is a way to have cards posted for free.
-    mock-enabled: ${PAYMENT_MOCK_ENABLED:false}
+    mock-enabled: ${PAYMENT_MOCK_ENABLED:true}
 
   pricing:
     # The nightly market run: the day's median per printing and condition, then

@@ -19,6 +19,7 @@ import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.ForbiddenException;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -44,6 +45,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
     private final AuthProperties properties;
+    private final StorageService storage;
     private final Clock clock;
 
 
@@ -56,6 +58,7 @@ public class AuthService {
             JwtService jwtService,
             PasswordEncoder passwordEncoder,
             AuthProperties properties,
+            StorageService storage,
             Clock clock) {
 
         this.users = users;
@@ -64,6 +67,7 @@ public class AuthService {
         this.jwtService = jwtService;
         this.passwordEncoder = passwordEncoder;
         this.properties = properties;
+        this.storage = storage;
         this.clock = clock;
         this.decoyHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
@@ -180,7 +184,10 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public UserResponse currentUser(long userId) {
-        return UserResponse.from(loadWithRoles(userId));
+        AuthUser user = loadWithRoles(userId);
+        String signedAvatar = user.avatarUrl() == null ? null
+                : storage.presignDownload(user.avatarUrl());
+        return UserResponse.from(user, signedAvatar);
     }
 
     /** Opens a brand new session; used by login, registration and password changes. */

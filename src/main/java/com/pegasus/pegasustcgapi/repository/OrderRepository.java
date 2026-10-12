@@ -11,7 +11,9 @@ import static com.pegasus.pegasustcgapi.jooq.tables.OrderItemUnit.ORDER_ITEM_UNI
 import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrderStatusHistory.SELLER_ORDER_STATUS_HISTORY;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
 import static com.pegasus.pegasustcgapi.jooq.tables.Shipment.SHIPMENT;
+import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.OrderItemRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.OrderItemUnitRecord;
@@ -429,6 +431,17 @@ public class OrderRepository {
                 .where(SELLER_ORDER_STATUS_HISTORY.SELLER_ORDER_ID.in(sellerOrderIds))
                 .orderBy(SELLER_ORDER_STATUS_HISTORY.CREATED_AT.asc(), SELLER_ORDER_STATUS_HISTORY.ID.asc())
                 .fetch(), SellerOrderStatusHistoryRecord::getSellerOrderId);
+    }
+
+    public Map<Long, String> findSellerNamesByProfileIds(Collection<Long> sellerProfileIds) {
+        if (sellerProfileIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(SELLER_PROFILE.ID, DSL.coalesce(USER_ACCOUNT.DISPLAY_NAME, USER_ACCOUNT.USERNAME))
+                .from(SELLER_PROFILE)
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .where(SELLER_PROFILE.ID.in(sellerProfileIds))
+                .fetchMap(SELLER_PROFILE.ID, r -> r.value2());
     }
 
     public ShipmentRecord insertShipment(

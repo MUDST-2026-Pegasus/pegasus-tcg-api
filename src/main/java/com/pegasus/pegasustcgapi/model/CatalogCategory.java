@@ -6,6 +6,7 @@ package com.pegasus.pegasustcgapi.model;
  *
  * @param gameId   null means the category spans every game, e.g. Accessory
  * @param parentId null at the top level; categories nest one inside another
+ * @param imageKey the tile picture's object key; null when the category has none
  */
 public record CatalogCategory(
         int id,
@@ -15,7 +16,8 @@ public record CatalogCategory(
         String name,
         String slug,
         short displayOrder,
-        boolean active) {
+        boolean active,
+        String imageKey) {
 
     /** A category with no game applies to all of them. */
     public boolean isCrossGame() {

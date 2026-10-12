@@ -42,6 +42,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -518,6 +520,122 @@ class CartServiceTest {
             assertThatThrownBy(() -> cartService.updateItemQuantity(seller, null, 100L, 2))
                     .isInstanceOfSatisfying(ConflictException.class,
                             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CANNOT_BUY_OWN_LISTING));
+        }
+    }
+
+    /**
+     * Equivalence classes of the quantity a buyer asks for against the stock on the
+     * listing [CR-3 US-14]. {@link #offer} puts 10 cards on sale, so the partitions are
+     * {@code qty <= 0}, {@code 1 <= qty <= 10} and {@code qty > 10}; each is probed at
+     * its edges as well as in the middle.
+     */
+    @Nested
+    @DisplayName("ECC: quantity vs stock (stock = 10)")
+    class QuantityVersusStockPartitions {
+
+        private static final int STOCK = 10;
+
+        private void givenGuestCanStartACart() {
+            given(cartRepository.createForSession(anyString())).willAnswer(inv ->
+                    new Cart(1L, null, inv.getArgument(0), "THB", OffsetDateTime.now(), OffsetDateTime.now(), null));
+        }
+
+        @ParameterizedTest(name = "invalid partition qty <= 0: qty = {0} -> 400 VALIDATION_FAILED")
+        @ValueSource(ints = {0, -1, Integer.MIN_VALUE})
+        void quantityAtOrBelowZeroIsRejected(int quantity) {
+            given(pricingPort.offer(10L)).willReturn(Optional.of(offer(10L, 99L, new BigDecimal("100.00"), true)));
+
+            assertThatThrownBy(() -> cartService.addItem(null, null, new CartItemRequest(10L, quantity)))
+                    .isInstanceOfSatisfying(BadRequestException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+            // Rejected before a guest cart is opened, so a bad request leaves nothing behind.
+            verify(cartRepository, never()).createForSession(any());
+            verify(cartRepository, never()).upsertItem(anyLong(), anyLong(), anyInt(), any());
+        }
+
+        @ParameterizedTest(name = "valid partition 1 <= qty <= stock: qty = {0} is added")
+        @ValueSource(ints = {1, 5, STOCK})
+        void quantityWithinStockIsAdded(int quantity) {
+            given(pricingPort.offer(10L)).willReturn(Optional.of(offer(10L, 99L, new BigDecimal("100.00"), true)));
+            givenGuestCanStartACart();
+            given(cartRepository.upsertItem(eq(1L), eq(10L), eq(quantity), eq(new BigDecimal("100.00"))))
+                    .willReturn(new CartItem(100L, 1L, 10L, quantity, new BigDecimal("100.00"),
+                            OffsetDateTime.now(), OffsetDateTime.now()));
+
+            CartService.AddResult result = cartService.addItem(null, null, new CartItemRequest(10L, quantity));
+
+            assertThat(result.item().quantity()).isEqualTo(quantity);
+            assertThat(result.item().quantityAvailable()).isEqualTo(STOCK);
+        }
+
+        @Test
+        @DisplayName("valid partition: an omitted quantity means one card")
+        void omittedQuantityDefaultsToOne() {
+            given(pricingPort.offer(10L)).willReturn(Optional.of(offer(10L, 99L, new BigDecimal("100.00"), true)));
+            givenGuestCanStartACart();
+            given(cartRepository.upsertItem(eq(1L), eq(10L), eq(1), eq(new BigDecimal("100.00"))))
+                    .willReturn(new CartItem(100L, 1L, 10L, 1, new BigDecimal("100.00"),
+                            OffsetDateTime.now(), OffsetDateTime.now()));
+
+            CartService.AddResult result = cartService.addItem(null, null, new CartItemRequest(10L, null));
+
+            assertThat(result.item().quantity()).isEqualTo(1);
+        }
+
+        @ParameterizedTest(name = "invalid partition qty > stock: qty = {0} -> 409 INSUFFICIENT_STOCK")
+        @ValueSource(ints = {STOCK + 1, 50, Integer.MAX_VALUE})
+        void quantityAboveStockIsRejected(int quantity) {
+            given(pricingPort.offer(10L)).willReturn(Optional.of(offer(10L, 99L, new BigDecimal("100.00"), true)));
+            givenGuestCanStartACart();
+
+            assertThatThrownBy(() -> cartService.addItem(null, null, new CartItemRequest(10L, quantity)))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INSUFFICIENT_STOCK));
+            verify(cartRepository, never()).upsertItem(anyLong(), anyLong(), anyInt(), any());
+        }
+
+        @ParameterizedTest(name = "update to qty = {0} (<= 0) -> 400 before any lookup")
+        @ValueSource(ints = {0, -3})
+        void updateToZeroOrLessIsRejected(int quantity) {
+            assertThatThrownBy(() -> cartService.updateItemQuantity(principal(42L), null, 100L, quantity))
+                    .isInstanceOfSatisfying(BadRequestException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+            verify(pricingPort, never()).offer(anyLong());
+        }
+
+        private void givenSignedInBuyerHoldsOneCard() {
+            Cart userCart = new Cart(2L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem existingItem = new CartItem(100L, 2L, 10L, 1, new BigDecimal("100.00"),
+                    OffsetDateTime.now(), OffsetDateTime.now());
+
+            given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
+            given(cartRepository.findItemByIdAndCartId(100L, 2L)).willReturn(Optional.of(existingItem));
+            given(pricingPort.offer(10L)).willReturn(Optional.of(offer(10L, 99L, new BigDecimal("100.00"), true)));
+            given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.empty());
+        }
+
+        @Test
+        @DisplayName("update to exactly the stock (upper edge of the valid partition) is accepted")
+        void updateToExactlyTheStockIsAccepted() {
+            givenSignedInBuyerHoldsOneCard();
+            given(cartRepository.updateItemQuantity(100L, 2L, STOCK))
+                    .willReturn(new CartItem(100L, 2L, 10L, STOCK, new BigDecimal("100.00"),
+                            OffsetDateTime.now(), OffsetDateTime.now()));
+
+            CartItemResponse response = cartService.updateItemQuantity(principal(42L), null, 100L, STOCK);
+
+            assertThat(response.quantity()).isEqualTo(STOCK);
+        }
+
+        @Test
+        @DisplayName("update to stock + 1 (lower edge of qty > stock) -> 409 INSUFFICIENT_STOCK")
+        void updateToOneAboveTheStockIsRejected() {
+            givenSignedInBuyerHoldsOneCard();
+
+            assertThatThrownBy(() -> cartService.updateItemQuantity(principal(42L), null, 100L, STOCK + 1))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INSUFFICIENT_STOCK));
+            verify(cartRepository, never()).updateItemQuantity(anyLong(), anyLong(), anyInt());
         }
     }
 }
