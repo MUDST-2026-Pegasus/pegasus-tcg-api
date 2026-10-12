@@ -6,7 +6,6 @@ import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.jooq.tables.records.ReturnRequestRecord;
 import com.pegasus.pegasustcgapi.model.SellerOrderStatus;
-import com.pegasus.pegasustcgapi.port.CollectionPort;
 import com.pegasus.pegasustcgapi.port.InventoryPort;
 import com.pegasus.pegasustcgapi.port.SellerPort;
 import com.pegasus.pegasustcgapi.repository.OrderRepository;
@@ -33,9 +32,7 @@ public class ReturnService {
     private final SellerPort sellers;
     private final OrderLifecycleService lifecycle;
     private final RefundService refunds;
-    private final EscrowReleaseService escrow;
     private final InventoryPort inventory;
-    private final CollectionPort collection;
     private final StorageService storage;
     private final PlatformSettingService settings;
     private final ObjectMapper json;
@@ -43,7 +40,7 @@ public class ReturnService {
 
     public ReturnService(ReturnRepository returns, OrderRepository orders, PaymentRepository payments,
             SellerPort sellers, OrderLifecycleService lifecycle, RefundService refunds,
-            EscrowReleaseService escrow, InventoryPort inventory, CollectionPort collection,
+            InventoryPort inventory,
             StorageService storage, PlatformSettingService settings, ObjectMapper json, Clock clock) {
         this.returns = returns;
         this.orders = orders;
@@ -51,9 +48,7 @@ public class ReturnService {
         this.sellers = sellers;
         this.lifecycle = lifecycle;
         this.refunds = refunds;
-        this.escrow = escrow;
         this.inventory = inventory;
-        this.collection = collection;
         this.storage = storage;
         this.settings = settings;
         this.json = json;
@@ -73,6 +68,7 @@ public class ReturnService {
         payments.lockOrder(order.getSalesOrderId());
         order = orders.findSellerOrderById(sellerOrderId).orElseThrow();
         if (!List.of("SHIPPED", "DELIVERED").contains(order.getStatus())
+                || order.getAutoCompleteAt() == null || !order.getAutoCompleteAt().isAfter(now())
                 || order.getDeliveredAt() != null && order.getDeliveredAt().plus(settings.getDays(
                         PlatformSettingService.RETURN_REQUEST_WINDOW_DAYS)).isBefore(now())) {
             throw new ConflictException(ErrorCode.RETURN_WINDOW_CLOSED);
@@ -119,7 +115,7 @@ public class ReturnService {
             throw new BadRequestException(ErrorCode.VALIDATION_FAILED);
         }
         returns.approve(returnId, resolution, amount, sellerUserId, now(),
-                requireShipBack ? "AWAITING_RETURN_SHIPMENT" : "REFUNDED");
+                requireShipBack ? "AWAITING_RETURN_SHIPMENT" : "APPROVED");
         if (!requireShipBack) refunds.onReturn(order.getId(), returnId, "Return approved", amount);
         return returns.lock(returnId).orElseThrow();
     }
@@ -129,10 +125,11 @@ public class ReturnService {
         var request = sellerReturn(sellerUserId, returnId);
         if (!"REQUESTED".equals(request.getStatus())) throw new ConflictException(ErrorCode.RETURN_STATE);
         returns.reject(returnId, sellerUserId, now());
-        lifecycle.transitionAfterSales(request.getSellerOrderId(), SellerOrderStatus.COMPLETED,
+        // A rejection resumes the original release clock; it does not pay the seller early.
+        var order = orders.findSellerOrderById(request.getSellerOrderId()).orElseThrow();
+        lifecycle.transitionAfterSales(request.getSellerOrderId(),
+                order.getDeliveredAt() == null ? SellerOrderStatus.SHIPPED : SellerOrderStatus.DELIVERED,
                 sellerUserId, "Return rejected");
-        escrow.release(request.getSellerOrderId());
-        collection.grant(request.getBuyerId(), request.getSellerOrderId());
         return returns.lock(returnId).orElseThrow();
     }
 

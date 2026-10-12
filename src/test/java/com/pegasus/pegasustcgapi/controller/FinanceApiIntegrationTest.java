@@ -6,11 +6,13 @@ import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
 import static com.pegasus.pegasustcgapi.jooq.tables.ReturnRequest.RETURN_REQUEST;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -95,11 +97,73 @@ class FinanceApiIntegrationTest extends PostgresIntegrationTest {
         long refundId = dsl.select(REFUND.ID).from(REFUND)
                 .where(REFUND.SELLER_ORDER_ID.eq(order.sellerOrders().getFirst().id()))
                 .fetchSingle(REFUND.ID);
+        mvc.perform(put("/api/v1/refunds/{id}/destination", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(outsider.userId()))))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bankName\":\"Test Bank\",\"accountName\":\"Buyer\",\"accountNumber\":\"1234567890\"}"))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/refunds/{id}", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(outsider.userId())))))
+                .andExpect(status().isNotFound());
         mvc.perform(post("/api/v1/admin/refunds/{id}/processed", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(adminId)))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"transferReference\":\"REF-HTTP\"}"))
+                .andExpect(status().isConflict());
+        mvc.perform(put("/api/v1/refunds/{id}/destination", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(buyer.userId()))))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bankName\":\"Test Bank\",\"accountName\":\"Buyer\",\"accountNumber\":\"123-456-7890\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accountNumber").value("1234567890"));
+        mvc.perform(get("/api/v1/admin/refunds")
                         .with(jwt().jwt(j -> j.subject(String.valueOf(adminId)))
                                 .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
+                .andExpect(jsonPath("$.data[?(@.id == " + refundId + ")].accountNumber")
+                        .value(hasItem("1234567890")));
+        mvc.perform(put("/api/v1/refunds/{id}/destination", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(buyer.userId()))))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bankName\":\"Other Bank\",\"accountName\":\"Buyer\",\"accountNumber\":\"9876543210\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/admin/refunds/{id}/processing", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(adminId)))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accountNumber\":\"1234567890\"}"))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/api/v1/admin/refunds/{id}/processing", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(adminId)))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accountNumber\":\"9876543210\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("PROCESSING"));
+        mvc.perform(put("/api/v1/refunds/{id}/destination", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(buyer.userId()))))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bankName\":\"Other Bank\",\"accountName\":\"Buyer\",\"accountNumber\":\"9876543210\"}"))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/api/v1/admin/refunds/{id}/processed", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(adminId)))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"transferReference\":\"REF-HTTP\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transferReference").value("REF-HTTP"));
+        mvc.perform(get("/api/v1/admin/refunds/{id}/transfers", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(adminId)))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].status").value("PROCESSED"))
+                .andExpect(jsonPath("$.data[0].accountNumber").value("9876543210"));
+        mvc.perform(put("/api/v1/refunds/{id}/destination", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(buyer.userId()))))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bankName\":\"Other Bank\",\"accountName\":\"Buyer\",\"accountNumber\":\"9876543210\"}"))
+                .andExpect(status().isConflict());
     }
 
     @Test
@@ -136,12 +200,25 @@ class FinanceApiIntegrationTest extends PostgresIntegrationTest {
                         .content("{\"resolution\":\"PARTIAL_REFUND\",\"refundAmount\":40,"
                                 + "\"requireShipBack\":false}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("REFUNDED"));
+                .andExpect(jsonPath("$.data.status").value("APPROVED"));
         long refundId = dsl.select(REFUND.ID).from(REFUND)
                 .where(REFUND.RETURN_REQUEST_ID.eq(returnId)).fetchSingle(REFUND.ID);
+        mvc.perform(put("/api/v1/refunds/{id}/destination", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(buyer.userId()))))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bankName\":\"Test Bank\",\"accountName\":\"Buyer\",\"accountNumber\":\"1234567890\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/admin/refunds/{id}/processing", refundId)
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(data.admin().userId())))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accountNumber\":\"1234567890\"}"))
+                .andExpect(status().isOk());
         mvc.perform(post("/api/v1/admin/refunds/{id}/processed", refundId)
                         .with(jwt().jwt(j -> j.subject(String.valueOf(data.admin().userId())))
-                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"transferReference\":\"REF-RETURN\"}"))
                 .andExpect(status().isOk());
         mvc.perform(post("/api/v1/orders/{id}/reviews", suborderId)
                         .with(jwt().jwt(j -> j.subject(String.valueOf(buyer.userId()))))

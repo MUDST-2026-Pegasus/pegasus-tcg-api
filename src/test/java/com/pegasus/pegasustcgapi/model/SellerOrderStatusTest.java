@@ -35,7 +35,8 @@ class SellerOrderStatusTest {
         table.put(SellerOrderStatus.COMPLETED, EnumSet.noneOf(SellerOrderStatus.class));
         table.put(SellerOrderStatus.CANCELLED, EnumSet.noneOf(SellerOrderStatus.class));
         table.put(SellerOrderStatus.RETURN_REQUESTED,
-                EnumSet.of(SellerOrderStatus.RETURNED, SellerOrderStatus.COMPLETED,
+                EnumSet.of(SellerOrderStatus.SHIPPED, SellerOrderStatus.DELIVERED,
+                        SellerOrderStatus.RETURNED, SellerOrderStatus.COMPLETED,
                         SellerOrderStatus.REFUNDED));
         table.put(SellerOrderStatus.RETURNED,
                 EnumSet.of(SellerOrderStatus.COMPLETED, SellerOrderStatus.REFUNDED));

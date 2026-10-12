@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.dto;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.PayoutRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.RefundRecord;
+import com.pegasus.pegasustcgapi.jooq.tables.records.RefundTransferAttemptRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.ReturnRequestRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerRatingSummaryRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerReviewRecord;
@@ -31,11 +32,25 @@ public final class FinanceViews {
 
     public record Refund(long id, long salesOrderId, Long sellerOrderId,
             Long returnRequestId, BigDecimal amount, String reason, String status,
-            String method, OffsetDateTime requestedAt, OffsetDateTime processedAt) {
+            String method, String bankName, String accountName, String accountNumber,
+            String transferReference, OffsetDateTime requestedAt, OffsetDateTime processedAt) {
         public static Refund from(RefundRecord row) {
             return new Refund(row.getId(), row.getSalesOrderId(), row.getSellerOrderId(),
                     row.getReturnRequestId(), row.getAmount(), row.getReason(), row.getStatus(),
-                    row.getMethod(), row.getRequestedAt(), row.getProcessedAt());
+                    row.getMethod(), row.getBankName(), row.getAccountName(), row.getAccountNumber(),
+                    row.getTransferReference(), row.getRequestedAt(), row.getProcessedAt());
+        }
+    }
+
+    public record RefundTransferAttempt(long id, long refundId, String bankName,
+            String accountName, String accountNumber, String status, long startedBy,
+            OffsetDateTime startedAt, Long completedBy, OffsetDateTime completedAt,
+            String transferReference, String failureReason) {
+        public static RefundTransferAttempt from(RefundTransferAttemptRecord row) {
+            return new RefundTransferAttempt(row.getId(), row.getRefundId(), row.getBankName(),
+                    row.getAccountName(), row.getAccountNumber(), row.getStatus(), row.getStartedBy(),
+                    row.getStartedAt(), row.getCompletedBy(), row.getCompletedAt(), row.getTransferReference(),
+                    row.getFailureReason());
         }
     }
 

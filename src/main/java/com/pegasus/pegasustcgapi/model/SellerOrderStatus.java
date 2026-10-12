@@ -58,7 +58,7 @@ public enum SellerOrderStatus {
             case PREPARING -> EnumSet.of(SHIPPED, CANCELLED);
             case SHIPPED -> EnumSet.of(DELIVERED, COMPLETED, RETURN_REQUESTED);
             case DELIVERED -> EnumSet.of(COMPLETED, RETURN_REQUESTED);
-            case RETURN_REQUESTED -> EnumSet.of(RETURNED, COMPLETED, REFUNDED);
+            case RETURN_REQUESTED -> EnumSet.of(SHIPPED, DELIVERED, RETURNED, COMPLETED, REFUNDED);
             case RETURNED -> EnumSet.of(COMPLETED, REFUNDED);
             case COMPLETED, CANCELLED, REFUNDED ->
                     EnumSet.noneOf(SellerOrderStatus.class);

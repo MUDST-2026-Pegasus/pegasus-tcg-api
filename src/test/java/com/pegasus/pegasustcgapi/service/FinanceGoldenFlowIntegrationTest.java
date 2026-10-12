@@ -92,7 +92,9 @@ class FinanceGoldenFlowIntegrationTest extends PostgresIntegrationTest {
         returns.receive(seller2.userId(), request.getId(), true);
         long refundId = dsl.select(REFUND.ID).from(REFUND)
                 .where(REFUND.RETURN_REQUEST_ID.eq(request.getId())).fetchSingle(REFUND.ID);
-        refunds.processed(refundId, adminId);
+        refunds.setDestination(refundId, buyer.userId(), "Test Bank", "Test Buyer", "1234567890");
+        refunds.startTransfer(refundId, adminId, "1234567890");
+        refunds.processed(refundId, adminId, "REF-TEST");
 
         long verificationId = dsl.insertInto(SELLER_VERIFICATION)
                 .set(SELLER_VERIFICATION.SELLER_PROFILE_ID, seller1.profileId())

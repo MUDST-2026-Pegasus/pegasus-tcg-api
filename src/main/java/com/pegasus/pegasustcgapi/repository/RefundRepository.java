@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.repository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
+import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.RefundRecord;
 import java.math.BigDecimal;
@@ -51,15 +52,37 @@ public class RefundRepository {
         return dsl.selectFrom(REFUND).where(REFUND.ID.eq(id)).fetchOptional();
     }
 
+    public int setDestination(long id, String bankName, String accountName, String accountNumber) {
+        return dsl.update(REFUND).set(REFUND.BANK_NAME, bankName)
+                .set(REFUND.ACCOUNT_NAME, accountName)
+                .set(REFUND.ACCOUNT_NUMBER, accountNumber)
+                .where(REFUND.ID.eq(id)).and(REFUND.STATUS.eq("APPROVED"))
+                .execute();
+    }
+
     public List<RefundRecord> queue(String status) {
         return dsl.selectFrom(REFUND).where(REFUND.STATUS.eq(status))
                 .orderBy(REFUND.REQUESTED_AT.asc(), REFUND.ID.asc()).fetch();
     }
 
-    public int processed(long id, long adminId, OffsetDateTime now) {
+    public List<RefundRecord> forBuyer(long buyerId) {
+        return dsl.select(REFUND.fields()).from(REFUND)
+                .join(SALES_ORDER).on(REFUND.SALES_ORDER_ID.eq(SALES_ORDER.ID))
+                .where(SALES_ORDER.BUYER_ID.eq(buyerId))
+                .orderBy(REFUND.REQUESTED_AT.desc(), REFUND.ID.desc())
+                .fetchInto(RefundRecord.class);
+    }
+
+    public int processed(long id, long adminId, String transferReference, OffsetDateTime now) {
         return dsl.update(REFUND).set(REFUND.STATUS, "PROCESSED")
                 .set(REFUND.PROCESSED_BY, adminId).set(REFUND.PROCESSED_AT, now)
-                .where(REFUND.ID.eq(id)).and(REFUND.STATUS.eq("APPROVED"))
+                .set(REFUND.TRANSFER_REFERENCE, transferReference)
+                .where(REFUND.ID.eq(id)).and(REFUND.STATUS.in("PROCESSING", "APPROVED"))
                 .execute();
+    }
+
+    public int transition(long id, String expected, String next) {
+        return dsl.update(REFUND).set(REFUND.STATUS, next)
+                .where(REFUND.ID.eq(id)).and(REFUND.STATUS.eq(expected)).execute();
     }
 }

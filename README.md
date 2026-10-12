@@ -310,7 +310,13 @@ POST /admin/payouts/{id}/paid              ADMIN; confirms external transfer wit
 POST /admin/payouts/{id}/reject            ADMIN
 POST /admin/payouts/{id}/fail              ADMIN
 GET  /admin/refunds?status=APPROVED        ADMIN
-POST /admin/refunds/{id}/processed         ADMIN; confirms external refund transfer
+GET  /refunds                              buyer; list own refunds
+GET  /refunds/{id}                         buyer; read own refund
+PUT  /refunds/{id}/destination             buyer; {"bankName":"...","accountName":"...","accountNumber":"..."}
+POST /admin/refunds/{id}/processing        ADMIN; {"accountNumber":"..."}; verifies the latest number and locks the destination before transfer
+POST /admin/refunds/{id}/processed         ADMIN; {"transferReference":"..."}; confirms transfer
+POST /admin/refunds/{id}/failed            ADMIN; {"reason":"..."}; records a failed attempt and unlocks the destination
+GET  /admin/refunds/{id}/transfers         ADMIN; immutable destination snapshots and transfer attempts
 GET  /orders/{sellerOrderId}/returns       buyer
 POST /orders/{sellerOrderId}/returns       buyer
 POST /orders/{sellerOrderId}/returns/{returnId}/ship buyer
@@ -324,7 +330,9 @@ POST /sellers/me/reviews/{id}/reply        seller
 PUT  /admin/reviews/{id}/visibility        ADMIN
 ```
 
-The buyer's payment is first credited to the platform wallet and held per seller order. Completing a seller order releases its non-refunded amount to the seller after commission. Cancellation or return creates an `APPROVED` refund obligation; the platform wallet is debited only when an admin confirms the bank refund via `/processed`. Likewise a seller payout is debited only when an admin confirms it as paid. These manual confirmations must follow the real bank transfers to keep the ledger in sync with cash.
+The buyer's payment is first credited to the platform wallet and held per seller order. Completing a seller order releases its non-refunded amount to the seller after commission. A buyer can request a return only while the seller order is shipped or delivered and before its escrow deadline (seven days after shipment by default). Confirming receipt or reaching that deadline releases escrow and closes the in-system return window. A request opened before the deadline pauses release until the dispute is resolved. A rejected claim resumes the original deadline; it does not release money early.
+
+Cancellation or an approved return creates an `APPROVED` refund obligation. For bank transfers, the buyer supplies a destination for that refund. An admin calls `/processing` before opening the bank app; this freezes the destination and saves an audit snapshot. After transferring money outside the system, the admin records the bank reference via `/processed`. This debits the platform wallet once. If the bank rejects the transfer, `/failed` records the reason and lets the buyer correct the destination for another attempt. Repeating `/processed` with the same reference returns the completed refund without posting money again. A seller payout is also debited only when an admin confirms it as paid. Manual confirmations must follow the real bank transfers to keep the ledger in sync with cash.
 
 
 ## API conventions

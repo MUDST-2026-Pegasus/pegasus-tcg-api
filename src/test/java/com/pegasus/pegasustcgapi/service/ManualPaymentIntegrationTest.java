@@ -5,6 +5,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.CommissionCharge.COMMISSION_
 import static com.pegasus.pegasustcgapi.jooq.tables.LedgerEntry.LEDGER_ENTRY;
 import static com.pegasus.pegasustcgapi.jooq.tables.Payment.PAYMENT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
+import static com.pegasus.pegasustcgapi.jooq.tables.RefundTransferAttempt.REFUND_TRANSFER_ATTEMPT;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.Wallet.WALLET;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -106,14 +107,30 @@ class ManualPaymentIntegrationTest extends PostgresIntegrationTest {
                 .where(WALLET.ID.eq(wallets.platformWalletId()))
                 .fetchSingle(WALLET.BALANCE_PENDING)).isEqualByComparingTo(before);
 
-        refunds.processed(refund.getId(), adminId);
+        refunds.setDestination(refund.getId(), buyer.userId(), "Test Bank", "Test Buyer", "1234567890");
+        refunds.startTransfer(refund.getId(), adminId, "1234567890");
+        assertThatThrownBy(() -> refunds.setDestination(refund.getId(), buyer.userId(),
+                "Other Bank", "Test Buyer", "9876543210")).isInstanceOf(ConflictException.class);
+        refunds.transferFailed(refund.getId(), adminId, "Bank rejected account");
+        assertThat(dsl.select(REFUND_TRANSFER_ATTEMPT.STATUS).from(REFUND_TRANSFER_ATTEMPT)
+                .where(REFUND_TRANSFER_ATTEMPT.REFUND_ID.eq(refund.getId()))
+                .fetchSingle(REFUND_TRANSFER_ATTEMPT.STATUS)).isEqualTo("FAILED");
+        refunds.setDestination(refund.getId(), buyer.userId(), "Test Bank", "Test Buyer", "9876543210");
+        refunds.startTransfer(refund.getId(), adminId, "9876543210");
+        refunds.processed(refund.getId(), adminId, "REF-TEST");
         assertThat(dsl.select(WALLET.BALANCE_PENDING).from(WALLET)
                 .where(WALLET.ID.eq(wallets.platformWalletId()))
                 .fetchSingle(WALLET.BALANCE_PENDING)).isEqualByComparingTo(before.subtract(refund.getAmount()));
         assertThat(dsl.select(ESCROW_HOLD.STATUS).from(ESCROW_HOLD)
                 .where(ESCROW_HOLD.SELLER_ORDER_ID.eq(suborderId))
                 .fetchSingle(ESCROW_HOLD.STATUS)).isEqualTo("CANCELLED");
-        assertThatThrownBy(() -> refunds.processed(refund.getId(), adminId)).isInstanceOf(RuntimeException.class);
+        assertThat(refunds.processed(refund.getId(), adminId, "REF-TEST").getStatus()).isEqualTo("PROCESSED");
+        assertThatThrownBy(() -> refunds.processed(refund.getId(), adminId, "DIFFERENT"))
+                .isInstanceOf(ConflictException.class);
+        assertThat(dsl.selectFrom(REFUND_TRANSFER_ATTEMPT)
+                .where(REFUND_TRANSFER_ATTEMPT.REFUND_ID.eq(refund.getId()))
+                .orderBy(REFUND_TRANSFER_ATTEMPT.ID.asc()).fetch())
+                .extracting(r -> r.getStatus()).containsExactly("FAILED", "PROCESSED");
     }
 
     @Test

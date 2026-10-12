@@ -79,6 +79,8 @@ public enum ErrorCode {
     PAYMENT_UNDER_REVIEW(HttpStatus.CONFLICT, "A bank transfer is awaiting admin review"),
     PAYOUT_STATE(HttpStatus.CONFLICT, "Payout cannot make this transition"),
     REFUND_EXCEEDS_REFUNDABLE(HttpStatus.CONFLICT, "Refund exceeds the money held in escrow"),
+    REFUND_DESTINATION_REQUIRED(HttpStatus.CONFLICT, "Buyer bank details are required before refund transfer"),
+    REFUND_DESTINATION_CHANGED(HttpStatus.CONFLICT, "Buyer bank details changed; reload the refund before transferring"),
     REVIEW_ORDER_NOT_COMPLETED(HttpStatus.CONFLICT, "Only completed orders can be reviewed"),
     REVIEW_ALREADY_EXISTS(HttpStatus.CONFLICT, "This order has already been reviewed"),
     REVIEW_ALREADY_REPLIED(HttpStatus.CONFLICT, "This review already has a reply"),
