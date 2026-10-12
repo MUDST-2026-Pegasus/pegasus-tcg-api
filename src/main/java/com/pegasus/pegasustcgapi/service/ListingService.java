@@ -38,6 +38,7 @@ import java.time.OffsetDateTime;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -99,14 +100,23 @@ public class ListingService {
 
     // ---------- reading ----------
 
-    /** The dashboard, most recently changed first. Deleted listings are gone from it. */
-    public PageResponse<SellerListingSummaryResponse> mine(
-            long userId, ListingStatus status, Long variantId, CardCondition condition, int page, int size) {
+    /**
+     * The dashboard, most recently changed first unless {@code sort} says otherwise.
+     * Deleted listings are gone from it.
+     *
+     * @param search card name, local name or number, SKU or lot label, matched anywhere
+     *               in the text; blank is no search
+     * @param sort   updated (the default), newest, price_asc, price_desc, stock_asc,
+     *               stock_desc or name
+     */
+    public PageResponse<SellerListingSummaryResponse> mine(long userId, ListingStatus status, Long variantId,
+            CardCondition condition, String search, String sort, int page, int size) {
 
         SellerProfile seller = sellers.requireProfile(userId);
         Paging paging = Paging.of(page, size);
-        SellerListingQuery query = new SellerListingQuery(
-                seller.id(), status, variantId, condition, paging.size(), paging.offset());
+        SellerListingQuery query = new SellerListingQuery(seller.id(), status, variantId, condition,
+                search == null || search.isBlank() ? null : search.trim(), parseSort(sort),
+                paging.size(), paging.offset());
 
         List<Listing> rows = listings.findSellerPage(query);
         Map<Long, ListingCard> cardsByVariant = cards.cards(rows.stream().map(Listing::catalogVariantId).toList());
@@ -343,6 +353,24 @@ public class ListingService {
                 throw new ConflictException(ErrorCode.LISTING_PHOTO_IN_USE);
             }
         }
+    }
+
+    /** Most recently changed first when nothing is asked for: the order the dashboard opens on. */
+    static SellerListingQuery.Sort parseSort(String sort) {
+        if (sort == null || sort.isBlank()) {
+            return SellerListingQuery.Sort.UPDATED;
+        }
+        return switch (sort.trim().toLowerCase(Locale.ROOT)) {
+            case "updated" -> SellerListingQuery.Sort.UPDATED;
+            case "newest" -> SellerListingQuery.Sort.NEWEST;
+            case "price", "price_asc" -> SellerListingQuery.Sort.PRICE_ASC;
+            case "price_desc" -> SellerListingQuery.Sort.PRICE_DESC;
+            case "stock", "stock_asc" -> SellerListingQuery.Sort.STOCK_ASC;
+            case "stock_desc" -> SellerListingQuery.Sort.STOCK_DESC;
+            case "name" -> SellerListingQuery.Sort.NAME;
+            default -> throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "sort must be one of updated, newest, price_asc, price_desc, stock_asc, stock_desc, name");
+        };
     }
 
     // ---------- rendering ----------
