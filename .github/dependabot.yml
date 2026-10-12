@@ -1,0 +1,51 @@
+version: 2
+
+updates:
+  # Gradle dependencies (build.gradle, plugins, wrapper)
+  - package-ecosystem: "gradle"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    groups:
+      spring-boot:
+        patterns:
+          - "org.springframework*"
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions versions used in .github/workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "ci"
+      - "dependencies"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Base images in Dockerfile / Dockerfile.ci
+  - package-ecosystem: "docker"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "docker"
+      - "dependencies"
+    ignore:
+      # Stay on the Java 25 LTS line; don't auto-bump the JDK major.
+      - dependency-name: "eclipse-temurin"
+        update-types: ["version-update:semver-major"]
