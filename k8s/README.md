@@ -12,6 +12,7 @@ k8s/
 ├── configmap.yaml              ค่า config ที่ไม่เป็นความลับ
 ├── deployment.yaml             Deployment ของ backend 3 replicas
 ├── service.yaml                ClusterIP Service พอร์ต 8080
+├── ingress.yaml                Ingress เส้นทาง /pegasus-backend-service
 ├── pdb.yaml                    PodDisruptionBudget
 ├── examples/
 │   └── secret.example.yaml     ตัวอย่าง Secret (ค่า placeholder)
@@ -70,7 +71,44 @@ kubectl get pdb pegasus-backend-pdb
 
 ถ้า backend ขึ้นก่อน Postgres พร้อม Pod จะ restart เองจนต่อฐานข้อมูลได้ ไม่ต้องทำอะไรเพิ่ม
 
-### 5. เรียกใช้งานผ่าน Port-Forward
+### 5. เรียกใช้งานผ่าน Ingress
+
+`ingress.yaml` เปิดให้เข้า backend ที่ `http://localhost/pegasus-backend-service` โดยตัด prefix ออกก่อนส่งต่อ
+แอปจึงเห็น path เดิม เช่น `/pegasus-backend-service/api/v1/games` ไปถึงแอปเป็น `/api/v1/games`
+
+Ingress ต้องมี Ingress Controller ในคลัสเตอร์ก่อนจึงจะทำงาน ติดตั้งครั้งเดียวต่อคลัสเตอร์
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.15.1/deploy/static/provider/cloud/deploy.yaml
+```
+
+```bash
+kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx
+```
+
+จากนั้นเรียกได้เลย
+
+```bash
+curl http://localhost/pegasus-backend-service/actuator/health
+```
+
+Swagger UI อยู่ที่ <http://localhost/pegasus-backend-service/swagger-ui.html>
+
+ถ้าพอร์ต 80 ของเครื่องถูกใช้อยู่ ให้เปิดทางเข้า Ingress Controller ที่พอร์ต 16969 แทน
+
+```bash
+kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 16969:80
+```
+
+```bash
+curl http://localhost:16969/pegasus-backend-service/actuator/health
+```
+
+> โครงการ ingress-nginx ถูกเก็บเข้า archive เมื่อมีนาคม 2026 และไม่มี security patch แล้ว
+> ใช้กับคลัสเตอร์ในเครื่องเพื่อการเรียนได้ แต่ไม่ควรนำไปใช้กับระบบจริง
+> annotation ใน `ingress.yaml` เป็นของ ingress-nginx ถ้าเปลี่ยน controller ต้องแก้ส่วน rewrite ตาม
+
+### 6. เรียกใช้งานผ่าน Port-Forward (ไม่ผ่าน Ingress)
 
 ```bash
 kubectl port-forward service/pegasus-backend-service 8080:8080
@@ -148,6 +186,9 @@ kubectl delete pvc data-pegasus-postgres-0 data-pegasus-minio-0
 | **Pod Anti-Affinity** | preferred | กระจาย Pod ไปคนละ Node ถ้าทำได้ แต่ยังรันบนคลัสเตอร์ Node เดียวได้ |
 | **PodDisruptionBudget** | `minAvailable: 2` | ตอน drain Node ต้องเหลือ backend อย่างน้อย 2 ตัว |
 | **Graceful shutdown** | `preStop` 5 วินาที + รอ request 30 วินาที | ให้ Service ถอด Pod ออกก่อน แล้วรอ request ที่ค้างให้จบ |
+| **Ingress** | `/pegasus-backend-service` พร้อม rewrite | หลาย service ใช้ `localhost` ร่วมกันได้โดยแยกด้วย path และแอปไม่ต้องรู้จัก prefix |
+| **Forwarded headers** | `SERVER_FORWARD_HEADERS_STRATEGY: framework` | ให้ redirect และ Swagger UI สร้างลิงก์ที่มี prefix ของ Ingress |
+| **Postgres / MinIO** | StatefulSet + headless Service + `volumeClaimTemplates` | ชื่อ Pod และ volume คงที่ ข้อมูลอยู่รอดเมื่อ Pod ถูกสร้างใหม่ |
 
 ---
 
@@ -155,5 +196,6 @@ kubectl delete pvc data-pegasus-postgres-0 data-pegasus-minio-0
 
 * `PAYMENT_MOCK_ENABLED` ถูกตั้งเป็น `false` ถ้าจะ demo การจ่ายเงินโดยไม่มี payment gateway ต้องแก้เป็น `true` ใน `configmap.yaml`
 * `CORS_ALLOWED_ORIGINS` ตั้งไว้ที่ `http://localhost:8081` ตามพอร์ตที่ frontend ใช้ port-forward ถ้า frontend อยู่ที่อื่นต้องแก้ตาม
-* ยังไม่มี Ingress การเข้าถึงจากนอกคลัสเตอร์ใช้ port-forward
+* เมื่อเข้าผ่านพอร์ต 16969 เอกสาร OpenAPI จะระบุ server เป็น `http://localhost/pegasus-backend-service` (ไม่มีพอร์ต) ปุ่ม Try it out ใน Swagger UI จึงยิงไปที่พอร์ต 80 การเรียก API ตรงๆ ผ่านพอร์ต 16969 ใช้ได้ปกติ
+* Ingress เป็น HTTP อย่างเดียว ยังไม่ได้ตั้ง TLS
 * Manifest ใช้ namespace ปัจจุบันของ `kubectl` ไม่ได้กำหนด namespace ไว้ในไฟล์
