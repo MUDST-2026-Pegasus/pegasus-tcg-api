@@ -9,16 +9,9 @@ metadata:
     app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: pegasus-tcg
 # ค่าที่ไม่เป็นความลับเท่านั้น รหัสผ่านและ key อยู่ใน Secret pegasus-backend-secret
+# ที่อยู่ของ Postgres และ MinIO ก็อยู่ใน Secret เพราะทั้งคู่รันนอกคลัสเตอร์และต่างกันไปตามเครื่อง
 # แก้ค่าในนี้แล้ว Pod เดิมจะยังไม่เห็น ต้องสั่ง kubectl rollout restart ตาม
 data:
-  # ชื่อ Service ของ Postgres ภายในคลัสเตอร์ (ดู k8s/dependencies/postgres.yaml)
-  DB_URL: jdbc:postgresql://pegasus-postgres-service:5432/pegasus_tcg
-
-  # endpoint ที่ backend ใช้คุยกับ MinIO ภายในคลัสเตอร์
-  MINIO_ENDPOINT: http://pegasus-minio-service:9000
-  # endpoint ที่ browser ใช้ presigned URL ถูก sign ด้วย host นี้
-  # ค่านี้ตรงกับ kubectl port-forward service/pegasus-minio-service 9000:9000
-  MINIO_PUBLIC_ENDPOINT: http://localhost:9000
   MINIO_BUCKET: pegasus
 
   # origin ของ frontend ที่ port-forward ไว้ที่ 8081 (คั่นด้วย , ถ้ามีหลายค่า)
