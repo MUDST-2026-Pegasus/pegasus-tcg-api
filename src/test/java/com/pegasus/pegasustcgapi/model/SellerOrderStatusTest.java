@@ -28,14 +28,18 @@ class SellerOrderStatusTest {
         table.put(SellerOrderStatus.PREPARING,
                 EnumSet.of(SellerOrderStatus.SHIPPED, SellerOrderStatus.CANCELLED));
         table.put(SellerOrderStatus.SHIPPED,
-                EnumSet.of(SellerOrderStatus.DELIVERED, SellerOrderStatus.COMPLETED));
+                EnumSet.of(SellerOrderStatus.DELIVERED, SellerOrderStatus.COMPLETED,
+                        SellerOrderStatus.RETURN_REQUESTED));
         table.put(SellerOrderStatus.DELIVERED,
-                EnumSet.of(SellerOrderStatus.COMPLETED));
-        // After-sales owns what happens past these; the order module drives none of it.
+                EnumSet.of(SellerOrderStatus.COMPLETED, SellerOrderStatus.RETURN_REQUESTED));
         table.put(SellerOrderStatus.COMPLETED, EnumSet.noneOf(SellerOrderStatus.class));
         table.put(SellerOrderStatus.CANCELLED, EnumSet.noneOf(SellerOrderStatus.class));
-        table.put(SellerOrderStatus.RETURN_REQUESTED, EnumSet.noneOf(SellerOrderStatus.class));
-        table.put(SellerOrderStatus.RETURNED, EnumSet.noneOf(SellerOrderStatus.class));
+        table.put(SellerOrderStatus.RETURN_REQUESTED,
+                EnumSet.of(SellerOrderStatus.SHIPPED, SellerOrderStatus.DELIVERED,
+                        SellerOrderStatus.RETURNED, SellerOrderStatus.COMPLETED,
+                        SellerOrderStatus.REFUNDED));
+        table.put(SellerOrderStatus.RETURNED,
+                EnumSet.of(SellerOrderStatus.COMPLETED, SellerOrderStatus.REFUNDED));
         table.put(SellerOrderStatus.REFUNDED, EnumSet.noneOf(SellerOrderStatus.class));
         return table;
     }

@@ -80,6 +80,7 @@ public class SecurityConfig {
         // The market and a seller's storefront. A seller's own dashboard is under /sellers/me.
         ApiPaths.LISTINGS + "/**",
         ApiPaths.PROFILES + "/*/listings",
+        ApiPaths.PROFILES + "/*/reviews",
     };
 
     /** Public Swagger UI and OpenAPI documentation resources. */

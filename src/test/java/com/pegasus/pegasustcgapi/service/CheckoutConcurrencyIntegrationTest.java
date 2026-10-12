@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service;
 
+import static org.mockito.ArgumentMatchers.anyCollection;
+
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogCategory.CATALOG_CATEGORY;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
@@ -347,7 +349,7 @@ class CheckoutConcurrencyIntegrationTest {
 
         // Stub ledgerPort.quoteCommission to throw mid-transaction exception
         doThrow(new RuntimeException("Simulated mid-transaction failure in commission service"))
-                .when(ledgerPort).quoteCommission(anyLong(), any());
+                .when(ledgerPort).quoteCommission(anyLong(), any(), anyCollection());
 
         assertThatThrownBy(() -> checkoutService.checkout(buyer, key, null, null))
                 .isInstanceOf(RuntimeException.class)

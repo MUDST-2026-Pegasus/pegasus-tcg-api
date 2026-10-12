@@ -32,7 +32,6 @@ import com.pegasus.pegasustcgapi.support.TestData.Seller;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -223,8 +222,7 @@ class CheckoutServiceIntegrationTest extends PostgresIntegrationTest {
         Listing listing = data.onSale(seller, card, CardCondition.NM, 1, "175.50");
         cartService.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
 
-        // Today the refusal comes from seller_order's CHECK (commission_amount >= 0); once
-        // the rate is validated it will come earlier. Either way the order must not exist.
+        // The quote rejects an invalid rate before an order or reservation is written.
         assertThatThrownBy(() -> checkout(buyer)).isInstanceOf(RuntimeException.class);
 
         assertNothingWasOrdered(listing);
@@ -232,7 +230,6 @@ class CheckoutServiceIntegrationTest extends PostgresIntegrationTest {
 
     @Test
     @DisplayName("ECC commission > 100: checkout is refused rather than leaving the seller a negative net")
-    @Disabled(LedgerServiceTest.KNOWN_BUG_COMMISSION_RATE)
     void commissionAboveHundredRefusesTheOrder() {
         data.setting(PlatformSettingService.COMMISSION_DEFAULT_RATE, "105");
         Listing listing = data.onSale(seller, card, CardCondition.NM, 1, "175.50");

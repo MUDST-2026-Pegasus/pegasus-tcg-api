@@ -17,7 +17,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -52,6 +51,18 @@ class PlatformSettingServiceTest {
     @Nested
     @DisplayName("Reading values")
     class Reading {
+
+        @Test
+        void booleanSettingAcceptsOnlyJsonBooleans() {
+            String key = PlatformSettingService.PAYMENT_SLIP_AUTO_APPROVE;
+            given(repository.findValue(key)).willReturn(Optional.of("true"),
+                    Optional.of("false"), Optional.of("\"true\""));
+
+            assertThat(settings.getBoolean(key)).isTrue();
+            assertThat(settings.getBoolean(key)).isFalse();
+            assertThatThrownBy(() -> settings.getBoolean(key))
+                    .isInstanceOf(IllegalStateException.class);
+        }
 
         @ParameterizedTest(name = "stored as {0} reads as 5.0")
         @ValueSource(strings = {"5.0", "\"5.0\"", " 5.0 "})
@@ -133,11 +144,40 @@ class PlatformSettingServiceTest {
 
         @ParameterizedTest(name = "invalid partition: {0} is refused with 400 and nothing is written")
         @ValueSource(strings = {"-5", "-0.01", "100.01", "105", "\"abc\""})
-        @Disabled(LedgerServiceTest.KNOWN_BUG_COMMISSION_RATE)
         void rateOutsideZeroToHundredIsRejected(String rate) {
             given(repository.exists(RATE)).willReturn(true);
 
             assertThatThrownBy(() -> settings.update(RATE, rate, ADMIN_ID))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+            verify(repository, never()).update(anyString(), anyString(), anyLong());
+        }
+    }
+
+    @Nested
+    @DisplayName("Updating slip auto approve")
+    class UpdatingSlipAutoApprove {
+
+        @ParameterizedTest
+        @ValueSource(strings = {"true", "false"})
+        void validBooleansAreSaved(String value) {
+            String key = PlatformSettingService.PAYMENT_SLIP_AUTO_APPROVE;
+            given(repository.exists(key)).willReturn(true);
+            given(repository.findAll()).willReturn(List.of(new Setting(key, value, "Slip auto approve", ADMIN_ID)));
+
+            Setting saved = settings.update(key, value, ADMIN_ID);
+
+            verify(repository).update(key, value, ADMIN_ID);
+            assertThat(saved.value()).isEqualTo(value);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"yes", "no", "1", "0", "TRUE", "invalid"})
+        void invalidBooleansAreRejected(String value) {
+            String key = PlatformSettingService.PAYMENT_SLIP_AUTO_APPROVE;
+            given(repository.exists(key)).willReturn(true);
+
+            assertThatThrownBy(() -> settings.update(key, value, ADMIN_ID))
                     .isInstanceOfSatisfying(ApiException.class,
                             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
             verify(repository, never()).update(anyString(), anyString(), anyLong());
