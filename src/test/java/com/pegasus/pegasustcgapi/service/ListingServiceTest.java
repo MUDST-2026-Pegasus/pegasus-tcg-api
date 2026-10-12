@@ -9,6 +9,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -35,6 +36,7 @@ import com.pegasus.pegasustcgapi.repository.ListingPriceHistoryRepository;
 import com.pegasus.pegasustcgapi.repository.ListingRepository;
 import com.pegasus.pegasustcgapi.repository.ListingRepository.Details;
 import com.pegasus.pegasustcgapi.repository.ListingRepository.Pricing;
+import com.pegasus.pegasustcgapi.repository.ListingRepository.SellerListingQuery;
 import com.pegasus.pegasustcgapi.repository.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.service.ListingService.PriceChange;
 import com.pegasus.pegasustcgapi.storage.StorageService;
@@ -428,6 +430,60 @@ class ListingServiceTest {
                     .isEqualTo(ErrorCode.LISTING_HAS_RESERVATIONS);
 
             verifyNoInteractions(units);
+        }
+    }
+
+    // ---------- the dashboard ----------
+
+    @Nested
+    class Dashboard {
+
+        @Test
+        @DisplayName("search and sort reach the query: the text trimmed, a blank search dropped, the sort parsed")
+        void searchAndSortReachTheQuery() {
+            given(sellers.requireProfile(USER)).willReturn(verified());
+            ArgumentCaptor<SellerListingQuery> query = ArgumentCaptor.forClass(SellerListingQuery.class);
+
+            service.mine(USER, ListingStatus.ACTIVE, null, null, "  charizard  ", "PRICE_DESC", 0, 20);
+            service.mine(USER, null, null, null, "   ", null, 0, 20);
+
+            verify(listings, times(2)).findSellerPage(query.capture());
+            assertThat(query.getAllValues().get(0).search()).isEqualTo("charizard");
+            assertThat(query.getAllValues().get(0).sort()).isEqualTo(SellerListingQuery.Sort.PRICE_DESC);
+            assertThat(query.getAllValues().get(0).sellerProfileId()).isEqualTo(SELLER);
+            assertThat(query.getAllValues().get(1).search()).isNull();
+            assertThat(query.getAllValues().get(1).sort()).isEqualTo(SellerListingQuery.Sort.UPDATED);
+        }
+
+        @Test
+        @DisplayName("no sort is most recently changed first, the order the dashboard opens on")
+        void defaultSortIsUpdated() {
+            assertThat(ListingService.parseSort(null)).isEqualTo(SellerListingQuery.Sort.UPDATED);
+            assertThat(ListingService.parseSort(" ")).isEqualTo(SellerListingQuery.Sort.UPDATED);
+        }
+
+        @Test
+        @DisplayName("every sort the dashboard offers is understood, in any case, with the short aliases")
+        void everySortIsUnderstood() {
+            assertThat(ListingService.parseSort("updated")).isEqualTo(SellerListingQuery.Sort.UPDATED);
+            assertThat(ListingService.parseSort("newest")).isEqualTo(SellerListingQuery.Sort.NEWEST);
+            assertThat(ListingService.parseSort("price")).isEqualTo(SellerListingQuery.Sort.PRICE_ASC);
+            assertThat(ListingService.parseSort("price_asc")).isEqualTo(SellerListingQuery.Sort.PRICE_ASC);
+            assertThat(ListingService.parseSort("Price_Desc")).isEqualTo(SellerListingQuery.Sort.PRICE_DESC);
+            assertThat(ListingService.parseSort("stock")).isEqualTo(SellerListingQuery.Sort.STOCK_ASC);
+            assertThat(ListingService.parseSort("stock_asc")).isEqualTo(SellerListingQuery.Sort.STOCK_ASC);
+            assertThat(ListingService.parseSort("stock_desc")).isEqualTo(SellerListingQuery.Sort.STOCK_DESC);
+            assertThat(ListingService.parseSort("name")).isEqualTo(SellerListingQuery.Sort.NAME);
+        }
+
+        @Test
+        @DisplayName("an unknown sort is a 400 that names the ones there are, not a silent default")
+        void unknownSortIsRefused() {
+            assertThatThrownBy(() -> ListingService.parseSort("popular"))
+                    .isInstanceOf(ApiException.class)
+                    .hasMessageContaining("stock_asc")
+                    .extracting(ListingServiceTest::codeOf)
+                    .isEqualTo(ErrorCode.VALIDATION_FAILED);
         }
     }
 }

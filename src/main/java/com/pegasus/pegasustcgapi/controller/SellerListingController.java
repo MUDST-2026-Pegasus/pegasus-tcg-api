@@ -57,16 +57,23 @@ public class SellerListingController {
 
     // ---------- listings ----------
 
+    /**
+     * @param q    card name, local name or number, SKU or lot label, matched anywhere in the text
+     * @param sort updated (the default), newest, price_asc, price_desc, stock_asc, stock_desc or name
+     */
     @GetMapping
     public ApiResult<PageResponse<SellerListingSummaryResponse>> list(
             @RequestParam(required = false) ListingStatus status,
             @RequestParam(required = false) Long variantId,
             @RequestParam(required = false) CardCondition condition,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             AuthPrincipal principal) {
 
-        return ApiResult.success(listings.mine(principal.userId(), status, variantId, condition, page, size));
+        return ApiResult.success(
+                listings.mine(principal.userId(), status, variantId, condition, q, sort, page, size));
     }
 
     /** A DRAFT with no cards. A second listing of the same card and condition is fine; the message says so. */
