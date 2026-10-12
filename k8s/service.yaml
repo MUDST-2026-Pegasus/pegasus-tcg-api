@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pegasus-backend-service
+  labels:
+    app: pegasus-backend
+    app.kubernetes.io/name: pegasus-tcg-api
+    app.kubernetes.io/instance: pegasus-backend
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: pegasus-tcg
+spec:
+  # ClusterIP: เข้าถึงได้เฉพาะภายในคลัสเตอร์ จากข้างนอกใช้ port-forward
+  type: ClusterIP
+  selector:
+    app: pegasus-backend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: http

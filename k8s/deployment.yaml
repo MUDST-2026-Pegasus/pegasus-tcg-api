@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pegasus-backend-deployment
+  labels:
+    app: pegasus-backend
+    app.kubernetes.io/name: pegasus-tcg-api
+    app.kubernetes.io/instance: pegasus-backend
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: pegasus-tcg
+spec:
+  # รันได้หลาย replica: scheduled job ทุกตัวกันรันซ้ำด้วย Postgres advisory lock
+  # และ Flyway ล็อกตาราง history ระหว่าง migrate
+  replicas: 3
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: pegasus-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # เพิ่ม Pod ใหม่ทีละตัว และไม่ลด Pod เดิมจนกว่าตัวใหม่จะ Ready
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: pegasus-backend
+        app.kubernetes.io/name: pegasus-tcg-api
+        app.kubernetes.io/instance: pegasus-backend
+        app.kubernetes.io/component: backend
+        app.kubernetes.io/part-of: pegasus-tcg
+    spec:
+      # backend ไม่ได้เรียก Kubernetes API จึงไม่ต้องมี token ใน Pod
+      automountServiceAccountToken: false
+      # preStop 5s + graceful shutdown 30s + เผื่อ JVM ปิดตัว
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        # user "spring" ใน image เป็นชื่อ ไม่ใช่ตัวเลข runAsNonRoot ตรวจไม่ได้
+        # จึงต้องระบุ UID/GID ของ spring ตรงนี้
+        runAsUser: 100
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          # พยายามกระจาย Pod ไปคนละ Node แต่ไม่บังคับ คลัสเตอร์ Node เดียวจึงยังรันได้
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: pegasus-backend
+      containers:
+        - name: pegasus-backend
+          image: pegasus-tcg-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: pegasus-backend-config
+            - secretRef:
+                name: pegasus-backend-secret
+          env:
+            # ให้ heap โตตาม memory limit ด้านล่าง ส่วนที่เหลือเป็นของ metaspace และ thread
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:MaxRAMPercentage=75.0
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          # JVM และ Flyway migration ใช้เวลาบูตนาน ให้เวลาได้ถึง 150s
+          # liveness/readiness จะเริ่มทำงานหลัง startupProbe ผ่านแล้วเท่านั้น
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          # ค้างเมื่อไร kubelet จะ restart container
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # ยังไม่พร้อมเมื่อไร Service จะหยุดส่ง traffic มาที่ Pod นี้
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              # หน่วงให้ Service ถอด Pod ออกจาก Endpoints ก่อน แอปจึงเริ่มปิดตัว
+              exec:
+                command: ["sleep", "5"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # root filesystem อ่านอย่างเดียว Tomcat และ JVM ยังต้องเขียน /tmp
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
