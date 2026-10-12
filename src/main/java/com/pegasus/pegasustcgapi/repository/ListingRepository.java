@@ -323,9 +323,9 @@ public class ListingRepository {
     /**
      * A seller buyers can see: verified, not on vacation, and an account that is
      * still active. Vacation hides every listing at once without touching their
-     * statuses.
+     * statuses. {@link ProductMarketRepository} prices the catalogue by the same rule.
      */
-    private static Condition sellerOpenForBusiness() {
+    static Condition sellerOpenForBusiness() {
         return LISTING.DELETED_AT.isNull()
                 .and(SELLER_PROFILE.STATUS.eq(SellerStatus.VERIFIED.name()))
                 .and(SELLER_PROFILE.VACATION_MODE.isFalse())

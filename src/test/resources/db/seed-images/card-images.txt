@@ -1,0 +1,20 @@
+# Official card scans, downloaded into MinIO by upload.sh over the generated
+# picture with the same key. Not stored in git: the scans belong to their
+# publishers. A line that fails to download keeps the generated picture.
+# <object key under seed/> <url>
+products/pikachu-ex-025-187.jpg https://images.pokemontcg.io/sv8/57_hires.png
+products/charizard-ex-006-165.jpg https://images.pokemontcg.io/sv3pt5/6_hires.png
+products/mew-ex-151-165.jpg https://images.pokemontcg.io/sv3pt5/151_hires.png
+products/umbreon-ex-sir-161-131.jpg https://images.pokemontcg.io/sv8pt5/161_hires.png
+products/sylveon-ex-sir-156-131.jpg https://images.pokemontcg.io/sv8pt5/156_hires.png
+products/eevee-ex-sir-167-131.jpg https://images.pokemontcg.io/sv8pt5/167_hires.png
+products/alakazam-ex-sar-201-165.jpg https://images.pokemontcg.io/sv3pt5/201_hires.png
+products/zapdos-ex-sar-202-165.jpg https://images.pokemontcg.io/sv3pt5/202_hires.png
+products/erikas-invitation-sar-203-165.jpg https://images.pokemontcg.io/sv3pt5/203_hires.png
+products/mega-lucario-ex-sir-179-132.jpg https://images.pokemontcg.io/me1/179_hires.png
+products/mega-gardevoir-ex-sir-178-132.jpg https://images.pokemontcg.io/me1/178_hires.png
+products/cloud-midgar-mercenary-fin-10.jpg https://cards.scryfall.io/large/front/2/c/2cf7e8a3-fad7-413d-b17c-7519a9cf5fb5.jpg
+products/sol-ring-cmm-0410.jpg https://cards.scryfall.io/large/front/4/6/46ca0b66-a000-4483-b916-f5b89e710244.jpg
+products/blue-eyes-white-dragon-ra03-en079.jpg https://images.ygoprodeck.com/images/cards/89631139.jpg
+products/dark-magician-ra03-en080.jpg https://images.ygoprodeck.com/images/cards/46986414.jpg
+products/omnimon-x-antibody-sec-bt20-102.jpg https://images.digimoncard.io/images/cards/BT20-102.jpg

@@ -3,19 +3,25 @@ package com.pegasus.pegasustcgapi.service;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.dto.ProductSummaryResponse;
+import com.pegasus.pegasustcgapi.dto.TrendingProductResponse;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.model.AttributeDataType;
+import com.pegasus.pegasustcgapi.model.CardCondition;
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.GameAttribute;
-import com.pegasus.pegasustcgapi.model.ProductType;
 import com.pegasus.pegasustcgapi.repository.CatalogImageRepository;
 import com.pegasus.pegasustcgapi.repository.CatalogProductRepository;
 import com.pegasus.pegasustcgapi.repository.CatalogVariantRepository;
+import com.pegasus.pegasustcgapi.repository.ProductMarketRepository;
+import com.pegasus.pegasustcgapi.repository.ProductMarketRepository.Offer;
+import com.pegasus.pegasustcgapi.repository.ProductMarketRepository.TrendingRow;
 import com.pegasus.pegasustcgapi.repository.ProductSearchQuery;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -40,67 +46,141 @@ public class CatalogSearchService {
     /** Query parameters shaped {@code attr.<key>=<value>} are attribute filters. */
     public static final String ATTRIBUTE_PREFIX = "attr.";
 
+    static final int DEFAULT_TRENDING_DAYS = 30;
+    static final int MAX_TRENDING_DAYS = 365;
+    static final int DEFAULT_TRENDING_LIMIT = 10;
+    static final int MAX_TRENDING_LIMIT = 50;
+
     private final CatalogProductRepository products;
     private final CatalogVariantRepository variants;
     private final CatalogImageRepository images;
+    private final ProductMarketRepository market;
     private final GameService games;
     private final StorageService storage;
+    private final Clock clock;
 
     public CatalogSearchService(
             CatalogProductRepository products,
             CatalogVariantRepository variants,
             CatalogImageRepository images,
+            ProductMarketRepository market,
             GameService games,
-            StorageService storage) {
+            StorageService storage,
+            Clock clock) {
 
         this.products = products;
         this.variants = variants;
         this.images = images;
+        this.market = market;
         this.games = games;
         this.storage = storage;
+        this.clock = clock;
     }
 
     /**
-     * @param activeOnly true for the public catalogue. An admin passes false,
-     *                   because a product that was deactivated by mistake is
-     *                   otherwise findable only by someone who already knows its id
+     * One page of the catalogue. {@code activeOnly} is true for the public
+     * catalogue; an admin passes false, because a product that was deactivated by
+     * mistake is otherwise findable only by someone who already knows its id.
+     *
+     * <p>Asking for conditions narrows the prices as well as the products: a tile
+     * found by "NM under 500" shows the cheapest NM listing, not a cheaper LP one.
      */
-    public PageResponse<ProductSummaryResponse> search(
-            Short gameId,
-            Integer categoryId,
-            Integer cardSetId,
-            ProductType productType,
-            String nameQuery,
-            Map<String, String> rawParameters,
-            String sort,
-            boolean activeOnly,
-            int page,
-            int size) {
+    public PageResponse<ProductSummaryResponse> search(ProductBrowse browse) {
+        requirePriceRange(browse.minPrice(), browse.maxPrice());
 
-        Paging paging = Paging.of(page, size);
+        Paging paging = Paging.of(browse.page(), browse.size());
         ProductSearchQuery query = new ProductSearchQuery(
-                gameId, categoryId, cardSetId, productType, nameQuery,
-                typedAttributes(gameId, rawParameters),
-                activeOnly,
-                parseSort(sort),
+                browse.gameIds(), browse.categoryId(), browse.cardSetId(), browse.productType(),
+                browse.nameQuery(),
+                typedAttributes(browse.gameIds(), browse.rawParameters()),
+                browse.activeOnly(),
+                browse.inStockOnly(),
+                browse.conditions(),
+                browse.minPrice(),
+                browse.maxPrice(),
+                parseSort(browse.sort()),
                 paging.size(),
                 paging.offset());
 
         List<CatalogProduct> found = products.search(query);
-        return PageResponse.of(summarise(found), paging.page(), paging.size(), products.count(query));
+        return PageResponse.of(summarise(found, browse.conditions()), paging.page(), paging.size(),
+                products.count(query));
     }
 
-    /** One lookup of images and one of variant counts for the whole page, not one per row. */
-    private List<ProductSummaryResponse> summarise(List<CatalogProduct> found) {
+    private static void requirePriceRange(BigDecimal minPrice, BigDecimal maxPrice) {
+        if ((minPrice != null && minPrice.signum() < 0) || (maxPrice != null && maxPrice.signum() < 0)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "minPrice and maxPrice cannot be negative");
+        }
+        if (minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "minPrice cannot be above maxPrice");
+        }
+    }
+
+    /**
+     * What has been selling, for the home page rail. Only cards on sale now make
+     * the list, since a tile nobody can buy is a dead end.
+     *
+     * @param gameId null ranks every game together
+     * @param days   how far back sales count; 30 when left out
+     * @param limit  how many places; 10 when left out
+     */
+    public List<TrendingProductResponse> trending(Short gameId, Integer days, Integer limit) {
+        int window = days == null ? DEFAULT_TRENDING_DAYS : days;
+        int places = limit == null ? DEFAULT_TRENDING_LIMIT : limit;
+        if (window < 1 || window > MAX_TRENDING_DAYS) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "days must be between 1 and " + MAX_TRENDING_DAYS);
+        }
+        if (places < 1 || places > MAX_TRENDING_LIMIT) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "limit must be between 1 and " + MAX_TRENDING_LIMIT);
+        }
+        if (gameId != null) {
+            games.requireActive(gameId);
+        }
+
+        List<TrendingRow> ranked = market.trending(
+                gameId, OffsetDateTime.now(clock).minusDays(window), places);
+
+        Map<Long, CatalogProduct> byId = products.findByIds(ranked.stream().map(TrendingRow::productId).toList());
+        List<CatalogProduct> inOrder = ranked.stream()
+                .map(row -> byId.get(row.productId()))
+                .filter(product -> product != null)
+                .toList();
+        Map<Long, ProductSummaryResponse> summaries = new LinkedHashMap<>();
+        summarise(inOrder, Set.of()).forEach(summary -> summaries.put(summary.id(), summary));
+
+        List<TrendingProductResponse> rail = new ArrayList<>();
+        for (TrendingRow row : ranked) {
+            ProductSummaryResponse summary = summaries.get(row.productId());
+            if (summary != null) {
+                rail.add(new TrendingProductResponse(rail.size() + 1, row.unitsSold(), summary));
+            }
+        }
+        return rail;
+    }
+
+    /**
+     * One lookup each of images, variant counts and prices for the whole page, not one per row.
+     *
+     * @param conditions the prices shown come from listings in these; empty for any
+     */
+    private List<ProductSummaryResponse> summarise(List<CatalogProduct> found, Set<CardCondition> conditions) {
         List<Long> ids = found.stream().map(CatalogProduct::id).toList();
         Map<Long, String> imageKeys = images.primaryKeysOf(ids);
         Map<Long, Integer> variantCounts = variants.activeCountsOf(ids);
+        Map<Long, Offer> offers = market.offersOf(ids, conditions);
 
         return found.stream()
-                .map(product -> ProductSummaryResponse.of(
-                        product,
-                        signed(imageKeys.get(product.id())),
-                        variantCounts.getOrDefault(product.id(), 0)))
+                .map(product -> {
+                    Offer offer = offers.get(product.id());
+                    return ProductSummaryResponse.of(
+                            product,
+                            signed(imageKeys.get(product.id())),
+                            variantCounts.getOrDefault(product.id(), 0),
+                            offer == null ? null : offer.lowestPrice(),
+                            offer == null ? 0 : offer.listingCount());
+                })
                 .toList();
     }
 
@@ -115,7 +195,7 @@ public class CatalogSearchService {
      * <p>An unknown key is refused rather than ignored: a silently dropped filter
      * looks like a filter that found everything, which is worse than an error.
      */
-    private Map<String, Object> typedAttributes(Short gameId, Map<String, String> rawParameters) {
+    private Map<String, Object> typedAttributes(Set<Short> gameIds, Map<String, String> rawParameters) {
         Map<String, String> requested = new LinkedHashMap<>();
         rawParameters.forEach((key, value) -> {
             if (key.startsWith(ATTRIBUTE_PREFIX) && value != null && !value.isBlank()) {
@@ -126,10 +206,11 @@ public class CatalogSearchService {
         if (requested.isEmpty()) {
             return Map.of();
         }
-        if (gameId == null) {
+        if (gameIds.size() != 1) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED,
-                    "Filtering by attributes needs a gameId, since attributes are defined per game");
+                    "Filtering by attributes needs exactly one gameId, since attributes are defined per game");
         }
+        short gameId = gameIds.iterator().next();
 
         Map<String, GameAttribute> declared = new LinkedHashMap<>();
         games.attributesOf(gameId).forEach(attribute -> declared.put(attribute.attrKey(), attribute));
@@ -212,8 +293,11 @@ public class CatalogSearchService {
             case "name" -> ProductSearchQuery.Sort.NAME;
             case "newest" -> ProductSearchQuery.Sort.NEWEST;
             case "cardnumber", "card_number" -> ProductSearchQuery.Sort.CARD_NUMBER;
+            case "price", "price_asc" -> ProductSearchQuery.Sort.PRICE_ASC;
+            case "price_desc" -> ProductSearchQuery.Sort.PRICE_DESC;
+            case "popular" -> ProductSearchQuery.Sort.POPULAR;
             default -> throw new ApiException(ErrorCode.VALIDATION_FAILED,
-                    "sort must be one of name, newest, cardNumber");
+                    "sort must be one of name, newest, cardNumber, price_asc, price_desc, popular");
         };
     }
 }

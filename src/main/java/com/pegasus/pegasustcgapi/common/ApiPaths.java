@@ -14,6 +14,8 @@ public final class ApiPaths {
     public static final String CATEGORIES = API_V1 + "/categories";
     public static final String CARD_SETS = API_V1 + "/card-sets";
     public static final String CATALOG = API_V1 + "/catalog";
+    /** Content that exists only for the home page, such as the carousel slides. */
+    public static final String HOME = API_V1 + "/home";
     /** The signed-in user's own collection; the public view lives at /users/{username}/collection. */
     public static final String COLLECTION = API_V1 + "/collection";
     /** The market: every listing on sale, whoever sells it. A seller's own are under /sellers/me/listings. */
@@ -22,6 +24,15 @@ public final class ApiPaths {
     public static final String PROFILES = API_V1 + "/u";
     /** Presigned upload tickets; the files themselves never pass through this API. */
     public static final String UPLOADS = API_V1 + "/uploads";
+    /** The active cart for guest or signed-in users. */
+    public static final String CART = API_V1 + "/cart";
+    public static final String CART_ITEMS = CART + "/items";
+    /** Checkout process to convert cart into sales and seller orders. */
+    public static final String CHECKOUT = API_V1 + "/checkout";
+    /** The signed-in buyer's orders. */
+    public static final String ORDERS = API_V1 + "/orders";
+    /** The signed-in seller's own orders. */
+    public static final String SELLERS_ME_ORDERS = SELLERS_ME + "/orders";
 
     private ApiPaths() {
     }

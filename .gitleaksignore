@@ -1,0 +1,9 @@
+# Findings that are not secrets. One fingerprint per line; gitleaks matches them
+# exactly, so this silences the listed occurrence and nothing else.
+#
+# A test fixture for the X-Cart-Session header, in a MockMvc test that asserts the
+# header is echoed back. It is a made-up UUID that never identified anything: guest
+# cart keys are minted per request and are not credentials. The literal was already
+# replaced in a later commit, but CI scans --all history, so the commit it was
+# introduced in has to be named here.
+7c4537a447ffb2900bdfc2938927ad14951a6d84:src/test/java/com/pegasus/pegasustcgapi/controller/CartControllerTest.java:generic-api-key:67

@@ -11,6 +11,7 @@ import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
 import io.minio.http.Method;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
@@ -34,6 +35,14 @@ public class StorageService {
 
     /** What MinIO calls a key that is not there. */
     private static final String NO_SUCH_KEY = "NoSuchKey";
+
+    /**
+     * Where the objects that public pages show live: catalogue art uploaded by an
+     * admin, and the pictures the dev seed puts in. Nothing else — payment slips,
+     * verification scans — is ever signed by {@link #readUrl}.
+     */
+    private static final List<String> PUBLIC_PREFIXES =
+            List.of(UploadPurpose.CATALOG_IMAGE.prefix() + "/", "seed/");
 
     private final MinioClient client;
     private final MinioClient presigner;
@@ -69,6 +78,29 @@ public class StorageService {
     /** A short-lived read URL, so the bucket itself can stay private. */
     public String presignDownload(String objectKey) {
         return presign(Method.GET, objectKey, properties.downloadUrlTtl());
+    }
+
+    /**
+     * Something a browser can load, for a public page, from a column that holds
+     * either an object key or a URL typed in by an admin (game logos are both).
+     *
+     * <p>A full URL or a site path goes out as it is. A key is signed only when it
+     * sits under a public prefix; any other key is refused with null and a warning,
+     * so a mistyped or malicious key cannot turn a private file into a public link.
+     */
+    public String readUrl(String keyOrUrl) {
+        if (keyOrUrl == null || keyOrUrl.isBlank()) {
+            return null;
+        }
+        String value = keyOrUrl.trim();
+        if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("/")) {
+            return value;
+        }
+        if (PUBLIC_PREFIXES.stream().noneMatch(value::startsWith)) {
+            log.warn("Not signing {} for a public page: it is outside {}", value, PUBLIC_PREFIXES);
+            return null;
+        }
+        return presignDownload(value);
     }
 
     /** @return empty when nothing was ever uploaded under this key. */

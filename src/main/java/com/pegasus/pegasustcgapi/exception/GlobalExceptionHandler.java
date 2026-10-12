@@ -7,6 +7,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
@@ -27,6 +28,24 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    /**
+     * Checkout refused because prices moved. Handled ahead of {@link ApiException}
+     * so the response names every line that changed and what it changed to, instead
+     * of sending the buyer back to the basket to work it out.
+     */
+    @ExceptionHandler(CartPriceChangedException.class)
+    public ResponseEntity<ApiResult<ApiError>> handleCartPriceChanged(
+            CartPriceChangedException ex, HttpServletRequest request) {
+
+        List<ApiError.FieldViolation> violations = ex.changes().stream()
+                .map(change -> new ApiError.FieldViolation(
+                        "listing:" + change.listingId(),
+                        "price changed from " + change.oldPrice() + " to " + change.newPrice()))
+                .toList();
+
+        return build(ex.errorCode(), ex.getMessage(), request, violations);
+    }
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiResult<ApiError>> handleApiException(ApiException ex, HttpServletRequest request) {
@@ -137,6 +156,21 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResult<ApiError>> handleMethodNotSupported(
             HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
         return build(ErrorCode.METHOD_NOT_ALLOWED, ErrorCode.METHOD_NOT_ALLOWED.defaultMessage(),
+                request, List.of());
+    }
+
+    /**
+     * A unique index or foreign key the caller walked into — a duplicate
+     * {@code Idempotency-Key} that no retry path caught, most often. It is the
+     * caller's request that conflicts with what is already stored, so it is a 409;
+     * without this it fell through to the catch-all as a 500.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResult<ApiError>> handleDataIntegrity(
+            DataIntegrityViolationException ex, HttpServletRequest request) {
+        // The constraint name can name internals, so it is logged rather than returned.
+        log.warn("Constraint violation on {} {}", request.getMethod(), request.getRequestURI(), ex);
+        return build(ErrorCode.DATA_CONFLICT, ErrorCode.DATA_CONFLICT.defaultMessage(),
                 request, List.of());
     }
 
