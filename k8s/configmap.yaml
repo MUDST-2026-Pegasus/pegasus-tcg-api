@@ -28,6 +28,9 @@ data:
   PAYMENT_MOCK_ENABLED: "false"
   AUTH_DEV_EXPOSE_TOKENS: "false"
 
+  # เชื่อ X-Forwarded-* จาก Ingress เพื่อให้ redirect และ Swagger UI ใช้ prefix ของ Ingress
+  SERVER_FORWARD_HEADERS_STRATEGY: framework
+
   # เปิด /actuator/health/liveness และ /actuator/health/readiness ให้ probe เรียก
   MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
   # รอ request ที่ค้างอยู่ให้จบก่อนปิด ต้องสั้นกว่า terminationGracePeriodSeconds
