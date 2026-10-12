@@ -14,16 +14,13 @@ k8s/
 ├── service.yaml                ClusterIP Service พอร์ต 8080
 ├── ingress.yaml                Ingress เส้นทาง /pegasus-backend-service
 ├── pdb.yaml                    PodDisruptionBudget
-├── examples/
-│   └── secret.example.yaml     ตัวอย่าง Secret (ค่า placeholder)
-└── dependencies/               ใช้กับคลัสเตอร์ในเครื่องเท่านั้น
-    ├── postgres.yaml           Postgres 17 แบบ StatefulSet + PVC
-    └── minio.yaml              MinIO แบบ StatefulSet + PVC
+└── examples/
+    └── secret.example.yaml     ตัวอย่าง Secret (ค่า placeholder)
 ```
 
-Backend ต้องมี Postgres และ MinIO จึงจะขึ้น Ready ได้ ไฟล์ใน `dependencies/` มีไว้ให้รันครบทั้งชุดบนเครื่องตัวเอง
-เป็น replica เดียว ไม่มี backup ถ้ามีฐานข้อมูลและ object storage อยู่แล้ว ให้ข้ามโฟลเดอร์นี้
-แล้วแก้ `DB_URL` กับ `MINIO_ENDPOINT` ใน `configmap.yaml` ให้ชี้ไปที่ของจริง
+ในคลัสเตอร์มีเฉพาะ backend เท่านั้น **Postgres และ MinIO รันนอกคลัสเตอร์** ด้วย `docker-compose.yaml` ของ repo นี้
+backend ต่อออกไปหาทั้งสองตัวผ่านชื่อ `host.docker.internal` ซึ่งหมายถึงเครื่องที่รัน Docker Desktop
+ที่อยู่และรหัสของทั้งสองตัวอยู่ใน Secret เพราะต่างกันไปตามเครื่องของแต่ละคน
 
 ---
 
@@ -40,38 +37,52 @@ docker build -t pegasus-tcg-api:latest .
 Deployment ใช้ `imagePullPolicy: IfNotPresent` จึงหยิบ image ในเครื่องได้เลยบน Docker Desktop
 ถ้าใช้ kind หรือ minikube ต้อง load image เข้าคลัสเตอร์ก่อน (`kind load docker-image` หรือ `minikube image load`)
 
-### 2. สร้าง Secret
+### 2. เปิด Postgres และ MinIO
+
+ต้องมีไฟล์ `.env` ก่อน (สร้างด้วย `make env` แล้วแก้ค่าตาม README หลัก)
+
+```bash
+docker compose up -d --wait postgres minio
+```
+
+ต้องเปิดก่อน backend เสมอ ถ้า backend ต่อฐานข้อมูลไม่ได้ตอนบูต Pod จะ restart วนจนกว่าฐานข้อมูลจะพร้อม
+
+### 3. สร้าง Secret
 
 ```bash
 cp k8s/examples/secret.example.yaml k8s/secret.yaml
 ```
 
-แก้ค่าใน `k8s/secret.yaml` ให้เป็นค่าจริง โดยเฉพาะ `JWT_SECRET` (สร้างด้วย `openssl rand -base64 48`)
-ไฟล์นี้อยู่ใน `.gitignore` แล้ว ห้าม commit
+แก้ค่าใน `k8s/secret.yaml` ให้ตรงกับ `.env` ของเครื่องตัวเอง ไฟล์นี้อยู่ใน `.gitignore` แล้ว ห้าม commit
 
-### 3. Apply
+| ค่าใน `k8s/secret.yaml` | ต้องตรงกับค่าใน `.env` |
+| :--- | :--- |
+| พอร์ตใน `DB_URL` | `DB_PORT` |
+| `DB_USERNAME`, `DB_PASSWORD` | `POSTGRES_USER`, `POSTGRES_PASSWORD` |
+| พอร์ตใน `MINIO_ENDPOINT` และ `MINIO_PUBLIC_ENDPOINT` | `MINIO_PORT` |
+| `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` |
+| `JWT_SECRET` | สร้างใหม่ด้วย `openssl rand -base64 48` |
+
+### 4. Apply
 
 ```bash
-kubectl apply -f k8s/dependencies/ -f k8s/
+kubectl apply -f k8s/
 ```
 
 `kubectl apply -f` ไม่ลงไปในโฟลเดอร์ย่อย ไฟล์ตัวอย่างใน `examples/` จึงไม่ถูก apply ไปทับ Secret จริง
 
-### 4. ตรวจสอบสถานะ
+### 5. ตรวจสอบสถานะ
 
 ```bash
-kubectl rollout status statefulset/pegasus-postgres
-kubectl rollout status statefulset/pegasus-minio
 kubectl rollout status deployment/pegasus-backend-deployment
 
-kubectl get pods -l app.kubernetes.io/part-of=pegasus-tcg
+kubectl get pods -l app=pegasus-backend
 kubectl get service pegasus-backend-service
+kubectl get ingress pegasus-backend-ingress
 kubectl get pdb pegasus-backend-pdb
 ```
 
-ถ้า backend ขึ้นก่อน Postgres พร้อม Pod จะ restart เองจนต่อฐานข้อมูลได้ ไม่ต้องทำอะไรเพิ่ม
-
-### 5. เรียกใช้งานผ่าน Ingress
+### 6. เรียกใช้งานผ่าน Ingress
 
 `ingress.yaml` เปิดให้เข้า backend ที่ `http://localhost/pegasus-backend-service` โดยตัด prefix ออกก่อนส่งต่อ
 แอปจึงเห็น path เดิม เช่น `/pegasus-backend-service/api/v1/games` ไปถึงแอปเป็น `/api/v1/games`
@@ -108,7 +119,7 @@ curl http://localhost:16969/pegasus-backend-service/actuator/health
 > ใช้กับคลัสเตอร์ในเครื่องเพื่อการเรียนได้ แต่ไม่ควรนำไปใช้กับระบบจริง
 > annotation ใน `ingress.yaml` เป็นของ ingress-nginx ถ้าเปลี่ยน controller ต้องแก้ส่วน rewrite ตาม
 
-### 6. เรียกใช้งานผ่าน Port-Forward (ไม่ผ่าน Ingress)
+### 7. เรียกใช้งานผ่าน Port-Forward (ไม่ผ่าน Ingress)
 
 ```bash
 kubectl port-forward service/pegasus-backend-service 8080:8080
@@ -119,12 +130,6 @@ curl http://localhost:8080/actuator/health
 ```
 
 Swagger UI อยู่ที่ <http://localhost:8080/swagger-ui.html>
-
-ถ้าจะทดสอบอัปโหลดรูปจาก browser ต้องเปิดทางให้ MinIO ด้วย เพราะ presigned URL ชี้ไปที่ `http://localhost:9000`
-
-```bash
-kubectl port-forward service/pegasus-minio-service 9000:9000
-```
 
 ---
 
@@ -158,14 +163,16 @@ package บน GHCR เป็น private โดย default ถ้ายังไ
 ## ลบทิ้ง
 
 ```bash
-kubectl delete -f k8s/ -f k8s/dependencies/
+kubectl delete -f k8s/
 ```
 
-PVC ของ StatefulSet ไม่ถูกลบตาม ข้อมูลใน Postgres และ MinIO จะยังอยู่ ถ้าต้องการล้างข้อมูลด้วย
+Postgres และ MinIO ไม่ได้อยู่ในคลัสเตอร์ จึงไม่ถูกกระทบ ถ้าจะหยุดด้วยให้สั่ง
 
 ```bash
-kubectl delete pvc data-pegasus-postgres-0 data-pegasus-minio-0
+docker compose stop postgres minio
 ```
+
+ระวัง `docker compose down -v` เพราะจะลบ volume ที่เก็บข้อมูลของทั้งสองตัวไปด้วย
 
 ---
 
@@ -178,7 +185,8 @@ kubectl delete pvc data-pegasus-postgres-0 data-pegasus-minio-0
 | **startupProbe** | สูงสุด 150 วินาที | JVM และ Flyway migration บูตช้า ถ้าใช้แค่ liveness Pod จะถูก restart ก่อนบูตเสร็จ |
 | **liveness / readiness** | `/actuator/health/liveness`, `/actuator/health/readiness` | แยกกันเพื่อให้ "ค้างต้อง restart" กับ "ยังไม่พร้อมรับ traffic" เป็นคนละเรื่อง |
 | **Resources** | request 250m / 512Mi, limit 1 CPU / 1Gi | heap ถูกจำกัดที่ 75% ของ memory limit ด้วย `MaxRAMPercentage` กัน container โดน OOMKill |
-| **ConfigMap / Secret** | แยกกัน | config ทั่วไปอยู่ใน git ได้ ส่วนรหัสผ่านและ key ไม่เข้า repo |
+| **ConfigMap / Secret** | แยกกัน | config ทั่วไปอยู่ใน git ได้ ส่วนรหัสผ่าน key และที่อยู่ของบริการนอกคลัสเตอร์ไม่เข้า repo |
+| **Postgres / MinIO** | รันนอกคลัสเตอร์ด้วย docker compose | ข้อมูลไม่ผูกกับอายุของคลัสเตอร์ และใช้ฐานข้อมูลกับรูปชุดเดียวกับตอนพัฒนาบนเครื่อง |
 | **runAsUser** | 100:101 | user `spring` ใน image เป็นชื่อ `runAsNonRoot` ตรวจได้เฉพาะ UID ที่เป็นตัวเลข |
 | **readOnlyRootFilesystem** | เปิด พร้อม `emptyDir` ที่ `/tmp` | แอปเขียนไฟล์ได้เฉพาะ `/tmp` ที่ Tomcat ต้องใช้ |
 | **Capabilities / Seccomp** | drop `ALL`, `RuntimeDefault` | backend ไม่ต้องใช้สิทธิ์พิเศษของ Linux |
@@ -188,12 +196,14 @@ kubectl delete pvc data-pegasus-postgres-0 data-pegasus-minio-0
 | **Graceful shutdown** | `preStop` 5 วินาที + รอ request 30 วินาที | ให้ Service ถอด Pod ออกก่อน แล้วรอ request ที่ค้างให้จบ |
 | **Ingress** | `/pegasus-backend-service` พร้อม rewrite | หลาย service ใช้ `localhost` ร่วมกันได้โดยแยกด้วย path และแอปไม่ต้องรู้จัก prefix |
 | **Forwarded headers** | `SERVER_FORWARD_HEADERS_STRATEGY: framework` | ให้ redirect และ Swagger UI สร้างลิงก์ที่มี prefix ของ Ingress |
-| **Postgres / MinIO** | StatefulSet + headless Service + `volumeClaimTemplates` | ชื่อ Pod และ volume คงที่ ข้อมูลอยู่รอดเมื่อ Pod ถูกสร้างใหม่ |
 
 ---
 
 ## ข้อจำกัด
 
+* backend ในคลัสเตอร์ใช้ฐานข้อมูลและ MinIO ชุดเดียวกับตอนพัฒนาบนเครื่อง Flyway จะ migrate และ scheduled job จะทำงานกับข้อมูลชุดนั้นจริง
+* `host.docker.internal` และ `kubernetes.docker.internal` มีเฉพาะบน Docker Desktop ถ้าใช้คลัสเตอร์อื่นต้องเปลี่ยนเป็นที่อยู่จริงของ Postgres และ MinIO ใน `k8s/secret.yaml`
+* `MINIO_PUBLIC_ENDPOINT` ใช้ `localhost` ไม่ได้ เพราะ backend ต้องต่อ host นี้ได้เองตอน sign URL ของรูป ถ้าตั้งผิด API ที่คืนรูปจะตอบ 503
 * `PAYMENT_MOCK_ENABLED` ถูกตั้งเป็น `false` ถ้าจะ demo การจ่ายเงินโดยไม่มี payment gateway ต้องแก้เป็น `true` ใน `configmap.yaml`
 * `CORS_ALLOWED_ORIGINS` ตั้งไว้ที่ `http://localhost:8081` ตามพอร์ตที่ frontend ใช้ port-forward ถ้า frontend อยู่ที่อื่นต้องแก้ตาม
 * เมื่อเข้าผ่านพอร์ต 16969 เอกสาร OpenAPI จะระบุ server เป็น `http://localhost/pegasus-backend-service` (ไม่มีพอร์ต) ปุ่ม Try it out ใน Swagger UI จึงยิงไปที่พอร์ต 80 การเรียก API ตรงๆ ผ่านพอร์ต 16969 ใช้ได้ปกติ

@@ -509,9 +509,10 @@ This publishes the backend image only; it does not deploy it to a server.
 
 Manifests for running the API on a cluster are in `k8s/`: a three-replica
 Deployment, a ClusterIP Service, an Ingress at `/pegasus-backend-service`, a
-ConfigMap, a PodDisruptionBudget and an example Secret. `k8s/dependencies/` adds single-replica Postgres and MinIO for a
-local cluster. Steps and the reasoning behind the settings are in
-[k8s/README.md](k8s/README.md).
+ConfigMap, a PodDisruptionBudget and an example Secret. Postgres and MinIO stay
+outside the cluster: start them with Docker Compose and the pods reach them
+through `host.docker.internal`. Steps and the reasoning behind the settings are
+in [k8s/README.md](k8s/README.md).
 
 ## License
 
