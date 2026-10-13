@@ -30,10 +30,12 @@ public class UploadService {
     private static final Logger log = LoggerFactory.getLogger(UploadService.class);
 
     private final StorageService storage;
+    private final RoleService roles;
     private final Clock clock;
 
-    public UploadService(StorageService storage, Clock clock) {
+    public UploadService(StorageService storage, RoleService roles, Clock clock) {
         this.storage = storage;
+        this.roles = roles;
         this.clock = clock;
     }
 
@@ -66,10 +68,16 @@ public class UploadService {
                 purpose.extensionFor(contentType));
     }
 
-    /** The coarse gate only. Owning the listing or the order is the feature's own check. */
-    private static void requireRole(AuthPrincipal caller, UploadPurpose purpose) {
+    /**
+     * The coarse gate only. Owning the listing or the order is the feature's own check.
+     *
+     * <p>Read from the database, not the token: a seller approved mid-session still
+     * carries a buyer-only access token, and every other seller route already goes
+     * by the database, so the upload step would be the one place they are refused.
+     */
+    private void requireRole(AuthPrincipal caller, UploadPurpose purpose) {
         RoleCode required = purpose.requiredRole();
-        if (required != null && !caller.hasRole(required)) {
+        if (required != null && !roles.rolesOf(caller.userId()).contains(required)) {
             throw new ForbiddenException(ErrorCode.ACCESS_DENIED,
                     purpose + " uploads are for " + required + " only");
         }
