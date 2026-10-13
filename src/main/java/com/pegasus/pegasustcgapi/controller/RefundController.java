@@ -6,6 +6,8 @@ import com.pegasus.pegasustcgapi.dto.FinanceViews.Refund;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.RefundService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -41,6 +43,13 @@ public class RefundController {
     }
 
     @Operation(summary = "Set the buyer's bank account for a pending refund")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Refund destination saved"),
+            @ApiResponse(responseCode = "400", description = "Invalid bank details"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "Refund not found or does not belong to the buyer"),
+            @ApiResponse(responseCode = "409", description = "Refund is not an approved bank transfer")
+    })
     @PutMapping("/{id}/destination")
     public ApiResult<Refund> destination(@PathVariable long id, @Valid @RequestBody Destination body,
             AuthPrincipal principal) {

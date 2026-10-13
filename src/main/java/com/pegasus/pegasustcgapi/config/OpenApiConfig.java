@@ -31,7 +31,7 @@ public class OpenApiConfig {
         return new OpenAPI()
                 .info(new Info()
                         .title("Pegasus TCG API")
-                        .description("RESTful API for Pegasus Trading Card Game Marketplace — Authentication, User Roles, Addresses, Seller Onboarding, Shipping, and Platform Settings.")
+                        .description("RESTful API for Pegasus Trading Card Game Marketplace, including authentication, catalog, listings, cart, checkout, orders, payments, refunds, seller operations, and administration.")
                         .version("v1.0.0")
                         .contact(new Contact()
                                 .name("Pegasus Engineering Team")
