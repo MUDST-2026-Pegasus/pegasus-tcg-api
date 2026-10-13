@@ -358,8 +358,9 @@ public class MarketplaceSteps {
     public void theCommissionAndSellerNet(BigDecimal commission, String seller, BigDecimal net) {
         Response sellerView = api.get(ApiPaths.SELLERS_ME_ORDERS + "/" + sellerOrderId, bearer(seller));
         assertThat(sellerView.status()).isEqualTo(200);
-        assertThat(sellerView.data().path("commissionAmount").asDecimal()).isEqualByComparingTo(commission);
-        assertThat(sellerView.data().path("sellerNetAmount").asDecimal()).isEqualByComparingTo(net);
+        var order = sellerView.data().path("summary").path("order");
+        assertThat(order.path("commissionAmount").asDecimal()).isEqualByComparingTo(commission);
+        assertThat(order.path("sellerNetAmount").asDecimal()).isEqualByComparingTo(net);
     }
 
     @Then("escrow has not been released")

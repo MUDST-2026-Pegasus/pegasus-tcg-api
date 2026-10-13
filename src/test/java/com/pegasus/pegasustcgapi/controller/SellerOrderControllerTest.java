@@ -1,7 +1,6 @@
 package com.pegasus.pegasustcgapi.controller;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -12,18 +11,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.SellerOrderDetailsResponse;
-import com.pegasus.pegasustcgapi.dto.ShipOrderRequest;
+import com.pegasus.pegasustcgapi.dto.SellerOrderViews.Buyer;
+import com.pegasus.pegasustcgapi.dto.SellerOrderViews.Detail;
+import com.pegasus.pegasustcgapi.dto.SellerOrderViews.Summary;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.GlobalExceptionHandler;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.security.AuthClaims;
 import com.pegasus.pegasustcgapi.security.AuthPrincipalArgumentResolver;
-import com.pegasus.pegasustcgapi.service.OrderLifecycleService;
+import com.pegasus.pegasustcgapi.service.SellerOrderDeskService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -44,7 +46,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class SellerOrderControllerTest {
 
     @Mock
-    private OrderLifecycleService orderLifecycleService;
+    private SellerOrderDeskService desk;
 
     @InjectMocks
     private SellerOrderController sellerOrderController;
@@ -89,24 +91,50 @@ class SellerOrderControllerTest {
                 List.of(), List.of(), List.of());
     }
 
-    @Test
-    @DisplayName("GET /api/v1/sellers/me/orders returns seller orders")
-    void listSellerOrders_Success() throws Exception {
-        given(orderLifecycleService.listSellerOrders(any(), any(), anyInt(), anyInt()))
-                .willReturn(PageResponse.of(List.of(mockSellerOrderDetails(10L, "PAID")), 0, 20, 1));
+    private static Summary mockSummary(long id, String status) {
+        return new Summary(mockSellerOrderDetails(id, status), "PGS-20261013-000001",
+                new Buyer(5L, "buyer_one", "Buyer One"), OffsetDateTime.now(), OffsetDateTime.now().plusDays(2),
+                "{\"recipientName\":\"Buyer One\"}", null);
+    }
 
-        mockMvc.perform(get(ApiPaths.SELLERS_ME_ORDERS))
+    private static Detail mockDetail(long id, String status) {
+        return new Detail(mockSummary(id, status), null, new BigDecimal("60.0000"), 1);
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/sellers/me/orders passes every filter through and returns rows with the buyer")
+    void listSellerOrders_Success() throws Exception {
+        given(desk.list(any(), eq(List.of("PAID", "PREPARING")), eq("buyer"), eq("PAID_OLDEST"), eq(0), eq(20)))
+                .willReturn(PageResponse.of(List.of(mockSummary(10L, "PAID")), 0, 20, 1));
+
+        mockMvc.perform(get(ApiPaths.SELLERS_ME_ORDERS)
+                        .param("status", "PAID,PREPARING")
+                        .param("q", "buyer")
+                        .param("sort", "PAID_OLDEST"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.totalItems").value(1))
-                .andExpect(jsonPath("$.data.items[0].id").value(10))
-                .andExpect(jsonPath("$.data.items[0].sellerOrderNumber").value("ORD-1-S77"));
+                .andExpect(jsonPath("$.data.items[0].order.id").value(10))
+                .andExpect(jsonPath("$.data.items[0].order.sellerOrderNumber").value("ORD-1-S77"))
+                .andExpect(jsonPath("$.data.items[0].buyer.username").value("buyer_one"))
+                .andExpect(jsonPath("$.data.items[0].orderNumber").value("PGS-20261013-000001"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/sellers/me/orders/counts returns a count per status")
+    void counts_Success() throws Exception {
+        given(desk.counts(any())).willReturn(Map.of("PAID", 3L, "SHIPPED", 1L));
+
+        mockMvc.perform(get(ApiPaths.SELLERS_ME_ORDERS + "/counts"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.PAID").value(3))
+                .andExpect(jsonPath("$.data.SHIPPED").value(1));
     }
 
     @Test
     @DisplayName("GET /api/v1/sellers/me/orders/{id} returns 404 when not found")
     void getSellerOrder_NotFound() throws Exception {
-        given(orderLifecycleService.getSellerOrder(any(), eq(999L)))
+        given(desk.detail(any(), eq(999L)))
                 .willThrow(new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
 
         mockMvc.perform(get(ApiPaths.SELLERS_ME_ORDERS + "/999"))
@@ -116,17 +144,38 @@ class SellerOrderControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/v1/sellers/me/orders/{id}/accept returns the order as PREPARING")
+    void acceptOrder_Success() throws Exception {
+        given(desk.accept(any(), eq(10L))).willReturn(mockDetail(10L, "PREPARING"));
+
+        mockMvc.perform(post(ApiPaths.SELLERS_ME_ORDERS + "/10/accept"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.order.status").value("PREPARING"))
+                .andExpect(jsonPath("$.data.costTotal").value(60.0));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/sellers/me/orders/{id}/accept is a 409 when the order is not PAID")
+    void acceptOrder_Conflict() throws Exception {
+        given(desk.accept(any(), eq(10L))).willThrow(new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION));
+
+        mockMvc.perform(post(ApiPaths.SELLERS_ME_ORDERS + "/10/accept"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.data.code").value("ORDER_STATUS_TRANSITION"));
+    }
+
+    @Test
     @DisplayName("POST /api/v1/sellers/me/orders/{id}/ship returns 200 on success")
     void shipOrder_Success() throws Exception {
-        given(orderLifecycleService.shipSellerOrder(any(), eq(10L), any()))
-                .willReturn(mockSellerOrderDetails(10L, "SHIPPED"));
+        given(desk.ship(any(), eq(10L), any()))
+                .willReturn(mockDetail(10L, "SHIPPED"));
 
         mockMvc.perform(post(ApiPaths.SELLERS_ME_ORDERS + "/10/ship")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"carrierName\":\"Thailand Post\",\"trackingNumber\":\"TH1234567890\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("SHIPPED"));
+                .andExpect(jsonPath("$.data.summary.order.status").value("SHIPPED"));
     }
 
     @Test
@@ -135,6 +184,28 @@ class SellerOrderControllerTest {
         mockMvc.perform(post(ApiPaths.SELLERS_ME_ORDERS + "/10/ship")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"carrierName\":\"\",\"trackingNumber\":\"TH1234567890\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/sellers/me/orders/{id}/cancel passes the reason through")
+    void cancelOrder_Success() throws Exception {
+        given(desk.cancel(any(), eq(10L), eq("Card was damaged"))).willReturn(mockDetail(10L, "CANCELLED"));
+
+        mockMvc.perform(post(ApiPaths.SELLERS_ME_ORDERS + "/10/cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Card was damaged\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.order.status").value("CANCELLED"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/sellers/me/orders/{id}/cancel needs a reason")
+    void cancelOrder_ReasonRequired() throws Exception {
+        mockMvc.perform(post(ApiPaths.SELLERS_ME_ORDERS + "/10/cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"  \"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false));
     }
