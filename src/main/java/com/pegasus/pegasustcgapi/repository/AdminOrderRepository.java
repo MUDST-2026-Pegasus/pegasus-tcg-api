@@ -35,6 +35,9 @@ import org.springframework.stereotype.Repository;
  * and the unit the admin board shows. The per-row extras — card count, tracking
  * number, return reason and review — are scalar subqueries, so a page is still one
  * statement however many sellers are on it.
+ *
+ * <p>The seller's own order desk reads through here too, always with
+ * {@link AdminOrderQuery#sellerProfileId()} pinned to the caller's shop.
  */
 @Repository
 public class AdminOrderRepository {
@@ -116,9 +119,17 @@ public class AdminOrderRepository {
 
     /** Every status that has at least one sub-order; one GROUP BY for the whole board. */
     public Map<String, Long> countByStatus() {
+        return countByStatus(null);
+    }
+
+    /** @param sellerProfileId one shop's sub-orders only, or null for every shop */
+    public Map<String, Long> countByStatus(Long sellerProfileId) {
         Field<Integer> total = DSL.count();
         return dsl.select(SELLER_ORDER.STATUS, total)
                 .from(SELLER_ORDER)
+                .where(sellerProfileId == null
+                        ? DSL.noCondition()
+                        : SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId))
                 .groupBy(SELLER_ORDER.STATUS)
                 .fetchMap(SELLER_ORDER.STATUS, r -> r.get(total).longValue());
     }
@@ -140,6 +151,19 @@ public class AdminOrderRepository {
                 .fetchOptional(r -> new OrderContext(
                         r.value1() == null ? null : r.value1().data(),
                         r.value2()));
+    }
+
+    /** {@link #findOrderContext} for a whole page of parent orders in one query. */
+    public Map<Long, OrderContext> findOrderContexts(Collection<Long> salesOrderIds) {
+        if (salesOrderIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(SALES_ORDER.ID, SALES_ORDER.SHIPPING_ADDRESS_SNAPSHOT, SALES_ORDER.BUYER_NOTE)
+                .from(SALES_ORDER)
+                .where(SALES_ORDER.ID.in(salesOrderIds))
+                .fetchMap(SALES_ORDER.ID, r -> new OrderContext(
+                        r.value2() == null ? null : r.value2().data(),
+                        r.value3()));
     }
 
     /** The newest attempt, whatever happened to it, so a failed slip is visible too. */

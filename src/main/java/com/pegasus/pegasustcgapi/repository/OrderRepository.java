@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -397,6 +398,59 @@ public class OrderRepository {
                 .where(SELLER_ORDER.ID.eq(id))
                 .and(SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId))
                 .fetchOptional();
+    }
+
+    /** In no particular order; callers that care key the result by id. */
+    public List<SellerOrderRecord> findSellerOrdersByIds(Collection<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return dsl.selectFrom(SELLER_ORDER)
+                .where(SELLER_ORDER.ID.in(ids))
+                .fetch();
+    }
+
+    /**
+     * PAID to PREPARING, stamping when the seller took it on. The status guard is in
+     * the UPDATE itself, so two tabs accepting at once leave one history row, not two.
+     *
+     * @return rows changed: 0 when the order was no longer PAID
+     */
+    public int markSellerOrderAccepted(long sellerOrderId, OffsetDateTime acceptedAt) {
+        return dsl.update(SELLER_ORDER)
+                .set(SELLER_ORDER.STATUS, "PREPARING")
+                .set(SELLER_ORDER.ACCEPTED_AT, acceptedAt)
+                .set(SELLER_ORDER.UPDATED_AT, OffsetDateTime.now(clock))
+                .where(SELLER_ORDER.ID.eq(sellerOrderId))
+                .and(SELLER_ORDER.STATUS.eq("PAID"))
+                .execute();
+    }
+
+    /**
+     * What the cards cost the seller, from the weighted average frozen on each line
+     * at checkout, so restocking later never changes an old order's profit.
+     */
+    public Map<Long, BigDecimal> findCostTotalsBySellerOrderIds(Collection<Long> sellerOrderIds) {
+        if (sellerOrderIds.isEmpty()) {
+            return Map.of();
+        }
+        Field<BigDecimal> cost = DSL.coalesce(
+                DSL.sum(ORDER_ITEM.UNIT_COST_SNAPSHOT.mul(ORDER_ITEM.QUANTITY)), BigDecimal.ZERO);
+        return dsl.select(ORDER_ITEM.SELLER_ORDER_ID, cost)
+                .from(ORDER_ITEM)
+                .where(ORDER_ITEM.SELLER_ORDER_ID.in(sellerOrderIds))
+                .groupBy(ORDER_ITEM.SELLER_ORDER_ID)
+                .fetchMap(ORDER_ITEM.SELLER_ORDER_ID, r -> r.get(cost));
+    }
+
+    /** Orders this buyer paid for at this shop, the one being looked at included. */
+    public long countPaidOrdersOfBuyerAtSeller(long sellerProfileId, long buyerId) {
+        return dsl.fetchCount(dsl.selectOne()
+                .from(SELLER_ORDER)
+                .join(SALES_ORDER).on(SALES_ORDER.ID.eq(SELLER_ORDER.SALES_ORDER_ID))
+                .where(SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .and(SALES_ORDER.BUYER_ID.eq(buyerId))
+                .and(SALES_ORDER.PAID_AT.isNotNull()));
     }
 
     public List<Long> findUnitIdsBySellerOrderId(long sellerOrderId) {
