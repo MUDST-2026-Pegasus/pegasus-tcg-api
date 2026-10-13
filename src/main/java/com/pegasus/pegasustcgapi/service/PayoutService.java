@@ -68,11 +68,6 @@ public class PayoutService {
         return payouts.create(sellerId, walletId, accountId, amount);
     }
 
-    @Transactional(readOnly = true)
-    public List<PayoutRecord> queue(String status) {
-        return payouts.queue(status);
-    }
-
     @Transactional
     public PayoutRecord approve(long id, long adminId) {
         return transition(id, "REQUESTED", "APPROVED", adminId, null, null, null);

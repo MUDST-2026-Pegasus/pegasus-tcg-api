@@ -60,11 +60,6 @@ public class RefundRepository {
                 .execute();
     }
 
-    public List<RefundRecord> queue(String status) {
-        return dsl.selectFrom(REFUND).where(REFUND.STATUS.eq(status))
-                .orderBy(REFUND.REQUESTED_AT.asc(), REFUND.ID.asc()).fetch();
-    }
-
     public List<RefundRecord> forBuyer(long buyerId) {
         return dsl.select(REFUND.fields()).from(REFUND)
                 .join(SALES_ORDER).on(REFUND.SALES_ORDER_ID.eq(SALES_ORDER.ID))

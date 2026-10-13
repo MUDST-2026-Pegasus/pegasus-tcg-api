@@ -40,12 +40,6 @@ public class PayoutRepository {
                 .orderBy(PAYOUT.REQUESTED_AT.desc(), PAYOUT.ID.desc()).fetch();
     }
 
-    public List<PayoutRecord> queue(String status) {
-        var query = dsl.selectFrom(PAYOUT);
-        return (status == null ? query : query.where(PAYOUT.STATUS.eq(status)))
-                .orderBy(PAYOUT.REQUESTED_AT.asc(), PAYOUT.ID.asc()).fetch();
-    }
-
     public int transition(long id, String expected, String next, Long adminId, String reason,
             String reference, String slipKey, OffsetDateTime now) {
         var update = dsl.update(PAYOUT).set(PAYOUT.STATUS, next);

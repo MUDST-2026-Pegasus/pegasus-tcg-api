@@ -2,9 +2,11 @@ package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import com.pegasus.pegasustcgapi.dto.AdminFinanceViews.PaymentReview;
+import com.pegasus.pegasustcgapi.dto.AdminFinanceViews.PaymentSummary;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.service.AdminFinanceQueryService;
 import com.pegasus.pegasustcgapi.service.PaymentService;
-import com.pegasus.pegasustcgapi.service.PaymentService.ReviewView;
 import com.pegasus.pegasustcgapi.service.PaymentService.View;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -29,15 +31,25 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminPaymentController {
 
     private final PaymentService payments;
+    private final AdminFinanceQueryService finance;
 
-    public AdminPaymentController(PaymentService payments) {
+    public AdminPaymentController(PaymentService payments, AdminFinanceQueryService finance) {
         this.payments = payments;
+        this.finance = finance;
     }
 
-    @Operation(summary = "List bank transfer slips awaiting review")
+    @Operation(summary = "List bank transfer slips awaiting review",
+            description = "Defaults to AWAITING_VERIFICATION, oldest first. Each row carries the buyer, "
+                    + "the order's unpaid total and how the money splits across shops.")
     @GetMapping
-    public ApiResult<List<ReviewView>> queue(@RequestParam(required = false) String status) {
-        return ApiResult.success(payments.queue(status));
+    public ApiResult<List<PaymentReview>> queue(@RequestParam(required = false) String status) {
+        return ApiResult.success(finance.payments(status));
+    }
+
+    @Operation(summary = "Counts for the slip review stat strip; today is cut in Bangkok time")
+    @GetMapping("/summary")
+    public ApiResult<PaymentSummary> summary() {
+        return ApiResult.success(finance.paymentSummary());
     }
 
     @Operation(summary = "Approve or reject a bank transfer after checking the bank account")
