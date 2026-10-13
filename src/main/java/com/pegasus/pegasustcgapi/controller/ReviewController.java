@@ -51,6 +51,14 @@ public class ReviewController {
                 body.rating(), body.title(), body.comment())));
     }
 
+    @Operation(summary = "View my review for a sub-order, if submitted")
+    @SecurityRequirement(name = "BearerAuth")
+    @GetMapping(ApiPaths.ORDERS + "/{sellerOrderId}/reviews/mine")
+    public ApiResult<Review> mine(@PathVariable long sellerOrderId, AuthPrincipal principal) {
+        return ApiResult.success(reviews.mine(principal.userId(), sellerOrderId)
+                .map(Review::from).orElse(null));
+    }
+
     @Operation(summary = "View a seller's public reviews and rating")
     @GetMapping(ApiPaths.PROFILES + "/{username}/reviews")
     public ApiResult<PublicReviewsView> publicReviews(@PathVariable String username) {
