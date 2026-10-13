@@ -64,7 +64,8 @@ class PayoutIntegrationTest extends PostgresIntegrationTest {
         long walletId = transactions.execute(status -> ledger.ensureSellerWallet(seller.userId()));
         transactions.executeWithoutResult(status -> ledger.post(walletId, Bucket.AVAILABLE,
                 "SELLER_EARNING", Direction.CREDIT, new BigDecimal("200.00"),
-                "SELLER_ORDER", verificationId));
+                // far above any real seller_order id, so it cannot collide with another test's earning
+                "SELLER_ORDER", verificationId + 2_000_000_000L));
 
         var request = payouts.request(seller.userId(), new BigDecimal("150.00"));
         assertThatThrownBy(() -> payouts.request(seller.userId(), new BigDecimal("100.00")))

@@ -2,9 +2,12 @@ package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import com.pegasus.pegasustcgapi.dto.AdminFinanceViews.AdminRefund;
+import com.pegasus.pegasustcgapi.dto.AdminFinanceViews.RefundSummary;
 import com.pegasus.pegasustcgapi.dto.FinanceViews.Refund;
 import com.pegasus.pegasustcgapi.dto.FinanceViews.RefundTransferAttempt;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.service.AdminFinanceQueryService;
 import com.pegasus.pegasustcgapi.service.RefundService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -31,15 +34,24 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminRefundController {
 
     private final RefundService refunds;
+    private final AdminFinanceQueryService finance;
 
-    public AdminRefundController(RefundService refunds) {
+    public AdminRefundController(RefundService refunds, AdminFinanceQueryService finance) {
         this.refunds = refunds;
+        this.finance = finance;
     }
 
-    @Operation(summary = "List manual refunds awaiting transfer")
+    @Operation(summary = "List manual refunds awaiting transfer",
+            description = "Defaults to APPROVED, oldest first; status=ALL lists every refund newest first.")
     @GetMapping
-    public ApiResult<List<Refund>> queue(@RequestParam(required = false) String status) {
-        return ApiResult.success(refunds.queue(status).stream().map(Refund::from).toList());
+    public ApiResult<List<AdminRefund>> queue(@RequestParam(required = false) String status) {
+        return ApiResult.success(finance.refunds(status));
+    }
+
+    @Operation(summary = "Counts for the refund stat strip; this month is cut in Bangkok time")
+    @GetMapping("/summary")
+    public ApiResult<RefundSummary> summary() {
+        return ApiResult.success(finance.refundSummary());
     }
 
     @GetMapping("/{id}/transfers")

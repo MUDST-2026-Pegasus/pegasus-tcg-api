@@ -76,11 +76,6 @@ public class RefundService {
     }
 
     @Transactional(readOnly = true)
-    public List<RefundRecord> queue(String status) {
-        return refunds.queue(status == null ? "APPROVED" : status);
-    }
-
-    @Transactional(readOnly = true)
     public List<RefundTransferAttemptRecord> transferHistory(long refundId) {
         if (refunds.find(refundId).isEmpty()) throw new NotFoundException(ErrorCode.REFUND_NOT_FOUND);
         return transfers.history(refundId);

@@ -104,15 +104,6 @@ public class PaymentService {
         return view(payments.find(paymentId).orElseThrow(), order);
     }
 
-    @Transactional(readOnly = true)
-    public List<ReviewView> queue(String status) {
-        return payments.queue(status == null ? "AWAITING_VERIFICATION" : status).stream()
-                .map(p -> new ReviewView(p.getId(), p.getSalesOrderId(), p.getAmount(), p.getStatus(),
-                        p.getReferenceCode(), p.getSlipImageKey() == null ? null
-                                : storage.presignDownload(p.getSlipImageKey())))
-                .toList();
-    }
-
     @Transactional
     public View verify(long adminId, long paymentId, boolean approved, String reason) {
         PaymentRecord initial = payments.find(paymentId)
@@ -190,9 +181,5 @@ public class PaymentService {
 
     public record View(long id, long salesOrderId, String method, String status, BigDecimal amount,
             OffsetDateTime expiresAt, String transferAccountJson, String referenceCode, String failureReason) {
-    }
-
-    public record ReviewView(long id, long salesOrderId, BigDecimal amount, String status,
-            String referenceCode, String slipUrl) {
     }
 }

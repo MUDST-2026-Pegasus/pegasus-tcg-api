@@ -98,11 +98,6 @@ public class PaymentRepository {
                 .execute();
     }
 
-    public List<PaymentRecord> queue(String status) {
-        return dsl.selectFrom(PAYMENT).where(PAYMENT.STATUS.eq(status))
-                .orderBy(PAYMENT.CREATED_AT.asc(), PAYMENT.ID.asc()).fetch();
-    }
-
     public List<SellerOrderRecord> unpaidSuborders(long orderId) {
         return dsl.selectFrom(SELLER_ORDER)
                 .where(SELLER_ORDER.SALES_ORDER_ID.eq(orderId))

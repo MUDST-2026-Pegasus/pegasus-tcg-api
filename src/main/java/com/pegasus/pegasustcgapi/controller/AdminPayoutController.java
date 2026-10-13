@@ -2,8 +2,11 @@ package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import com.pegasus.pegasustcgapi.dto.AdminFinanceViews.AdminPayout;
+import com.pegasus.pegasustcgapi.dto.AdminFinanceViews.PayoutSummary;
 import com.pegasus.pegasustcgapi.dto.FinanceViews.Payout;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.service.AdminFinanceQueryService;
 import com.pegasus.pegasustcgapi.service.PayoutService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -28,14 +31,25 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminPayoutController {
 
     private final PayoutService payouts;
+    private final AdminFinanceQueryService finance;
 
-    public AdminPayoutController(PayoutService payouts) {
+    public AdminPayoutController(PayoutService payouts, AdminFinanceQueryService finance) {
         this.payouts = payouts;
+        this.finance = finance;
     }
 
+    @Operation(summary = "List payout requests",
+            description = "Every status unless one is given, oldest request first. Open payouts carry "
+                    + "the completed sub-orders paying would link; paid ones carry the linked ones.")
     @GetMapping
-    public ApiResult<List<Payout>> queue(@RequestParam(required = false) String status) {
-        return ApiResult.success(payouts.queue(status).stream().map(Payout::from).toList());
+    public ApiResult<List<AdminPayout>> queue(@RequestParam(required = false) String status) {
+        return ApiResult.success(finance.payouts(status));
+    }
+
+    @Operation(summary = "Counts for the payout stat strip; this month is cut in Bangkok time")
+    @GetMapping("/summary")
+    public ApiResult<PayoutSummary> summary() {
+        return ApiResult.success(finance.payoutSummary());
     }
 
     @Operation(summary = "Approve a payout request")

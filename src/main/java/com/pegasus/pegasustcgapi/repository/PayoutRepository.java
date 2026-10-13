@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.repository;
 import static com.pegasus.pegasustcgapi.jooq.tables.Payout.PAYOUT;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 
+import com.pegasus.pegasustcgapi.dto.AdminFinanceViews.PayoutOrder;
 import com.pegasus.pegasustcgapi.jooq.tables.records.PayoutRecord;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -39,12 +40,6 @@ public class PayoutRepository {
                 .orderBy(PAYOUT.REQUESTED_AT.desc(), PAYOUT.ID.desc()).fetch();
     }
 
-    public List<PayoutRecord> queue(String status) {
-        var query = dsl.selectFrom(PAYOUT);
-        return (status == null ? query : query.where(PAYOUT.STATUS.eq(status)))
-                .orderBy(PAYOUT.REQUESTED_AT.asc(), PAYOUT.ID.asc()).fetch();
-    }
-
     public int transition(long id, String expected, String next, Long adminId, String reason,
             String reference, String slipKey, OffsetDateTime now) {
         var update = dsl.update(PAYOUT).set(PAYOUT.STATUS, next);
@@ -61,8 +56,14 @@ public class PayoutRepository {
         return update.where(PAYOUT.ID.eq(id)).and(PAYOUT.STATUS.eq(expected)).execute();
     }
 
-    public void linkPaidOrders(long payoutId, long sellerProfileId, BigDecimal amount) {
-        var completedOrders = dsl.select(SELLER_ORDER.ID, SELLER_ORDER.SELLER_NET_AMOUNT)
+    /**
+     * Completed sub-orders not yet paid out, oldest first, taken while their net
+     * still fits inside {@code amount}. Paying a payout links exactly these; the
+     * admin desk shows the same list beforehand as a preview.
+     */
+    public List<PayoutOrder> linkableOrders(long sellerProfileId, BigDecimal amount) {
+        var completedOrders = dsl.select(SELLER_ORDER.ID, SELLER_ORDER.SELLER_ORDER_NUMBER,
+                        SELLER_ORDER.SELLER_NET_AMOUNT, SELLER_ORDER.COMPLETED_AT)
                 .from(SELLER_ORDER)
                 .where(SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId))
                 .and(SELLER_ORDER.STATUS.eq("COMPLETED"))
@@ -70,17 +71,23 @@ public class PayoutRepository {
                 .orderBy(SELLER_ORDER.COMPLETED_AT.asc(), SELLER_ORDER.ID.asc())
                 .fetch();
         BigDecimal accumulated = BigDecimal.ZERO;
-        List<Long> toLink = new ArrayList<>();
+        List<PayoutOrder> fitting = new ArrayList<>();
         for (var record : completedOrders) {
-            BigDecimal net = record.value2();
+            BigDecimal net = record.value3();
             if (net == null) continue;
             if (accumulated.add(net).compareTo(amount) <= 0) {
                 accumulated = accumulated.add(net);
-                toLink.add(record.value1());
+                fitting.add(new PayoutOrder(record.value1(), record.value2(), net, record.value4()));
             } else {
                 break;
             }
         }
+        return fitting;
+    }
+
+    public void linkPaidOrders(long payoutId, long sellerProfileId, BigDecimal amount) {
+        List<Long> toLink = linkableOrders(sellerProfileId, amount).stream()
+                .map(PayoutOrder::sellerOrderId).toList();
         if (!toLink.isEmpty()) {
             dsl.update(SELLER_ORDER)
                     .set(SELLER_ORDER.PAYOUT_ID, payoutId)
