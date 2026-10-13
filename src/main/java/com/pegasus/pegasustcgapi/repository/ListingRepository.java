@@ -258,6 +258,8 @@ public class ListingRepository {
         fields.add(SELLER_PROFILE.VACATION_MODE);
         fields.add(ACCOUNT_STATUS);
         fields.add(ACCOUNT_DELETED_AT);
+        fields.add(USER_ACCOUNT.DISPLAY_NAME);
+        fields.add(USER_ACCOUNT.USERNAME);
 
         return dsl.select(fields)
                 .from(LISTING)
@@ -269,7 +271,9 @@ public class ListingRepository {
                         toListing(r.into(LISTING)),
                         SellerStatus.valueOf(r.get(SELLER_STATUS)),
                         r.get(SELLER_PROFILE.VACATION_MODE),
-                        r.get(ACCOUNT_STATUS) == UserStatus.ACTIVE && r.get(ACCOUNT_DELETED_AT) == null));
+                        r.get(ACCOUNT_STATUS) == UserStatus.ACTIVE && r.get(ACCOUNT_DELETED_AT) == null,
+                        r.get(USER_ACCOUNT.DISPLAY_NAME),
+                        r.get(USER_ACCOUNT.USERNAME)));
     }
 
     // ---------- the nightly job ----------
@@ -562,6 +566,8 @@ public class ListingRepository {
             Listing listing,
             SellerStatus sellerStatus,
             boolean sellerOnVacation,
-            boolean sellerAccountActive) {
+            boolean sellerAccountActive,
+            String sellerDisplayName,
+            String sellerUsername) {
     }
 }

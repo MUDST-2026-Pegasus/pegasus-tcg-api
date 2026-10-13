@@ -4,6 +4,7 @@ import com.pegasus.pegasustcgapi.common.CartSessionKey;
 import com.pegasus.pegasustcgapi.dto.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.CartItemResponse;
 import com.pegasus.pegasustcgapi.dto.CartResponse;
+import com.pegasus.pegasustcgapi.dto.ListingCard;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -45,24 +46,20 @@ public class CartService {
     private final CartRepository cartRepository;
     private final PricingPort pricingPort;
     private final SellerProfileRepository sellerProfileRepository;
+    private final ListingCardRenderer cards;
     private final StorageService storageService;
-
-    public CartService(
-            CartRepository cartRepository,
-            PricingPort pricingPort,
-            SellerProfileRepository sellerProfileRepository) {
-        this(cartRepository, pricingPort, sellerProfileRepository, null);
-    }
 
     @Autowired
     public CartService(
             CartRepository cartRepository,
             PricingPort pricingPort,
             SellerProfileRepository sellerProfileRepository,
+            ListingCardRenderer cards,
             @Autowired(required = false) StorageService storageService) {
         this.cartRepository = cartRepository;
         this.pricingPort = pricingPort;
         this.sellerProfileRepository = sellerProfileRepository;
+        this.cards = cards;
         this.storageService = storageService;
     }
 
@@ -134,6 +131,7 @@ public class CartService {
         }
 
         CartItem item = cartRepository.upsertItem(cart.id(), request.listingId(), cumulativeQuantity, offer.price());
+        ListingCard card = cards.card(offer.catalogVariantId());
 
         CartListingDetails details = cartRepository.findCartListingDetails(List.of(request.listingId())).get(request.listingId());
         String imageUrl = resolveImageUrl(details);
@@ -154,10 +152,11 @@ public class CartService {
                 offer.currency(),
                 item.addedAt(),
                 item.updatedAt(),
-                details != null ? details.productName() : null,
-                details != null ? details.variantLabel() : null,
-                details != null ? details.sellerName() : null,
-                imageUrl);
+                details != null ? details.productName() : card == null ? null : card.productName(),
+                details != null ? details.variantLabel() : card == null ? null : card.variantLabel(),
+                details != null ? details.sellerName() : offer.sellerName(),
+                imageUrl != null ? imageUrl : card == null ? null : card.officialImageUrl(),
+                card == null ? null : card.productId());
 
         return new AddResult(response, returnSessionKey);
     }
@@ -281,6 +280,7 @@ public class CartService {
         }
 
         boolean priceChanged = updated.unitPriceAtAdd().compareTo(offer.price()) != 0;
+        ListingCard card = cards.card(offer.catalogVariantId());
 
         CartListingDetails details = cartRepository.findCartListingDetails(List.of(existingItem.listingId())).get(existingItem.listingId());
         String imageUrl = resolveImageUrl(details);
@@ -301,10 +301,11 @@ public class CartService {
                 offer.currency(),
                 updated.addedAt(),
                 updated.updatedAt(),
-                details != null ? details.productName() : null,
-                details != null ? details.variantLabel() : null,
-                details != null ? details.sellerName() : null,
-                imageUrl);
+                details != null ? details.productName() : card == null ? null : card.productName(),
+                details != null ? details.variantLabel() : card == null ? null : card.variantLabel(),
+                details != null ? details.sellerName() : offer.sellerName(),
+                imageUrl != null ? imageUrl : card == null ? null : card.officialImageUrl(),
+                card == null ? null : card.productId());
     }
 
     /**
@@ -368,6 +369,8 @@ public class CartService {
 
         List<Long> listingIds = items.stream().map(CartItem::listingId).distinct().toList();
         Map<Long, ListingOffer> offers = pricingPort.offers(listingIds);
+        List<Long> variantIds = offers.values().stream().map(ListingOffer::catalogVariantId).distinct().toList();
+        Map<Long, ListingCard> cardsByVariant = variantIds.isEmpty() ? Map.of() : cards.cards(variantIds);
 
         Map<Long, CartListingDetails> listingDetails = cartRepository.findCartListingDetails(listingIds);
 
@@ -377,6 +380,7 @@ public class CartService {
             boolean priceChanged = offer == null || offer.price() == null
                     || item.unitPriceAtAdd().compareTo(offer.price()) != 0;
             boolean purchasable = offer != null && offer.purchasable();
+            ListingCard card = offer == null ? null : cardsByVariant.get(offer.catalogVariantId());
 
             CartListingDetails details = listingDetails.get(item.listingId());
             String imageUrl = resolveImageUrl(details);
@@ -397,10 +401,11 @@ public class CartService {
                     offer != null ? offer.currency() : "THB",
                     item.addedAt(),
                     item.updatedAt(),
-                    details != null ? details.productName() : null,
-                    details != null ? details.variantLabel() : null,
-                    details != null ? details.sellerName() : null,
-                    imageUrl);
+                    details != null ? details.productName() : card == null ? null : card.productName(),
+                    details != null ? details.variantLabel() : card == null ? null : card.variantLabel(),
+                    details != null ? details.sellerName() : offer != null ? offer.sellerName() : null,
+                    imageUrl != null ? imageUrl : card == null ? null : card.officialImageUrl(),
+                    card == null ? null : card.productId());
         }).toList();
     }
 

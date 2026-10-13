@@ -121,9 +121,9 @@ SELECT g.id, c.id, s.id, v.product_type, v.name, v.name_local, v.slug,
        v.card_number, v.rarity_code, v.description, v.attributes::jsonb,
        now() - make_interval(days => v.days_ago), now() - make_interval(days => v.days_ago)
   FROM (VALUES
-        ('POKEMON', 'SV8A', 'SINGLES', 'SINGLE_CARD', 'Pikachu ex', 'พิคาชู ex', 'pikachu-ex-025-187', '025/187', 'RR', 'The Terastal Festival Pikachu ex, a staple of Lightning decks.', '{"hp":200,"card_type":"Lightning","stage":"Basic"}', 60),
-        ('POKEMON', 'SV8A', 'SINGLES', 'SINGLE_CARD', 'Charizard ex', 'ลิซาร์ดอน ex', 'charizard-ex-006-165', '006/165', 'SAR', 'Special Art Rare Charizard ex with full-bleed illustration.', '{"hp":330,"card_type":"Fire","stage":"Stage 2"}', 58),
-        ('POKEMON', 'SV8A', 'SINGLES', 'SINGLE_CARD', 'Mew ex', 'มิว ex', 'mew-ex-151-165', '151/165', 'SR', 'Japanese Super Rare Mew ex.', '{"hp":180,"card_type":"Psychic","stage":"Basic"}', 57),
+        ('POKEMON', 'SV8A', 'SINGLES', 'SINGLE_CARD', 'Pikachu ex', 'พิคาชู ex', 'pikachu-ex-025-187', '236/187', 'UR', 'The Terastal Festival Pikachu ex, a staple of Lightning decks.', '{"hp":200,"card_type":"Lightning","stage":"Basic"}', 60),
+        ('POKEMON', 'MEW', 'SINGLES', 'SINGLE_CARD', 'Charizard ex', 'ลิซาร์ดอน ex', 'charizard-ex-006-165', '006/165', 'RR', 'Charizard ex from Pokémon Card 151.', '{"hp":330,"card_type":"Fire","stage":"Stage 2"}', 58),
+        ('POKEMON', 'MEW', 'SINGLES', 'SINGLE_CARD', 'Mew ex', 'มิว ex', 'mew-ex-151-165', '151/165', 'RR', 'Mew ex from Pokémon Card 151.', '{"hp":180,"card_type":"Psychic","stage":"Basic"}', 57),
         ('POKEMON', 'SV8A', 'BOOSTER_BOXES', 'BOOSTER_BOX', 'Terastal Festival Booster Box', NULL, 'terastal-festival-booster-box', NULL, NULL, 'Sealed Japanese booster box, 10 packs.', '{}', 55),
         ('POKEMON', 'PRE', 'SINGLES', 'SINGLE_CARD', 'Umbreon ex SIR', 'แบล็กกี ex', 'umbreon-ex-sir-161-131', '161/131', 'SIR', 'The chase card of Prismatic Evolutions.', '{}', 3),
         ('POKEMON', 'PRE', 'SINGLES', 'SINGLE_CARD', 'Sylveon ex SIR', 'นิมเฟีย ex', 'sylveon-ex-sir-156-131', '156/131', 'SIR', 'Special Illustration Rare Sylveon ex.', '{}', 4),

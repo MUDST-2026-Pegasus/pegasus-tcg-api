@@ -26,7 +26,8 @@ public record CartItemResponse(
         String productName,
         String variantLabel,
         String sellerName,
-        String imageUrl) {
+        String imageUrl,
+        Long productId) {
 
     public CartItemResponse(
             long id,
@@ -46,6 +47,6 @@ public record CartItemResponse(
             OffsetDateTime updatedAt) {
         this(id, cartId, listingId, quantity, unitPriceAtAdd, currentPrice, priceChanged, purchasable,
                 quantityAvailable, sellerProfileId, catalogVariantId, condition, currency, addedAt, updatedAt,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 }

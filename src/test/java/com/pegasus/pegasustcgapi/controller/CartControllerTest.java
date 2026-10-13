@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.verify;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -25,11 +27,13 @@ import com.pegasus.pegasustcgapi.exception.GlobalExceptionHandler;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.CardCondition;
 import com.pegasus.pegasustcgapi.security.AuthPrincipalArgumentResolver;
+import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.CartService;
 import com.pegasus.pegasustcgapi.service.CartService.AddResult;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -124,6 +128,20 @@ class CartControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.sessionKey").value("guest-session"))
                 .andExpect(jsonPath("$.data.expiresAt").value("2026-09-21T10:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/cart/merge merges guest items and returns the signed-in cart")
+    void mergeGuestCartReturnsUserCart() {
+        AuthPrincipal principal = new AuthPrincipal(42L, "buyer@example.com", "buyer", Set.of());
+        CartResponse response = new CartResponse(
+                2L, 42L, null, "THB", List.of(), 0, BigDecimal.ZERO);
+        given(cartService.mergeCart(principal, "guest-session")).willReturn(response);
+
+        var result = cartController.mergeCart("guest-session", principal);
+
+        verify(cartService).mergeCart(principal, "guest-session");
+        assertEquals(response, result.getBody().getData());
     }
 
     @Test
