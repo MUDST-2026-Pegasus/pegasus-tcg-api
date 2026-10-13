@@ -15,6 +15,8 @@ import tools.jackson.databind.ObjectMapper;
 public class CatalogCardEffectRepository {
 
     private static final TypeReference<List<String>> ENERGY_COST_TYPE = new TypeReference<>() {};
+    // Only English rules are entered so far; other languages get their own rows later.
+    private static final String ENGLISH = "EN";
     // Use typed jOOQ fields so this reader also compiles before local codegen has
     // been re-run against the new migration.
     private static final Table<?> EFFECT = DSL.table(DSL.name("catalog_card_effect"));
@@ -28,6 +30,16 @@ public class CatalogCardEffectRepository {
     private static final Field<Short> DISPLAY_ORDER = DSL.field(DSL.name("display_order"), Short.class);
     private static final Field<String> SOURCE_URL = DSL.field(DSL.name("source_url"), String.class);
 
+    /** What an admin enters for one effect; its display order is its place in the list. */
+    public record EffectFields(
+            String effectType,
+            String name,
+            String effectText,
+            Integer damage,
+            List<String> energyCost,
+            String sourceUrl) {
+    }
+
     private final DSLContext dsl;
     private final ObjectMapper json;
 
@@ -40,7 +52,7 @@ public class CatalogCardEffectRepository {
         return dsl.select(TYPE, NAME, TEXT, DAMAGE, ENERGY_COST, DISPLAY_ORDER, SOURCE_URL)
                 .from(EFFECT)
                 .where(PRODUCT_ID.eq(productId))
-                .and(LANGUAGE.eq("EN"))
+                .and(LANGUAGE.eq(ENGLISH))
                 .orderBy(DISPLAY_ORDER.asc())
                 .fetch(row -> new CatalogCardEffectResponse(
                         row.get(TYPE),
@@ -50,6 +62,32 @@ public class CatalogCardEffectRepository {
                         parseEnergyCost(row.get(ENERGY_COST).data()),
                         row.get(DISPLAY_ORDER),
                         row.get(SOURCE_URL)));
+    }
+
+    /**
+     * Swaps the product's English effects for these, numbered in list order.
+     * Deleting first keeps a reorder from tripping the unique display order
+     * mid-update; the caller's transaction makes the swap all-or-nothing.
+     */
+    public void replaceForProduct(long productId, List<EffectFields> effects) {
+        dsl.deleteFrom(EFFECT)
+                .where(PRODUCT_ID.eq(productId))
+                .and(LANGUAGE.eq(ENGLISH))
+                .execute();
+        if (effects.isEmpty()) {
+            return;
+        }
+
+        var insert = dsl.insertInto(EFFECT,
+                PRODUCT_ID, LANGUAGE, TYPE, NAME, TEXT, DAMAGE, ENERGY_COST, DISPLAY_ORDER, SOURCE_URL);
+        for (int i = 0; i < effects.size(); i++) {
+            EffectFields effect = effects.get(i);
+            insert = insert.values(productId, ENGLISH, effect.effectType(), effect.name(),
+                    effect.effectText(), effect.damage(),
+                    JSONB.valueOf(json.writeValueAsString(effect.energyCost())),
+                    (short) i, effect.sourceUrl());
+        }
+        insert.execute();
     }
 
     private List<String> parseEnergyCost(String value) {
