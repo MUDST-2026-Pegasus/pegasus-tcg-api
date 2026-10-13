@@ -71,7 +71,7 @@ public class RefundService {
         var refund = refunds.create(sellerOrder.getSalesOrderId(), sellerOrderId,
                 hold.getAmount().subtract(hold.getRefundedAmount()), reason, payment.getMethod(), key);
         if ("MOCK_GATEWAY".equals(payment.getMethod())) {
-            processed(refund.getId(), 0L, "MOCK:" + refund.getId());
+            processed(refund.getId(), null, "MOCK:" + refund.getId());
         }
     }
 
@@ -180,12 +180,18 @@ public class RefundService {
         var refund = refunds.createForReturn(sellerOrder.getSalesOrderId(), sellerOrderId,
                 returnId, amount, reason, payment.getMethod());
         if ("MOCK_GATEWAY".equals(payment.getMethod())) {
-            processed(refund.getId(), 0L, "MOCK:" + refund.getId());
+            processed(refund.getId(), null, "MOCK:" + refund.getId());
         }
     }
 
+    /**
+     * @param adminId who confirmed the transfer; null when the system settles it on its
+     *                own, as it does for the mock gateway. {@code refund.processed_by}
+     *                references {@code user_account}, so a placeholder id such as 0 would
+     *                fail the foreign key and roll the whole cancel back.
+     */
     @Transactional
-    public RefundRecord processed(long refundId, long adminId, String transferReference) {
+    public RefundRecord processed(long refundId, Long adminId, String transferReference) {
         var initial = refunds.find(refundId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.REFUND_NOT_FOUND));
         payments.lockOrder(initial.getSalesOrderId());

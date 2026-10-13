@@ -73,7 +73,8 @@ public class RefundRepository {
                 .fetchInto(RefundRecord.class);
     }
 
-    public int processed(long id, long adminId, String transferReference, OffsetDateTime now) {
+    /** @param adminId null when the system settled it, e.g. the mock gateway */
+    public int processed(long id, Long adminId, String transferReference, OffsetDateTime now) {
         return dsl.update(REFUND).set(REFUND.STATUS, "PROCESSED")
                 .set(REFUND.PROCESSED_BY, adminId).set(REFUND.PROCESSED_AT, now)
                 .set(REFUND.TRANSFER_REFERENCE, transferReference)
