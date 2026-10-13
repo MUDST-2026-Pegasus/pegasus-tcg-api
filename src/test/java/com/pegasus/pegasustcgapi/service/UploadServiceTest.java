@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.pegasus.pegasustcgapi.dto.PresignUploadRequest;
@@ -35,15 +36,20 @@ class UploadServiceTest {
     @Mock
     private StorageService storage;
 
+    @Mock
+    private RoleService roles;
+
     private UploadService uploads;
 
     @BeforeEach
     void setUp() {
-        uploads = new UploadService(storage, FIXED);
+        uploads = new UploadService(storage, roles, FIXED);
     }
 
-    private static AuthPrincipal principalWith(RoleCode... roles) {
-        return new AuthPrincipal(7L, "ploy@example.com", "ploy", Set.of(roles));
+    /** The token and the database agree, as they do for anyone who signed in after their last role change. */
+    private AuthPrincipal principalWith(RoleCode... codes) {
+        lenient().when(roles.rolesOf(7L)).thenReturn(Set.of(codes));
+        return new AuthPrincipal(7L, "ploy@example.com", "ploy", Set.of(codes));
     }
 
     @Test
@@ -86,6 +92,34 @@ class UploadServiceTest {
                 .isInstanceOf(ForbiddenException.class)
                 .extracting(e -> ((ForbiddenException) e).errorCode())
                 .isEqualTo(ErrorCode.ACCESS_DENIED);
+
+        verifyNoInteractions(storage);
+    }
+
+    @Test
+    @DisplayName("a seller approved after signing in can upload listing photos on the old token")
+    void roleIsReadFromTheDatabaseNotTheToken() {
+        given(storage.presignUpload(anyString())).willReturn("http://localhost:9000/signed");
+        given(roles.rolesOf(7L)).willReturn(Set.of(RoleCode.BUYER, RoleCode.SELLER));
+        AuthPrincipal staleToken = new AuthPrincipal(7L, "ploy@example.com", "ploy", Set.of(RoleCode.BUYER));
+
+        PresignUploadResponse response = uploads.presign(
+                staleToken,
+                new PresignUploadRequest(UploadPurpose.LISTING_IMAGE, "image/png", 10L));
+
+        assertThat(response.objectKey()).startsWith("listings/");
+    }
+
+    @Test
+    @DisplayName("a role revoked after signing in is refused even though the token still names it")
+    void revokedRoleIsRefused() {
+        given(roles.rolesOf(7L)).willReturn(Set.of(RoleCode.BUYER));
+        AuthPrincipal staleToken = new AuthPrincipal(7L, "ploy@example.com", "ploy", Set.of(RoleCode.SELLER));
+
+        assertThatThrownBy(() -> uploads.presign(
+                staleToken,
+                new PresignUploadRequest(UploadPurpose.LISTING_IMAGE, "image/png", 10L)))
+                .isInstanceOf(ForbiddenException.class);
 
         verifyNoInteractions(storage);
     }
