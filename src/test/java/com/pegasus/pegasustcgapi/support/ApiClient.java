@@ -67,6 +67,12 @@ public class ApiClient {
                 .POST(payload));
     }
 
+    public Response patch(String path, String bearer, Object body) {
+        return send(request(path, bearer, Map.of())
+                .header("Content-Type", "application/json")
+                .method("PATCH", BodyPublishers.ofString(JSON.writeValueAsString(body))));
+    }
+
     private HttpRequest.Builder request(String path, String bearer, Map<String, String> headers) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .timeout(Duration.ofSeconds(30))

@@ -1,17 +1,23 @@
 package com.pegasus.pegasustcgapi.repository;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.AppRole.APP_ROLE;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
+import static com.pegasus.pegasustcgapi.jooq.tables.UserRole.USER_ROLE;
 
 import com.pegasus.pegasustcgapi.model.AuthUser;
+import com.pegasus.pegasustcgapi.model.RoleCode;
 import com.pegasus.pegasustcgapi.model.UserStatus;
 import com.pegasus.pegasustcgapi.jooq.tables.records.UserAccountRecord;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -150,6 +156,62 @@ public class UserRepository {
                 .set(USER_ACCOUNT.LOCKED_UNTIL, lockedUntil)
                 .where(USER_ACCOUNT.ID.eq(userId))
                 .execute();
+    }
+
+    /**
+     * One page of the admin user list, newest account first.
+     *
+     * @param text matches email, username or display name, case-insensitively; may be blank
+     * @param role only accounts holding this role; may be {@code null}
+     * @param status only accounts in this state; may be {@code null}
+     */
+    public List<AuthUser> search(String text, RoleCode role, UserStatus status, int limit, int offset) {
+        return dsl.selectFrom(USER_ACCOUNT)
+                .where(searchCondition(text, role, status))
+                .orderBy(USER_ACCOUNT.CREATED_AT.desc(), USER_ACCOUNT.ID.desc())
+                .limit(limit)
+                .offset(offset)
+                .fetch()
+                .map(UserRepository::toAuthUser);
+    }
+
+    public long countSearch(String text, RoleCode role, UserStatus status) {
+        return dsl.fetchCount(USER_ACCOUNT, searchCondition(text, role, status));
+    }
+
+    /** @return false when no live account has that id. */
+    public boolean updateStatus(long userId, UserStatus status) {
+        return dsl.update(USER_ACCOUNT)
+                .set(USER_ACCOUNT.STATUS, status)
+                .where(USER_ACCOUNT.ID.eq(userId))
+                .and(USER_ACCOUNT.DELETED_AT.isNull())
+                .execute() > 0;
+    }
+
+    private static Condition searchCondition(String text, RoleCode role, UserStatus status) {
+        Condition condition = USER_ACCOUNT.DELETED_AT.isNull();
+        if (text != null && !text.isBlank()) {
+            // Real ILIKE with the wildcards in the input escaped, so "50%" is searched literally.
+            String pattern = "%" + text.trim()
+                    .replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_") + "%";
+            condition = condition.and(
+                    DSL.condition("{0} ILIKE {1} ESCAPE '\\'", USER_ACCOUNT.EMAIL, DSL.val(pattern))
+                            .or(DSL.condition("{0} ILIKE {1} ESCAPE '\\'", USER_ACCOUNT.USERNAME, DSL.val(pattern)))
+                            .or(DSL.condition("{0} ILIKE {1} ESCAPE '\\'", USER_ACCOUNT.DISPLAY_NAME, DSL.val(pattern))));
+        }
+        if (role != null) {
+            condition = condition.and(DSL.exists(DSL.selectOne()
+                    .from(USER_ROLE)
+                    .join(APP_ROLE).on(APP_ROLE.ID.eq(USER_ROLE.ROLE_ID))
+                    .where(USER_ROLE.USER_ID.eq(USER_ACCOUNT.ID))
+                    .and(APP_ROLE.CODE.eq(role.name()))));
+        }
+        if (status != null) {
+            condition = condition.and(USER_ACCOUNT.STATUS.eq(status));
+        }
+        return condition;
     }
 
     private static AuthUser toAuthUser(UserAccountRecord r) {
