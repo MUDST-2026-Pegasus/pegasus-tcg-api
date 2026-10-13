@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.repository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CardSet.CARD_SET;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.CardSetRecord;
 import com.pegasus.pegasustcgapi.model.CardSet;
@@ -33,6 +34,30 @@ public class CardSetRepository {
                 .where(CARD_SET.ID.eq(id))
                 .fetchOptional()
                 .map(CardSetRepository::toCardSet);
+    }
+
+    /**
+     * Holds the row until the transaction ends, so no product can be filed under
+     * the set between checking it is empty and deleting it.
+     */
+    public Optional<CardSet> lockById(int id) {
+        return dsl.selectFrom(CARD_SET)
+                .where(CARD_SET.ID.eq(id))
+                .forUpdate()
+                .fetchOptional()
+                .map(CardSetRepository::toCardSet);
+    }
+
+    /** Retired products count too: deleting the set would quietly unfile them. */
+    public boolean hasProducts(int id) {
+        return dsl.fetchExists(dsl.selectOne().from(CATALOG_PRODUCT)
+                .where(CATALOG_PRODUCT.CARD_SET_ID.eq(id)));
+    }
+
+    public boolean delete(int id) {
+        return dsl.deleteFrom(CARD_SET)
+                .where(CARD_SET.ID.eq(id))
+                .execute() > 0;
     }
 
     /** @param exceptId the row being edited, so keeping your own code is not a clash. */

@@ -22,9 +22,10 @@ import org.springframework.transaction.annotation.Transactional;
  * The two shelves a catalogue entry sits on: which category it belongs to, and
  * which release it came from.
  *
- * <p>Neither is ever deleted. {@code catalog_product} points at both with
- * ON DELETE RESTRICT, so a category that is no longer offered is deactivated and
- * the products filed under it keep resolving.
+ * <p>A category is never deleted: {@code catalog_product} points at it with
+ * ON DELETE RESTRICT, so one that is no longer offered is deactivated and the
+ * products filed under it keep resolving. A card set can be deleted only while
+ * no product is filed under it.
  */
 @Service
 public class CatalogTaxonomyService {
@@ -130,6 +131,23 @@ public class CatalogTaxonomyService {
 
         cardSets.update(cardSetId, withCode(requested, code));
         return requireCardSet(cardSetId);
+    }
+
+    /**
+     * Only an empty set can go. {@code catalog_product.card_set_id} is ON DELETE
+     * SET NULL, so letting the database decide would unfile every card in the set
+     * without a word.
+     */
+    @Transactional
+    public void deleteCardSet(int cardSetId) {
+        cardSets.lockById(cardSetId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.CARD_SET_NOT_FOUND));
+
+        if (cardSets.hasProducts(cardSetId)) {
+            throw new ConflictException(ErrorCode.CARD_SET_IN_USE);
+        }
+
+        cardSets.delete(cardSetId);
     }
 
     /**
