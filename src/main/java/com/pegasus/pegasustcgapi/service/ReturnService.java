@@ -101,6 +101,27 @@ public class ReturnService {
         return returns.forSeller(sellers.requireProfile(sellerUserId).id(), status);
     }
 
+    @Transactional(readOnly = true)
+    public List<EvidenceLink> sellerEvidence(long sellerUserId, long returnId) {
+        var request = returns.find(returnId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.RETURN_NOT_FOUND));
+        var order = orders.findSellerOrderById(request.getSellerOrderId())
+                .orElseThrow(() -> new NotFoundException(ErrorCode.RETURN_NOT_FOUND));
+        if (sellers.requireProfile(sellerUserId).id() != order.getSellerProfileId()) {
+            throw new NotFoundException(ErrorCode.RETURN_NOT_FOUND);
+        }
+        List<String> keys = com.pegasus.pegasustcgapi.dto.FinanceViews.ReturnRequest.from(request, json)
+                .evidenceKeys();
+        for (String key : keys) {
+            if (!key.startsWith(UploadPurpose.RETURN_EVIDENCE.prefix() + "/")) {
+                throw new BadRequestException(ErrorCode.VALIDATION_FAILED);
+            }
+        }
+        return java.util.stream.IntStream.range(0, keys.size())
+                .mapToObj(index -> new EvidenceLink(index + 1, storage.presignDownload(keys.get(index))))
+                .toList();
+    }
+
     @Transactional
     public ReturnRequestRecord approve(long sellerUserId, long returnId, String resolution,
             BigDecimal amount, boolean requireShipBack) {
@@ -196,5 +217,8 @@ public class ReturnService {
     }
 
     public record Item(long orderItemId, int quantity) {
+    }
+
+    public record EvidenceLink(int number, String url) {
     }
 }

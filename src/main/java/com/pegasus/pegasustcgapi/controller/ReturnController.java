@@ -6,6 +6,7 @@ import com.pegasus.pegasustcgapi.dto.FinanceViews.ReturnRequest;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.ReturnService;
 import com.pegasus.pegasustcgapi.service.ReturnService.Item;
+import com.pegasus.pegasustcgapi.service.ReturnService.EvidenceLink;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -18,6 +19,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -73,6 +75,13 @@ public class ReturnController {
             AuthPrincipal principal) {
         return ApiResult.success(returns.sellerReturns(principal.userId(), status).stream()
                 .map(row -> ReturnRequest.from(row, json)).toList());
+    }
+
+    @Operation(summary = "Short-lived evidence links for a return owned by this seller")
+    @PreAuthorize("hasRole('SELLER')")
+    @GetMapping(ApiPaths.SELLERS_ME + "/returns/{id}/evidence")
+    public ApiResult<List<EvidenceLink>> sellerEvidence(@PathVariable long id, AuthPrincipal principal) {
+        return ApiResult.success(returns.sellerEvidence(principal.userId(), id));
     }
 
     @PostMapping(ApiPaths.SELLERS_ME + "/returns/{id}/approve")
