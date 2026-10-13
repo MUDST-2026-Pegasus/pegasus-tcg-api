@@ -11,6 +11,7 @@ import com.pegasus.pegasustcgapi.repository.ReviewRepository.PublicReview;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +45,16 @@ public class ReviewService {
                 rating, title, comment);
         reviews.refreshSummary(order.getSellerProfileId());
         return review;
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<SellerReviewRecord> mine(long buyerId, long sellerOrderId) {
+        var order = reviews.order(sellerOrderId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+        var parent = orders.findOrder(order.getSalesOrderId())
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+        if (parent.getBuyerId() != buyerId) throw new NotFoundException(ErrorCode.ORDER_NOT_FOUND);
+        return reviews.byOrder(sellerOrderId);
     }
 
     @Transactional(readOnly = true)

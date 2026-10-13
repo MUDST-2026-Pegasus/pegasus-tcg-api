@@ -25,6 +25,9 @@ class ReviewServiceIntegrationTest extends PostgresIntegrationTest {
         cart.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
         var order = checkout.checkout(buyer, "review-" + data.tag(), null, null);
         long suborderId = order.sellerOrders().getFirst().id();
+        assertThat(reviews.mine(buyer.userId(), suborderId)).isEmpty();
+        assertThatThrownBy(() -> reviews.mine(data.buyer().userId(), suborderId))
+                .isInstanceOf(com.pegasus.pegasustcgapi.exception.NotFoundException.class);
         assertThatThrownBy(() -> reviews.create(buyer.userId(), suborderId,
                 (short) 5, "Great", "Fast shipping"))
                 .isInstanceOf(RuntimeException.class);
@@ -33,6 +36,7 @@ class ReviewServiceIntegrationTest extends PostgresIntegrationTest {
         dsl.update(SELLER_ORDER).set(SELLER_ORDER.STATUS, "COMPLETED")
                 .where(SELLER_ORDER.ID.eq(suborderId)).execute();
         var review = reviews.create(buyer.userId(), suborderId, (short) 5, "Great", "Fast shipping");
+        assertThat(reviews.mine(buyer.userId(), suborderId)).contains(review);
         assertThatThrownBy(() -> reviews.create(buyer.userId(), suborderId,
                 (short) 5, "Again", "Again")).isInstanceOf(RuntimeException.class);
         var publicView = reviews.publicReviews(seller.principal().username());
