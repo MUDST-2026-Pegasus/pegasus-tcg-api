@@ -60,7 +60,8 @@ import org.springframework.http.HttpStatus;
  * the strategy document the test follows the code and says so:
  * <ul>
  *   <li>an illegal move is 409 ORDER_STATUS_TRANSITION, not 400;</li>
- *   <li>PAID→PREPARING and SHIPPED→DELIVERED are legal but no endpoint makes them;</li>
+ *   <li>SHIPPED→DELIVERED is legal but no endpoint makes it (PAID→PREPARING is the
+ *       seller's accept, covered in {@link SellerOrderDeskIntegrationTest});</li>
  *   <li>RETURN_REQUESTED, RETURNED and REFUNDED belong to after-sales, which this
  *       module does not drive, so ST-07 and ST-08 are not moves it allows.</li>
  * </ul>
