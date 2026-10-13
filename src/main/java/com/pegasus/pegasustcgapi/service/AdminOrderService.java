@@ -144,8 +144,8 @@ public class AdminOrderService {
         return statuses.stream().mapToLong(status -> counts.getOrDefault(status, 0L)).sum();
     }
 
-    /** Accepts repeated parameters and comma-separated values alike. */
-    private static List<String> parseStatuses(List<String> requested) {
+    /** Accepts repeated parameters and comma-separated values alike. Shared with {@link SellerOrderDeskService}. */
+    static List<String> parseStatuses(List<String> requested) {
         if (requested == null) {
             return List.of();
         }
@@ -169,7 +169,7 @@ public class AdminOrderService {
         return List.copyOf(names);
     }
 
-    private static AdminOrderQuery.Sort parseSort(String sort) {
+    static AdminOrderQuery.Sort parseSort(String sort) {
         if (sort == null || sort.isBlank()) {
             return AdminOrderQuery.Sort.NEWEST;
         }
