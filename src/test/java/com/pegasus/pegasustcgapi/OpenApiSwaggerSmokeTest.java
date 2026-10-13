@@ -47,6 +47,23 @@ class OpenApiSwaggerSmokeTest {
     }
 
     @Test
+    @DisplayName("documents checkout requirements and refund error responses")
+    void documentsCurrentCheckoutAndRefundContracts() throws Exception {
+        mockMvc.perform(get("/v1/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.info.description").value(org.hamcrest.Matchers.containsString("refunds")))
+                .andExpect(jsonPath("$.paths['/api/v1/checkout'].post.parameters[0].name")
+                        .value("Idempotency-Key"))
+                .andExpect(jsonPath("$.paths['/api/v1/checkout'].post.parameters[0].required")
+                        .value(true))
+                .andExpect(jsonPath("$.paths['/api/v1/refunds/{id}/destination'].put.responses['400']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/refunds/{id}/destination'].put.responses['409']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/admin/refunds/{id}/transfers'].get.summary")
+                        .value("List transfer attempts for a refund"))
+                .andExpect(jsonPath("$.paths['/api/v1/admin/refunds/{id}/failed'].post.responses['403']").exists());
+    }
+
+    @Test
     @DisplayName("redirects /v1/api-doc to /v1/api-docs")
     void openApiDocsAliasRedirects() throws Exception {
         mockMvc.perform(get("/v1/api-doc"))

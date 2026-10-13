@@ -7,6 +7,7 @@ import com.pegasus.pegasustcgapi.dto.CheckoutResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.CheckoutService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -45,6 +46,7 @@ public class CheckoutController {
     })
     @PostMapping
     public ResponseEntity<ApiResult<CheckoutResponse>> checkout(
+            @Parameter(description = "Required unique key for this checkout (1–64 characters). Reuse the same key to retrieve the original order.", required = true)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
             @Valid @RequestBody(required = false) CheckoutRequest request,

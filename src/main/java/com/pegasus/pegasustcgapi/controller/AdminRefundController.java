@@ -7,6 +7,8 @@ import com.pegasus.pegasustcgapi.dto.FinanceViews.RefundTransferAttempt;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.RefundService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -41,6 +43,13 @@ public class AdminRefundController {
     }
 
     @GetMapping("/{id}/transfers")
+    @Operation(summary = "List transfer attempts for a refund")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Transfer history retrieved"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "403", description = "Admin role required"),
+            @ApiResponse(responseCode = "404", description = "Refund not found")
+    })
     public ApiResult<List<RefundTransferAttempt>> transfers(@PathVariable long id) {
         return ApiResult.success(refunds.transferHistory(id).stream()
                 .map(RefundTransferAttempt::from).toList());
@@ -62,6 +71,14 @@ public class AdminRefundController {
     }
 
     @Operation(summary = "Record a failed transfer attempt and let the buyer correct their bank details")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Failed transfer recorded"),
+            @ApiResponse(responseCode = "400", description = "Reason is blank or exceeds 255 characters"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "403", description = "Admin role required"),
+            @ApiResponse(responseCode = "404", description = "Refund not found"),
+            @ApiResponse(responseCode = "409", description = "Refund is not processing a transfer")
+    })
     @PostMapping("/{id}/failed")
     public ApiResult<Refund> failed(@PathVariable long id, @Valid @RequestBody Failed body,
             AuthPrincipal principal) {
