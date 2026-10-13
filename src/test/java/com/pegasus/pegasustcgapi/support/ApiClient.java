@@ -67,6 +67,12 @@ public class ApiClient {
                 .POST(payload));
     }
 
+    public Response put(String path, String bearer, Object body) {
+        return send(request(path, bearer, Map.of())
+                .header("Content-Type", "application/json")
+                .PUT(BodyPublishers.ofString(JSON.writeValueAsString(body))));
+    }
+
     public Response patch(String path, String bearer, Object body) {
         return send(request(path, bearer, Map.of())
                 .header("Content-Type", "application/json")
