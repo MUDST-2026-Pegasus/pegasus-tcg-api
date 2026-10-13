@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.FinanceViews.Review;
 import com.pegasus.pegasustcgapi.dto.FinanceViews.RatingSummary;
 import com.pegasus.pegasustcgapi.repository.ReviewRepository.PublicReview;
+import com.pegasus.pegasustcgapi.repository.ReviewRepository.AdminReview;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.ReviewService;
 import com.pegasus.pegasustcgapi.service.ReviewService.PublicReviews;
@@ -18,6 +19,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import org.springframework.web.bind.annotation.RequestParam;
 import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -71,6 +73,14 @@ public class ReviewController {
     public ApiResult<Review> visibility(@PathVariable long id,
             @Valid @RequestBody VisibilityRequest body) {
         return ApiResult.success(Review.from(reviews.visibility(id, body.visible())));
+    }
+
+    @Operation(summary = "List a seller's reviews, including hidden reviews, for moderation")
+    @SecurityRequirement(name = "BearerAuth")
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping(ApiPaths.ADMIN + "/reviews")
+    public ApiResult<List<AdminReview>> adminReviews(@RequestParam @NotBlank String username) {
+        return ApiResult.success(reviews.adminReviews(username));
     }
 
     public record CreateRequest(@Min(1) @Max(5) short rating,
