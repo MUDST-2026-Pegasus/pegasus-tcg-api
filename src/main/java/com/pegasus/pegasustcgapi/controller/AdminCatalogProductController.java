@@ -3,6 +3,9 @@ package com.pegasus.pegasustcgapi.controller;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
+import com.pegasus.pegasustcgapi.dto.CatalogCardEffectRequest;
+import com.pegasus.pegasustcgapi.dto.CatalogCardEffectResponse;
+import com.pegasus.pegasustcgapi.dto.CatalogCardEffectsRequest;
 import com.pegasus.pegasustcgapi.dto.CatalogImageRequest;
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.dto.ProductDetailResponse;
@@ -13,6 +16,7 @@ import com.pegasus.pegasustcgapi.model.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.CatalogVariant;
 import com.pegasus.pegasustcgapi.model.ProductType;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.service.CatalogCardEffectService;
 import com.pegasus.pegasustcgapi.service.CatalogImageService;
 import com.pegasus.pegasustcgapi.service.CatalogProductService;
 import com.pegasus.pegasustcgapi.service.CatalogSearchService;
@@ -53,15 +57,17 @@ public class AdminCatalogProductController {
     private final CatalogVariantService variants;
     private final CatalogImageService images;
     private final CatalogSearchService search;
+    private final CatalogCardEffectService effects;
 
     public AdminCatalogProductController(CatalogProductService products,
             CatalogVariantService variants, CatalogImageService images,
-            CatalogSearchService search) {
+            CatalogSearchService search, CatalogCardEffectService effects) {
 
         this.products = products;
         this.variants = variants;
         this.images = images;
         this.search = search;
+        this.effects = effects;
     }
 
     // ---------- products ----------
@@ -176,5 +182,22 @@ public class AdminCatalogProductController {
     public ApiResult<Void> deleteImage(@PathVariable long productId, @PathVariable long imageId) {
         images.delete(productId, imageId);
         return ApiResult.success("Image deleted", null);
+    }
+
+    // ---------- abilities & attacks ----------
+
+    /** Unlike the public list, this one is found for a retired product too. */
+    @GetMapping("/products/{productId}/effects")
+    public ApiResult<List<CatalogCardEffectResponse>> effects(@PathVariable long productId) {
+        return ApiResult.success(effects.listOfProduct(productId));
+    }
+
+    /** Replaces the whole list; each effect's place in it is its display order. */
+    @PutMapping("/products/{productId}/effects")
+    public ApiResult<List<CatalogCardEffectResponse>> replaceEffects(
+            @PathVariable long productId, @Valid @RequestBody CatalogCardEffectsRequest request) {
+
+        return ApiResult.success("Abilities and attacks saved", effects.replace(productId,
+                request.effects().stream().map(CatalogCardEffectRequest::toFields).toList()));
     }
 }
