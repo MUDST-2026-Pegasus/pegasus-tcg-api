@@ -487,6 +487,78 @@ public class OrderLifecycleService {
         return toSellerOrderDetailsResponse(sellerOrderId);
     }
 
+    /**
+     * The seller takes the order on and starts packing: PAID to PREPARING.
+     *
+     * <p>Optional — shipping is allowed straight from PAID — but it tells the buyer
+     * someone is on it, and it is the moment {@code accepted_at} records.
+     */
+    @Transactional
+    public SellerOrderDetailsResponse acceptSellerOrder(AuthPrincipal principal, long sellerOrderId) {
+        requireAuthenticated(principal);
+        SellerProfile profile = requireSellerProfile(principal.userId());
+        SellerOrderRecord sellerOrder = orderRepository.findSellerOrderByIdAndSellerProfileId(sellerOrderId, profile.id())
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+
+        if (!SellerOrderStatus.of(sellerOrder.getStatus()).canMoveTo(SellerOrderStatus.PREPARING)
+                || orderRepository.markSellerOrderAccepted(sellerOrderId, now()) == 0) {
+            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        }
+
+        orderRepository.insertStatusHistory(
+                sellerOrderId, sellerOrder.getStatus(), "PREPARING", principal.userId(), "Seller accepted the order");
+        return toSellerOrderDetailsResponse(sellerOrderId);
+    }
+
+    /**
+     * The seller calls the order off before it ships — out of stock, damaged card.
+     * The cards go back on sale and any money paid is refunded, the same as when
+     * the buyer cancels.
+     *
+     * <p>Unlike the buyer, the seller is not bound by the cancel window: the window
+     * protects the seller from a buyer changing their mind late, not the other way
+     * round. A transfer still under review blocks it, since there is nothing settled
+     * to refund yet.
+     *
+     * @param reason shown to the buyer; required, the controller validates it
+     */
+    @Transactional
+    public SellerOrderDetailsResponse cancelSellerOrderBySeller(
+            AuthPrincipal principal, long sellerOrderId, String reason) {
+        requireAuthenticated(principal);
+        SellerProfile profile = requireSellerProfile(principal.userId());
+        SellerOrderRecord sellerOrder = orderRepository.findSellerOrderByIdAndSellerProfileId(sellerOrderId, profile.id())
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+
+        if (!CANCELLABLE_STATUSES.contains(sellerOrder.getStatus())) {
+            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        }
+        if (orderRepository.hasPaymentUnderReview(sellerOrder.getSalesOrderId())) {
+            throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
+        }
+
+        String note = "Cancelled by seller: " + reason;
+        int updated = orderRepository.updateSellerOrderStatus(
+                sellerOrderId,
+                CANCELLABLE_STATUSES,
+                "CANCELLED",
+                null, null, null, null, now(), reason);
+        if (updated == 0) {
+            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        }
+
+        orderRepository.insertStatusHistory(sellerOrderId, sellerOrder.getStatus(), "CANCELLED", principal.userId(), note);
+        List<Long> unitIds = orderRepository.findUnitIdsBySellerOrderId(sellerOrderId);
+        if (!unitIds.isEmpty()) {
+            inventoryPort.release(unitIds);
+        }
+        // The bare reason, not the note: refund.reason is varchar(255) like cancel_reason.
+        ledgerPort.refundOnCancel(sellerOrderId, reason, principal.userId());
+
+        rollupSalesOrderStatus(sellerOrder.getSalesOrderId());
+        return toSellerOrderDetailsResponse(sellerOrderId);
+    }
+
     // ==========================================
     // Auto-Release Scheduler Execution
     // ==========================================
@@ -749,6 +821,14 @@ public class OrderLifecycleService {
 
     public SellerOrderDetailsResponse toSellerOrderDetailsResponse(SellerOrderRecord so) {
         return sellerDetailsById(List.of(so)).get(so.getId());
+    }
+
+    /**
+     * A page of sub-orders in the same fixed number of queries as one, keyed by id.
+     * Ids that do not exist are simply absent.
+     */
+    public Map<Long, SellerOrderDetailsResponse> toSellerOrderDetailsResponses(List<Long> sellerOrderIds) {
+        return sellerDetailsById(orderRepository.findSellerOrdersByIds(sellerOrderIds));
     }
 
     /**
