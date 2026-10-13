@@ -45,7 +45,10 @@ public class PricingService implements PricingPort {
                 && !offer.sellerOnVacation()
                 && offer.sellerAccountActive();
 
+        String sellerName = offer.sellerDisplayName() == null || offer.sellerDisplayName().isBlank()
+                ? offer.sellerUsername()
+                : offer.sellerDisplayName();
         return new ListingOffer(l.id(), l.sellerProfileId(), l.catalogVariantId(), l.condition(), l.price(),
-                l.currency(), l.quantityAvailable(), l.status(), purchasable);
+                l.currency(), l.quantityAvailable(), l.status(), purchasable, sellerName);
     }
 }
