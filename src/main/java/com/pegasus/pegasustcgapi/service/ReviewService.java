@@ -7,6 +7,7 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.SellerRatingSummaryRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerReviewRecord;
 import com.pegasus.pegasustcgapi.repository.PaymentRepository;
 import com.pegasus.pegasustcgapi.repository.ReviewRepository;
+import com.pegasus.pegasustcgapi.repository.ReviewRepository.AdminReview;
 import com.pegasus.pegasustcgapi.repository.ReviewRepository.PublicReview;
 import java.time.Clock;
 import java.time.OffsetDateTime;
@@ -51,6 +52,13 @@ public class ReviewService {
         long sellerId = reviews.publicSellerId(username)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.SELLER_NOT_FOUND));
         return new PublicReviews(reviews.visible(sellerId), reviews.summary(sellerId).orElse(null));
+    }
+
+    @Transactional(readOnly = true)
+    public List<AdminReview> adminReviews(String username) {
+        long sellerId = reviews.sellerIdByUsername(username)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.SELLER_NOT_FOUND));
+        return reviews.allForSeller(sellerId);
     }
 
     @Transactional

@@ -43,5 +43,13 @@ class ReviewServiceIntegrationTest extends PostgresIntegrationTest {
         reviews.visibility(review.getId(), false);
         assertThat(reviews.publicReviews(seller.principal().username()).reviews()).isEmpty();
         assertThat(reviews.publicReviews(seller.principal().username()).summary().getRatingCount()).isZero();
+        assertThat(reviews.adminReviews(seller.principal().username()))
+                .singleElement().satisfies(hidden -> {
+                    assertThat(hidden.id()).isEqualTo(review.getId());
+                    assertThat(hidden.visible()).isFalse();
+                });
+        reviews.visibility(review.getId(), true);
+        assertThat(reviews.adminReviews(seller.principal().username()))
+                .singleElement().satisfies(shown -> assertThat(shown.visible()).isTrue());
     }
 }
