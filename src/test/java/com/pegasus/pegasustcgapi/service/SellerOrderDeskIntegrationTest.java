@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.service;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
+import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrderStatusHistory.SELLER_ORDER_STATUS_HISTORY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -36,6 +37,7 @@ class SellerOrderDeskIntegrationTest extends PostgresIntegrationTest {
     @Autowired OrderLifecycleService lifecycle;
     @Autowired CheckoutService checkout;
     @Autowired CartService cart;
+    @Autowired PaymentService payments;
 
     private record Placed(Seller seller, AuthPrincipal buyer, long salesOrderId, long sellerOrderId,
             long listingId) {
@@ -212,5 +214,27 @@ class SellerOrderDeskIntegrationTest extends PostgresIntegrationTest {
 
         assertThatThrownBy(() -> desk.cancel(seller.principal(), placed.sellerOrderId(), "Too late"))
                 .isInstanceOf(ConflictException.class);
+    }
+
+    /**
+     * Paid through the mock gateway, so there is escrow to give back and the refund
+     * settles on its own with no admin — the path that once wrote processed_by = 0
+     * and rolled the whole cancel back on the user_account foreign key.
+     */
+    @Test
+    void sellerCancelOfAGatewayPaidOrderRefundsTheBuyer() {
+        Seller seller = data.seller();
+        Placed placed = place(seller, 1, "300.00");
+        payments.payMock(placed.buyer(), placed.salesOrderId());
+
+        Detail cancelled = desk.cancel(seller.principal(), placed.sellerOrderId(), "Out of stock");
+
+        assertThat(cancelled.summary().order().status()).isEqualTo("CANCELLED");
+        var refund = dsl.selectFrom(REFUND)
+                .where(REFUND.SELLER_ORDER_ID.eq(placed.sellerOrderId()))
+                .fetchSingle();
+        assertThat(refund.getStatus()).isEqualTo("PROCESSED");
+        assertThat(refund.getProcessedBy()).as("settled by the system, not a person").isNull();
+        assertThat(refund.getReason()).isEqualTo("Out of stock");
     }
 }
