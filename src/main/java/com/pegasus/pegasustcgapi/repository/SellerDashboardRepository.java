@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.repository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
+import static com.pegasus.pegasustcgapi.jooq.tables.EscrowHold.ESCROW_HOLD;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
@@ -170,6 +171,31 @@ public class SellerDashboardRepository {
                 .from(SELLER_REVIEW)
                 .where(visible)
                 .fetchSingle(r -> new ReviewTotals(r.value1(), r.value2(), r.value3(), r.value4()));
+    }
+
+    // ---------- escrow ----------
+
+    /**
+     * What the shop's paid orders will pay it once escrow lets go: each hold still
+     * HELD, less what was refunded from it and the commission frozen at checkout.
+     *
+     * <p>The money sits in the PLATFORM wallet until release, so the seller's own
+     * wallet has nothing pending — it only ever receives the net, straight into
+     * AVAILABLE. This is that net ahead of time. While a return is open the release
+     * may take a smaller commission than the frozen one; the figure is then a
+     * slight underestimate, never more than the shop will get.
+     */
+    public BigDecimal heldInEscrow(long sellerProfileId) {
+        Field<BigDecimal> net = ESCROW_HOLD.AMOUNT
+                .minus(ESCROW_HOLD.REFUNDED_AMOUNT)
+                .minus(SELLER_ORDER.COMMISSION_AMOUNT);
+        return dsl.select(sum(DSL.greatest(net, DSL.inline(BigDecimal.ZERO))))
+                .from(ESCROW_HOLD)
+                .join(SELLER_ORDER).on(SELLER_ORDER.ID.eq(ESCROW_HOLD.SELLER_ORDER_ID))
+                .where(SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .and(ESCROW_HOLD.STATUS.eq("HELD"))
+                .fetchSingle()
+                .value1();
     }
 
     // ---------- helpers ----------

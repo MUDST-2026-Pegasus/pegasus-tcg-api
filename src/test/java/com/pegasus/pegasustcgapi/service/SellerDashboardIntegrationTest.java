@@ -7,8 +7,10 @@ import com.pegasus.pegasustcgapi.dto.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.CheckoutRequest;
 import com.pegasus.pegasustcgapi.dto.CheckoutResponse;
+import com.pegasus.pegasustcgapi.dto.CheckoutResponse.SellerOrderResponse;
 import com.pegasus.pegasustcgapi.dto.SellerDashboardViews.Dashboard;
 import com.pegasus.pegasustcgapi.dto.SellerDashboardViews.MonthlySales;
+import com.pegasus.pegasustcgapi.dto.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.CardCondition;
@@ -31,6 +33,7 @@ class SellerDashboardIntegrationTest extends PostgresIntegrationTest {
     @Autowired OrderLifecycleService lifecycle;
     @Autowired CheckoutService checkout;
     @Autowired CartService cart;
+    @Autowired PaymentService payments;
 
     private record Placed(AuthPrincipal buyer, CheckoutResponse order, Listing listing) {
     }
@@ -148,6 +151,29 @@ class SellerDashboardIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void moneyStillInEscrowIsPendingNetOfCommissionUntilItIsReleased() {
+        Seller seller = data.seller();
+        Placed held = place(seller, 3, 1, "200.00");
+        payments.payMock(held.buyer(), held.order().orderId());
+        Placed released = place(seller, 3, 1, "300.00");
+        payments.payMock(released.buyer(), released.order().orderId());
+        SellerOrderResponse releasedOrder = released.order().sellerOrders().getFirst();
+        lifecycle.shipSellerOrder(seller.principal(), releasedOrder.id(),
+                new ShipOrderRequest("Thailand Post", "DASH-" + data.tag(), "TH_POST", null, null));
+        lifecycle.autoCompleteSellerOrder(releasedOrder.id());
+        place(seller, 3, 1, "90.00");
+        paid(data.seller(), 1, 1, "999.00");
+
+        Dashboard dashboard = dashboards.dashboard(seller.principal(), null);
+
+        // Held money sits in the PLATFORM wallet, so the seller wallet alone would say zero
+        assertThat(dashboard.wallet().pending())
+                .isEqualByComparingTo(held.order().sellerOrders().getFirst().sellerNetAmount());
+        // On release the same net moves across — nothing counted twice, nothing lost
+        assertThat(dashboard.wallet().withdrawable()).isEqualByComparingTo(releasedOrder.sellerNetAmount());
+    }
+
+    @Test
     void aShopWithNothingYetIsAllZeroes() {
         Seller seller = data.seller();
 
@@ -159,6 +185,7 @@ class SellerDashboardIntegrationTest extends PostgresIntegrationTest {
         assertThat(dashboard.reviews().average()).isNull();
         assertThat(dashboard.reviews().count()).isZero();
         assertThat(dashboard.wallet().withdrawable()).isEqualByComparingTo("0");
+        assertThat(dashboard.wallet().pending()).isEqualByComparingTo("0");
         assertThat(dashboard.recentOrders()).isEmpty();
     }
 
