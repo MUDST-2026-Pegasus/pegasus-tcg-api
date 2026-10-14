@@ -130,14 +130,18 @@ public class SellerDashboardService {
                 recent);
     }
 
-    /** The same figures as {@code GET /me/wallet}, without paging through the ledger. */
+    /**
+     * Withdrawable is the wallet's available balance less payouts already asked
+     * for. Pending comes from escrow, not the wallet: held money sits in the
+     * PLATFORM wallet until release, so the seller wallet's own pending bucket is
+     * always zero (see {@link SellerDashboardRepository#heldInEscrow}).
+     */
     private Wallet wallet(SellerProfile shop) {
         BigDecimal reserved = wallets.reservedForPayout(shop.id());
-        return wallets.findByUserId(shop.userId())
-                .map(balance -> new Wallet(
-                        balance.available().subtract(reserved).max(BigDecimal.ZERO),
-                        balance.pending()))
-                .orElseGet(() -> new Wallet(BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2)));
+        BigDecimal withdrawable = wallets.findByUserId(shop.userId())
+                .map(balance -> balance.available().subtract(reserved).max(BigDecimal.ZERO))
+                .orElseGet(() -> BigDecimal.ZERO.setScale(2));
+        return new Wallet(withdrawable, dashboard.heldInEscrow(shop.id()));
     }
 
     /** Twelve months ending with the selected one, months with no sales included as zero. */

@@ -21,6 +21,7 @@ import com.pegasus.pegasustcgapi.model.ListingUnit;
 import com.pegasus.pegasustcgapi.model.MarketKey;
 import com.pegasus.pegasustcgapi.model.PricingMode;
 import com.pegasus.pegasustcgapi.model.SellerProfile;
+import com.pegasus.pegasustcgapi.model.WeightedAverageCost;
 import com.pegasus.pegasustcgapi.port.SellerPort;
 import com.pegasus.pegasustcgapi.repository.CatalogVariantRepository;
 import com.pegasus.pegasustcgapi.repository.ListingImageRepository;
@@ -30,6 +31,7 @@ import com.pegasus.pegasustcgapi.repository.ListingRepository.Details;
 import com.pegasus.pegasustcgapi.repository.ListingRepository.Pricing;
 import com.pegasus.pegasustcgapi.repository.ListingRepository.SellerListingQuery;
 import com.pegasus.pegasustcgapi.repository.ListingUnitRepository;
+import com.pegasus.pegasustcgapi.repository.SellerVariantCostRepository;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.math.BigDecimal;
@@ -74,6 +76,7 @@ public class ListingService {
     private final CatalogVariantRepository variants;
     private final ListingCardRenderer cards;
     private final StorageService storage;
+    private final SellerVariantCostRepository costs;
     private final Clock clock;
 
     public ListingService(
@@ -85,6 +88,7 @@ public class ListingService {
             CatalogVariantRepository variants,
             ListingCardRenderer cards,
             StorageService storage,
+            SellerVariantCostRepository costs,
             Clock clock) {
 
         this.sellers = sellers;
@@ -95,6 +99,7 @@ public class ListingService {
         this.variants = variants;
         this.cards = cards;
         this.storage = storage;
+        this.costs = costs;
         this.clock = clock;
     }
 
@@ -386,7 +391,11 @@ public class ListingService {
                 .map(other -> SimilarListingResponse.of(other, listing))
                 .toList();
 
-        return SellerListingResponse.of(listing, cards.card(listing.catalogVariantId()), photos, similar);
+        // Read without a lock: the seller is only looking, a stock-in recomputes it under lock anyway
+        WeightedAverageCost cost = costs.find(listing.sellerProfileId(), market)
+                .orElse(WeightedAverageCost.EMPTY);
+
+        return SellerListingResponse.of(listing, cards.card(listing.catalogVariantId()), photos, similar, cost);
     }
 
     /**

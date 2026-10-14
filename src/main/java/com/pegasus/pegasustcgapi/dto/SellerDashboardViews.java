@@ -74,7 +74,8 @@ public final class SellerDashboardViews {
 
     /**
      * @param withdrawable what can be paid out now, payouts already requested taken off
-     * @param pending      still in escrow, waiting for buyers to confirm receipt
+     * @param pending      still in escrow, waiting for buyers to confirm receipt — net of
+     *                     refunds and commission, so it is what lands in withdrawable on release
      */
     public record Wallet(BigDecimal withdrawable, BigDecimal pending) {
     }
