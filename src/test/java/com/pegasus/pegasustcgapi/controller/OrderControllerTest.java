@@ -95,7 +95,9 @@ class OrderControllerTest {
                 "Please deliver carefully",
                 OffsetDateTime.now(),
                 null, null, null,
-                List.of());
+                List.of(),
+                false,
+                null);
     }
 
     @Test
