@@ -59,6 +59,9 @@ public class UserProfileService {
         if (request.phone() != null) {
             changes.put("phone", request.cleanPhone());
         }
+        if (request.phonePublic() != null) {
+            changes.put("phonePublic", request.phonePublic());
+        }
         if (request.avatarUrl() != null) {
             changes.put("avatarUrl", resolvedAvatar);
         }

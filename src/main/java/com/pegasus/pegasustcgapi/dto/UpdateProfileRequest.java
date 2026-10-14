@@ -38,7 +38,14 @@ public record UpdateProfileRequest(
         @Schema(description = "Object key of uploaded avatar image from /uploads/presign (null = keep, empty = clear)",
                 example = "avatars/2026/09/uuid.jpg")
         @Size(max = 500)
-        String avatarUrl) {
+        String avatarUrl,
+
+        @Schema(description = "Whether the contact phone is public on the storefront (null = keep)")
+        Boolean phonePublic) {
+
+    public UpdateProfileRequest(String displayName, String bio, String phone, String avatarUrl) {
+        this(displayName, bio, phone, avatarUrl, null);
+    }
 
     public String cleanDisplayName() {
         return blankToNull(displayName);

@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.PublicListingDetailResponse;
 import com.pegasus.pegasustcgapi.dto.PublicListingResponse;
+import com.pegasus.pegasustcgapi.dto.PublicProfileResponse;
 import com.pegasus.pegasustcgapi.model.CardCondition;
 import com.pegasus.pegasustcgapi.service.ListingBrowseService;
 import java.math.BigDecimal;
@@ -58,5 +59,10 @@ public class PublicListingController {
             @RequestParam(defaultValue = "20") int size) {
 
         return ApiResult.success(browse.storefront(username, variantId, condition, sort, page, size));
+    }
+
+    @GetMapping(ApiPaths.PROFILES + "/{username}")
+    public ApiResult<PublicProfileResponse> profile(@PathVariable String username) {
+        return ApiResult.success(browse.profile(username));
     }
 }

@@ -6,6 +6,7 @@ import com.pegasus.pegasustcgapi.dto.ListingCard;
 import com.pegasus.pegasustcgapi.dto.MarketStatResponse;
 import com.pegasus.pegasustcgapi.dto.PublicListingDetailResponse;
 import com.pegasus.pegasustcgapi.dto.PublicListingResponse;
+import com.pegasus.pegasustcgapi.dto.PublicProfileResponse;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -85,6 +86,15 @@ public class ListingBrowseService {
                 parseSort(sort), paging.size(), paging.offset()), paging);
     }
 
+    /** Profile details are available even before the owner publishes a listing. */
+    public PublicProfileResponse profile(String username) {
+        AuthUser owner = users.findByUsername(username.trim().toLowerCase(Locale.ROOT))
+                .filter(user -> user.status() == UserStatus.ACTIVE)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.USER_NOT_FOUND));
+        return new PublicProfileResponse(owner.username(), owner.displayName(), cards.signed(owner.avatarUrl()),
+                owner.phonePublic() ? owner.phone() : null);
+    }
+
     /** A sold-out listing still has a page that says so; any other state is not found. */
     public PublicListingDetailResponse get(long listingId) {
         PublicListing row = listings.findPublic(listingId)
@@ -97,7 +107,7 @@ public class ListingBrowseService {
                 .toList();
 
         PublicListingResponse shown = PublicListingResponse.of(row, cards.card(listing.catalogVariantId()),
-                photoUrls.isEmpty() ? null : photoUrls.getFirst());
+                photoUrls.isEmpty() ? null : photoUrls.getFirst(), cards.signed(row.sellerAvatarUrl()));
 
         MarketStatResponse market = stats.latest(new MarketKey(listing.catalogVariantId(), listing.condition()))
                 .map(MarketStatResponse::of)
@@ -116,7 +126,7 @@ public class ListingBrowseService {
 
         List<PublicListingResponse> items = rows.stream()
                 .map(r -> PublicListingResponse.of(r, cardsByVariant.get(r.listing().catalogVariantId()),
-                        cards.signed(photoByListing.get(r.listing().id()))))
+                        cards.signed(photoByListing.get(r.listing().id())), cards.signed(r.sellerAvatarUrl())))
                 .toList();
 
         return PageResponse.of(items, paging.page(), paging.size(), listings.countPublic(query));

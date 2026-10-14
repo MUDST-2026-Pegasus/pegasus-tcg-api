@@ -107,6 +107,7 @@ public class UserRepository {
                 case "displayName" -> columns.put(USER_ACCOUNT.DISPLAY_NAME, value);
                 case "bio"         -> columns.put(USER_ACCOUNT.BIO, value);
                 case "phone"       -> columns.put(USER_ACCOUNT.PHONE, value);
+                case "phonePublic" -> columns.put(USER_ACCOUNT.PHONE_PUBLIC, value);
                 case "avatarUrl"   -> columns.put(USER_ACCOUNT.AVATAR_URL, value);
             }
         });
@@ -229,7 +230,7 @@ public class UserRepository {
                 r.getLastLoginAt(),
                 r.getLockedUntil(),
                 r.getCreatedAt(),
-                Set.of());
+                Set.of(), r.getPhonePublic());
     }
 
     /** Fields a registration supplies; everything else comes from column defaults. */
