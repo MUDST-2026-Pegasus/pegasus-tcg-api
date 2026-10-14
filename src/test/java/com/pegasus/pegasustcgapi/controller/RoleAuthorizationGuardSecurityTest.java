@@ -78,6 +78,34 @@ class RoleAuthorizationGuardSecurityTest extends PostgresIntegrationTest {
     class AdminEndpointsGuard {
 
         @Test
+        @DisplayName("Buyer cannot read retired catalogue games through admin taxonomy")
+        void buyerCannotReadAdminGames() {
+            Response response = client.get("/api/v1/admin/games", buyerBearer);
+
+            assertThat(response.status()).isEqualTo(403);
+            assertThat(response.errorCode()).isEqualTo(ErrorCode.ACCESS_DENIED.name());
+        }
+
+        @Test
+        @DisplayName("Buyer cannot create a game even with a valid request body")
+        void buyerCannotCreateGame() {
+            Response response = client.post("/api/v1/admin/games", buyerBearer,
+                    Map.of("code", "TEST_GAME", "name", "Test Game"));
+
+            assertThat(response.status()).isEqualTo(403);
+            assertThat(response.errorCode()).isEqualTo(ErrorCode.ACCESS_DENIED.name());
+        }
+
+        @Test
+        @DisplayName("Admin can read catalogue games through the real security filter chain")
+        void adminCanReadAdminGames() {
+            Response response = client.get("/api/v1/admin/games", adminBearer);
+
+            assertThat(response.status()).isEqualTo(200);
+            assertThat(response.body().path("success").asBoolean()).isTrue();
+        }
+
+        @Test
         @DisplayName("[CRITICAL] Negative: BUYER calling GET /api/v1/admin/verifications receives 403 Forbidden")
         void buyerCannotAccessAdminVerifications() {
             Response response = client.get("/api/v1/admin/verifications", buyerBearer);
