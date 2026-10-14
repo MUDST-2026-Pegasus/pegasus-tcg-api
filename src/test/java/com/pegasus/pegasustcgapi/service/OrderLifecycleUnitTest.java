@@ -268,6 +268,35 @@ class OrderLifecycleUnitTest {
     }
 
     @Nested
+    @DisplayName("Buyer order view — payment review and cancel deadline")
+    class BuyerOrderViewTests {
+
+        @Test
+        void getBuyerOrder_ExposesSlipUnderReviewAndCancelDeadline() {
+            SalesOrderRecord parent = mockSalesOrder(1L, "PAID");
+            OffsetDateTime paidAt = parent.getPaidAt();
+            when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(parent));
+            when(orderRepository.findSalesOrderIdsWithPaymentUnderReview(List.of(1L))).thenReturn(Set.of(1L));
+
+            OrderDetailsResponse response = service.getBuyerOrder(buyerPrincipal, 1L);
+
+            assertThat(response.paymentUnderReview()).isTrue();
+            assertThat(response.cancellableUntil()).isEqualTo(paidAt.plusHours(24));
+        }
+
+        @Test
+        void getBuyerOrder_UnpaidOrderHasNoCancelDeadline() {
+            SalesOrderRecord parent = mockSalesOrder(2L, "PENDING_PAYMENT");
+            when(orderRepository.findSalesOrderByIdAndBuyerId(2L, buyerPrincipal.userId())).thenReturn(Optional.of(parent));
+
+            OrderDetailsResponse response = service.getBuyerOrder(buyerPrincipal, 2L);
+
+            assertThat(response.paymentUnderReview()).isFalse();
+            assertThat(response.cancellableUntil()).isNull();
+        }
+    }
+
+    @Nested
     @DisplayName("Seller Order State Matrix — Ship Transitions")
     class ShipStateMatrixTests {
 
