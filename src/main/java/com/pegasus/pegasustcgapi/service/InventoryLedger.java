@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
@@ -64,10 +65,14 @@ public class InventoryLedger {
 
         Locked locked = costs.lockOrCreate(first.sellerProfileId(), key);
         MovementType type = locked.created() ? MovementType.INITIAL_STOCK : MovementType.RESTOCK;
-        costs.save(first.sellerProfileId(), key, locked.cost().receive(units.size(), unitCost), now());
+        WeightedAverageCost after = locked.cost().receive(units.size(), unitCost);
+        costs.save(first.sellerProfileId(), key, after, now());
 
+        // One batch per call, so the history reads these cards back as the lot they came in as.
+        UUID batch = UUID.randomUUID();
         movements.insertAll(units.stream()
-                .map(u -> line(u, type, 1, unitCost, null, null, null, actorUserId))
+                .map(u -> line(u, type, 1, unitCost, null, null, null, actorUserId)
+                        .inStockInBatch(batch, after.averageUnitCost()))
                 .toList());
         return type;
     }
