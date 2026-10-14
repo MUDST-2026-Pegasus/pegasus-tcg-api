@@ -6,6 +6,8 @@ import static com.pegasus.pegasustcgapi.jooq.tables.OrderItemUnit.ORDER_ITEM_UNI
 import static com.pegasus.pegasustcgapi.jooq.tables.ReturnItem.RETURN_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.ReturnRequest.RETURN_REQUEST;
 import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
+import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.OrderItemRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.ReturnItemRecord;
@@ -51,6 +53,131 @@ public class ReturnRepository {
         return (status == null ? query : query.and(RETURN_REQUEST.STATUS.eq(status)))
                 .orderBy(RETURN_REQUEST.REQUESTED_AT.asc(), RETURN_REQUEST.ID.asc()).fetch();
     }
+
+    public List<SellerReturnRow> findSellerReturns(long sellerProfileId, String status) {
+        var condition = SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId);
+        if (status != null && !status.isBlank()) {
+            condition = condition.and(RETURN_REQUEST.STATUS.eq(status));
+        }
+
+        return dsl.select(
+                        RETURN_REQUEST.ID,
+                        RETURN_REQUEST.SELLER_ORDER_ID,
+                        SELLER_ORDER.SELLER_ORDER_NUMBER,
+                        USER_ACCOUNT.USERNAME,
+                        USER_ACCOUNT.DISPLAY_NAME,
+                        SELLER_ORDER.GRAND_TOTAL,
+                        SELLER_ORDER.DELIVERED_AT,
+                        SELLER_ORDER.AUTO_COMPLETE_AT,
+                        RETURN_REQUEST.REASON_CODE,
+                        RETURN_REQUEST.DESCRIPTION,
+                        RETURN_REQUEST.STATUS,
+                        RETURN_REQUEST.RESOLUTION,
+                        RETURN_REQUEST.REFUND_AMOUNT,
+                        RETURN_REQUEST.EVIDENCE_KEYS,
+                        RETURN_REQUEST.RETURN_TRACKING_NUMBER,
+                        RETURN_REQUEST.REQUESTED_AT,
+                        RETURN_REQUEST.REVIEWED_AT,
+                        RETURN_REQUEST.RECEIVED_AT,
+                        RETURN_REQUEST.CLOSED_AT)
+                .from(RETURN_REQUEST)
+                .join(SELLER_ORDER).on(SELLER_ORDER.ID.eq(RETURN_REQUEST.SELLER_ORDER_ID))
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(RETURN_REQUEST.BUYER_ID))
+                .where(condition)
+                .orderBy(RETURN_REQUEST.REQUESTED_AT.asc(), RETURN_REQUEST.ID.asc())
+                .fetch(r -> new SellerReturnRow(
+                        r.get(RETURN_REQUEST.ID),
+                        r.get(RETURN_REQUEST.SELLER_ORDER_ID),
+                        r.get(SELLER_ORDER.SELLER_ORDER_NUMBER),
+                        r.get(USER_ACCOUNT.USERNAME),
+                        r.get(USER_ACCOUNT.DISPLAY_NAME),
+                        r.get(SELLER_ORDER.GRAND_TOTAL),
+                        r.get(SELLER_ORDER.DELIVERED_AT),
+                        r.get(SELLER_ORDER.AUTO_COMPLETE_AT),
+                        r.get(RETURN_REQUEST.REASON_CODE),
+                        r.get(RETURN_REQUEST.DESCRIPTION),
+                        r.get(RETURN_REQUEST.STATUS),
+                        r.get(RETURN_REQUEST.RESOLUTION),
+                        r.get(RETURN_REQUEST.REFUND_AMOUNT),
+                        r.get(RETURN_REQUEST.EVIDENCE_KEYS),
+                        r.get(RETURN_REQUEST.RETURN_TRACKING_NUMBER),
+                        r.get(RETURN_REQUEST.REQUESTED_AT),
+                        r.get(RETURN_REQUEST.REVIEWED_AT),
+                        r.get(RETURN_REQUEST.RECEIVED_AT),
+                        r.get(RETURN_REQUEST.CLOSED_AT)
+                ));
+    }
+
+    public List<SellerReturnItemRow> findReturnItemsBatch(List<Long> returnRequestIds) {
+        if (returnRequestIds == null || returnRequestIds.isEmpty()) {
+            return List.of();
+        }
+        return dsl.select(
+                        RETURN_ITEM.ID,
+                        RETURN_ITEM.RETURN_REQUEST_ID,
+                        RETURN_ITEM.ORDER_ITEM_ID,
+                        ORDER_ITEM.PRODUCT_NAME_SNAPSHOT,
+                        ORDER_ITEM.VARIANT_LABEL_SNAPSHOT,
+                        ORDER_ITEM.CONDITION_SNAPSHOT,
+                        ORDER_ITEM.IMAGE_KEY_SNAPSHOT,
+                        ORDER_ITEM.UNIT_PRICE,
+                        RETURN_ITEM.QUANTITY,
+                        ORDER_ITEM.QUANTITY,
+                        RETURN_ITEM.RESTOCK)
+                .from(RETURN_ITEM)
+                .join(ORDER_ITEM).on(ORDER_ITEM.ID.eq(RETURN_ITEM.ORDER_ITEM_ID))
+                .where(RETURN_ITEM.RETURN_REQUEST_ID.in(returnRequestIds))
+                .orderBy(RETURN_ITEM.ID.asc())
+                .fetch(r -> new SellerReturnItemRow(
+                        r.get(RETURN_ITEM.ID),
+                        r.get(RETURN_ITEM.RETURN_REQUEST_ID),
+                        r.get(RETURN_ITEM.ORDER_ITEM_ID),
+                        r.get(ORDER_ITEM.PRODUCT_NAME_SNAPSHOT),
+                        r.get(ORDER_ITEM.VARIANT_LABEL_SNAPSHOT),
+                        r.get(ORDER_ITEM.CONDITION_SNAPSHOT),
+                        r.get(ORDER_ITEM.IMAGE_KEY_SNAPSHOT),
+                        r.get(ORDER_ITEM.UNIT_PRICE),
+                        r.get(RETURN_ITEM.QUANTITY),
+                        r.get(ORDER_ITEM.QUANTITY),
+                        Boolean.TRUE.equals(r.get(RETURN_ITEM.RESTOCK))
+                ));
+    }
+
+    public record SellerReturnRow(
+            long id,
+            long sellerOrderId,
+            String sellerOrderNumber,
+            String buyerUsername,
+            String buyerDisplayName,
+            BigDecimal sellerOrderGrandTotal,
+            OffsetDateTime deliveredAt,
+            OffsetDateTime autoCompleteAt,
+            String reasonCode,
+            String description,
+            String status,
+            String resolution,
+            BigDecimal refundAmount,
+            JSONB evidenceKeys,
+            String returnTrackingNumber,
+            OffsetDateTime requestedAt,
+            OffsetDateTime reviewedAt,
+            OffsetDateTime receivedAt,
+            OffsetDateTime closedAt
+    ) {}
+
+    public record SellerReturnItemRow(
+            long returnItemId,
+            long returnRequestId,
+            long orderItemId,
+            String cardName,
+            String variantLabel,
+            String conditionCode,
+            String imageKey,
+            BigDecimal unitPrice,
+            int quantityReturned,
+            int quantityOrdered,
+            boolean restock
+    ) {}
 
     public Optional<OrderItemRecord> orderItem(long id, long sellerOrderId) {
         return dsl.selectFrom(ORDER_ITEM).where(ORDER_ITEM.ID.eq(id))

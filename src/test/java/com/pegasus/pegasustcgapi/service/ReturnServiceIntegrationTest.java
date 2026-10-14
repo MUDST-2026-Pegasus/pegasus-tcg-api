@@ -150,6 +150,77 @@ class ReturnServiceIntegrationTest extends PostgresIntegrationTest {
         assertFinanceInvariants(startingDifference);
     }
 
+    @Test
+    void sellerReturnsBatchQueryAndSecurityChecks() {
+        var seller = data.seller();
+        var otherSeller = data.seller();
+        var buyer = data.buyer();
+        var card1 = data.card(data.game("Pokemon"), "Batch Card 1 " + data.tag(), "AR");
+        var card2 = data.card(data.game("Pokemon"), "Batch Card 2 " + data.tag(), "SR");
+        var listing1 = data.onSale(seller, card1, CardCondition.NM, 2, "100.00");
+        var listing2 = data.onSale(seller, card2, CardCondition.LP, 3, "250.00");
+
+        cart.addItem(buyer, null, new CartItemRequest(listing1.id(), 2));
+        cart.addItem(buyer, null, new CartItemRequest(listing2.id(), 1));
+        var order = checkout.checkout(buyer, "batch-return-order-" + data.tag(), null, null);
+        long suborderId = order.sellerOrders().getFirst().id();
+        long itemId1 = order.sellerOrders().getFirst().items().get(0).id();
+        long itemId2 = order.sellerOrders().getFirst().items().get(1).id();
+
+        payments.payMock(buyer, order.orderId());
+        orders.shipSellerOrder(seller.principal(), suborderId,
+                new ShipOrderRequest("Thailand Post", "BATCH-SHIP-99", "TH_POST", null, null));
+
+        var claim = returns.request(buyer.userId(), suborderId, "NOT_AS_DESCRIBED",
+                "Items damaged and incorrect", List.of(),
+                List.of(new ReturnService.Item(itemId1, 1), new ReturnService.Item(itemId2, 1)));
+
+        // 1. Seller can fetch their returns and items are batched correctly
+        var sellerReturns = returns.sellerReturns(seller.userId(), null);
+        assertThat(sellerReturns).hasSize(1);
+        var ret = sellerReturns.getFirst();
+        assertThat(ret.id()).isEqualTo(claim.getId());
+        assertThat(ret.sellerOrderId()).isEqualTo(suborderId);
+        assertThat(ret.sellerOrderNumber()).isNotBlank();
+        assertThat(ret.sellerOrderGrandTotal()).isEqualByComparingTo(order.sellerOrders().getFirst().grandTotal());
+        assertThat(ret.status()).isEqualTo("REQUESTED");
+        assertThat(ret.reasonCode()).isEqualTo("NOT_AS_DESCRIBED");
+        assertThat(ret.description()).isEqualTo("Items damaged and incorrect");
+
+        // 2. Strict Privacy Requirement: only username and displayName present; no email, phone, or address
+        assertThat(ret.buyer()).isNotNull();
+        assertThat(ret.buyer().username()).isEqualTo(buyer.username());
+        assertThat(ret.buyer().displayName()).isEqualTo(buyer.username());
+
+        // 3. Multi-item returns batch correctly without N+1
+        assertThat(ret.items()).hasSize(2);
+        var item1 = ret.items().stream().filter(i -> i.orderItemId() == itemId1).findFirst().orElseThrow();
+        assertThat(item1.quantityReturned()).isEqualTo(1);
+        assertThat(item1.quantityOrdered()).isEqualTo(2);
+        assertThat(item1.cardName()).contains("Batch Card 1");
+        assertThat(item1.conditionCode()).isEqualTo("NM");
+        assertThat(item1.unitPrice()).isEqualByComparingTo("100.00");
+        assertThat(item1.restock()).isTrue();
+
+        var item2 = ret.items().stream().filter(i -> i.orderItemId() == itemId2).findFirst().orElseThrow();
+        assertThat(item2.quantityReturned()).isEqualTo(1);
+        assertThat(item2.quantityOrdered()).isEqualTo(1);
+        assertThat(item2.cardName()).contains("Batch Card 2");
+        assertThat(item2.conditionCode()).isEqualTo("LP");
+        assertThat(item2.unitPrice()).isEqualByComparingTo("250.00");
+        assertThat(item2.restock()).isTrue();
+
+        // 4. Isolation: other seller cannot see returns for this seller's orders
+        var otherReturns = returns.sellerReturns(otherSeller.userId(), null);
+        assertThat(otherReturns).isEmpty();
+
+        // 5. Status filter works
+        var requestedFilter = returns.sellerReturns(seller.userId(), "REQUESTED");
+        assertThat(requestedFilter).hasSize(1);
+        var inTransitFilter = returns.sellerReturns(seller.userId(), "IN_TRANSIT");
+        assertThat(inTransitFilter).isEmpty();
+    }
+
     private void assertFinanceInvariants(BigDecimal startingDifference) {
         for (var wallet : dsl.selectFrom(WALLET).fetch()) {
             BigDecimal ledgerTotal = dsl.select(DSL.coalesce(DSL.sum(
