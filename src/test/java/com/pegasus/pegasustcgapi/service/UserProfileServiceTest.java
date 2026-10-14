@@ -207,4 +207,12 @@ class UserProfileServiceTest {
 
         verify(storageService).delete("avatars/old.png");
     }
+    @Test
+    void changingPhoneVisibilityDoesNotRewriteThePhoneAndAcceptsFalse() {
+        var owner = anActiveUser().withPhone("0812345678").withPhonePublic(true).build();
+        given(userRepository.findById(owner.id())).willReturn(Optional.of(owner));
+        given(authService.loadWithRoles(owner.id())).willReturn(owner);
+        userProfileService.updateProfile(owner.id(), new UpdateProfileRequest(null, null, null, null, false));
+        verify(userRepository).updateProfileSelective(owner.id(), Map.of("phonePublic", false));
+    }
 }

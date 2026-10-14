@@ -29,11 +29,12 @@ public record PublicListingResponse(
         String primaryPhotoUrl,
         OffsetDateTime publishedAt) {
 
-    public static PublicListingResponse of(PublicListing row, ListingCard card, String primaryPhotoUrl) {
+    public static PublicListingResponse of(PublicListing row, ListingCard card, String primaryPhotoUrl,
+            String sellerAvatarUrl) {
         Listing l = row.listing();
         return new PublicListingResponse(l.id(), card, l.condition(), l.gradingCompany(), l.gradeValue(),
                 l.price(), l.currency(), l.quantityAvailable(), l.status(), l.publicNote(),
-                new Seller(row.sellerUsername(), row.sellerDisplayName(), row.sellerAvatarUrl()),
+                new Seller(row.sellerUsername(), row.sellerDisplayName(), sellerAvatarUrl),
                 primaryPhotoUrl, l.publishedAt());
     }
 
