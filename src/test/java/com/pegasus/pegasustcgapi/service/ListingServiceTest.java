@@ -29,6 +29,7 @@ import com.pegasus.pegasustcgapi.model.MarketKey;
 import com.pegasus.pegasustcgapi.model.PricingMode;
 import com.pegasus.pegasustcgapi.model.SellerProfile;
 import com.pegasus.pegasustcgapi.model.SellerStatus;
+import com.pegasus.pegasustcgapi.model.WeightedAverageCost;
 import com.pegasus.pegasustcgapi.port.SellerPort;
 import com.pegasus.pegasustcgapi.repository.CatalogVariantRepository;
 import com.pegasus.pegasustcgapi.repository.ListingImageRepository;
@@ -38,6 +39,7 @@ import com.pegasus.pegasustcgapi.repository.ListingRepository.Details;
 import com.pegasus.pegasustcgapi.repository.ListingRepository.Pricing;
 import com.pegasus.pegasustcgapi.repository.ListingRepository.SellerListingQuery;
 import com.pegasus.pegasustcgapi.repository.ListingUnitRepository;
+import com.pegasus.pegasustcgapi.repository.SellerVariantCostRepository;
 import com.pegasus.pegasustcgapi.service.ListingService.PriceChange;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
@@ -93,11 +95,15 @@ class ListingServiceTest {
     @Mock
     private StorageService storage;
 
+    @Mock
+    private SellerVariantCostRepository costs;
+
     private ListingService service;
 
     @BeforeEach
     void setUp() {
-        service = new ListingService(sellers, listings, units, images, priceHistory, variants, cards, storage, FIXED);
+        service = new ListingService(sellers, listings, units, images, priceHistory, variants, cards, storage, costs,
+                FIXED);
     }
 
     // ---------- fixtures ----------
@@ -484,6 +490,41 @@ class ListingServiceTest {
                     .hasMessageContaining("stock_asc")
                     .extracting(ListingServiceTest::codeOf)
                     .isEqualTo(ErrorCode.VALIDATION_FAILED);
+        }
+    }
+
+    // ---------- cost basis ----------
+
+    @Nested
+    class CostBasis {
+
+        @Test
+        @DisplayName("a listing carries the seller's average cost for its card and condition, with how many cards it covers")
+        void carriesTheAverageCost() {
+            given(sellers.requireProfile(USER)).willReturn(verified());
+            rendersAs(listing(7004L, ListingStatus.ACTIVE, "3300.00", PricingMode.MANUAL, 3, 0));
+            // 3 cards at 2,500 then 2 at 3,000 — the average the next sale will freeze
+            given(costs.find(SELLER, JP_FOIL_NM)).willReturn(Optional.of(
+                    new WeightedAverageCost(5, new BigDecimal("13500.00"), new BigDecimal("2700.0000"))));
+
+            SellerListingResponse listing = service.get(USER, 7004L);
+
+            assertThat(listing.costBasis().quantity()).isEqualTo(5);
+            assertThat(listing.costBasis().totalCost()).isEqualByComparingTo("13500");
+            assertThat(listing.costBasis().averageUnitCost()).isEqualByComparingTo("2700");
+        }
+
+        @Test
+        @DisplayName("a card never stocked has a zero cost basis rather than none")
+        void nothingOnTheBooksIsZero() {
+            given(sellers.requireProfile(USER)).willReturn(verified());
+            rendersAs(listing(7004L, ListingStatus.DRAFT, "3300.00", PricingMode.MANUAL, 0, 0));
+
+            SellerListingResponse listing = service.get(USER, 7004L);
+
+            assertThat(listing.costBasis().quantity()).isZero();
+            assertThat(listing.costBasis().totalCost()).isEqualByComparingTo("0");
+            assertThat(listing.costBasis().averageUnitCost()).isEqualByComparingTo("0");
         }
     }
 }
