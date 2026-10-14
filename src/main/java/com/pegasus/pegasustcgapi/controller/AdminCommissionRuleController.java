@@ -63,9 +63,18 @@ public class AdminCommissionRuleController {
     }
 
     @Operation(summary = "Deactivate commission rule without deleting its history")
-    @DeleteMapping("/{id}")
+    @PostMapping("/{id}/deactivate")
     public ApiResult<Void> deactivate(@PathVariable long id) {
         rules.deactivate(id);
         return ApiResult.success("Commission rule deactivated", null);
+    }
+
+    @Operation(summary = "Delete commission rule",
+            description = "Orders keep the rate and amount frozen at checkout; "
+                    + "commission charges only lose their link to the rule.")
+    @DeleteMapping("/{id}")
+    public ApiResult<Void> delete(@PathVariable long id) {
+        rules.delete(id);
+        return ApiResult.success("Commission rule deleted", null);
     }
 }

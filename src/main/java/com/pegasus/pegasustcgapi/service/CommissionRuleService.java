@@ -49,6 +49,12 @@ public class CommissionRuleService {
         rules.deactivate(id);
     }
 
+    @Transactional
+    public void delete(long id) {
+        get(id);
+        rules.delete(id);
+    }
+
     private void validate(CommissionRuleRequest r) {
         if (r.scope() == null || r.ratePercent() == null || r.fixedFee() == null
                 || r.effectiveFrom() == null || r.ratePercent().signum() < 0

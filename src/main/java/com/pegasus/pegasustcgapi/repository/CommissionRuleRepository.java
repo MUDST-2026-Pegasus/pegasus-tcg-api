@@ -106,6 +106,11 @@ public class CommissionRuleRepository {
                 .where(COMMISSION_RULE.ID.eq(id)).execute();
     }
 
+    /** Orders keep the rate and amount frozen at checkout; charges only lose their link to the rule. */
+    public void delete(long id) {
+        dsl.deleteFrom(COMMISSION_RULE).where(COMMISSION_RULE.ID.eq(id)).execute();
+    }
+
     private static Detail detail(CommissionRuleRecord r) {
         return new Detail(r.getId(), r.getScope(), r.getGameId(), r.getCategoryId(),
                 r.getSellerProfileId(), r.getRatePercent(), r.getFixedFee(), r.getMinFee(),
