@@ -70,43 +70,42 @@ class PasswordServiceTest {
         service = new PasswordService(users, authTokens, authService, passwordEncoder, properties);
     }
 
-//    @Nested
-//    @DisplayName("reset")
-//    class Reset {
-//
-//        @Test
-//        @DisplayName("sets the new hash and signs the account out everywhere")
-//        void resetsPassword() {
-//            given(authTokens.consume("reset-token", TokenPurpose.PASSWORD_RESET))
-//                    .willReturn(resetToken());
-//
-//            service.reset(new ResetPasswordRequest("reset-token", "brand-new-password"));
-//
-//            verify(users).updatePasswordHash(USER_ID, FakePasswordEncoder.encoded("brand-new-password"));
-//            verify(authTokens).revokeAll(USER_ID, TokenPurpose.REFRESH);
-//            // Any other reset link that is still in the mailbox has to die with it.
-//            verify(authTokens).revokeAll(USER_ID, TokenPurpose.PASSWORD_RESET);
-//        }
-//
-//        @Test
-//        @DisplayName("changes nothing when the token is invalid, expired or spent")
-//        void rejectsInvalidToken() {
-//            willThrow(new UnauthorizedException(ErrorCode.INVALID_TOKEN))
-//                    .given(authTokens).consume("stale-token", TokenPurpose.PASSWORD_RESET);
-//
-//            assertThatThrownBy(() -> service.reset(new ResetPasswordRequest("stale-token", "brand-new-password")))
-//                    .isInstanceOfSatisfying(UnauthorizedException.class,
-//                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INVALID_TOKEN));
-//
-//            verify(users, never()).updatePasswordHash(anyLong(), anyString());
-//            verify(authTokens, never()).revokeAll(anyLong(), any());
-//        }
-//
-//        private StoredToken resetToken() {
-//            return new StoredToken(7L, USER_ID, TokenPurpose.PASSWORD_RESET, UUID.randomUUID(),
-//                    OffsetDateTime.now().plusHours(1), null, null);
-//        }
-//    }
+    @Nested
+    @DisplayName("reset")
+    class Reset {
+
+        @Test
+        @DisplayName("sets the new hash and signs the account out everywhere")
+        void resetsPassword() {
+            given(authTokens.consume("reset-token", TokenPurpose.PASSWORD_RESET))
+                    .willReturn(resetToken());
+
+            service.reset(new ResetPasswordRequest("reset-token", "brand-new-password"));
+
+            verify(users).updatePasswordHash(USER_ID, FakePasswordEncoder.encoded("brand-new-password"));
+            verify(authTokens).revokeAll(USER_ID, TokenPurpose.REFRESH);
+            verify(authTokens).revokeAll(USER_ID, TokenPurpose.PASSWORD_RESET);
+        }
+
+        @Test
+        @DisplayName("invalid or spent token cannot change password or sessions")
+        void rejectsInvalidToken() {
+            willThrow(new UnauthorizedException(ErrorCode.INVALID_TOKEN))
+                    .given(authTokens).consume("stale-token", TokenPurpose.PASSWORD_RESET);
+
+            assertThatThrownBy(() -> service.reset(new ResetPasswordRequest("stale-token", "brand-new-password")))
+                    .isInstanceOfSatisfying(UnauthorizedException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INVALID_TOKEN));
+
+            verify(users, never()).updatePasswordHash(anyLong(), anyString());
+            verify(authTokens, never()).revokeAll(anyLong(), any());
+        }
+
+        private StoredToken resetToken() {
+            return new StoredToken(7L, USER_ID, TokenPurpose.PASSWORD_RESET, UUID.randomUUID(),
+                    OffsetDateTime.now().plusHours(1), null, null);
+        }
+    }
 
     @Nested
     @DisplayName("change")
