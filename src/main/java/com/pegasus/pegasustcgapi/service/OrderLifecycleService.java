@@ -785,6 +785,8 @@ public class OrderLifecycleService {
                 .flatMap(so -> sellerOrdersByParent.getOrDefault(so.getId(), List.of()).stream())
                 .toList();
         Map<Long, SellerOrderDetailsResponse> sellerResponsesById = sellerDetailsById(allSellerOrders);
+        Set<Long> underReview = orderRepository.findSalesOrderIdsWithPaymentUnderReview(salesOrderIds);
+        Duration cancelWindow = platformSettingService.getHours(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS);
 
         return salesOrders.stream().map(so -> {
             List<SellerOrderDetailsResponse> sellerResponses =
@@ -809,7 +811,9 @@ public class OrderLifecycleService {
                     so.getPaidAt(),
                     so.getCompletedAt(),
                     so.getCancelledAt(),
-                    sellerResponses);
+                    sellerResponses,
+                    underReview.contains(so.getId()),
+                    so.getPaidAt() != null ? so.getPaidAt().plus(cancelWindow) : null);
         }).toList();
     }
 
