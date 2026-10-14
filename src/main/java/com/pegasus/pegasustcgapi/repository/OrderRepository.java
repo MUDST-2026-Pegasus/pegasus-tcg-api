@@ -36,6 +36,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import org.jooq.DSLContext;
 import org.jooq.Field;
@@ -102,6 +103,17 @@ public class OrderRepository {
         return dsl.fetchExists(dsl.selectOne().from(PAYMENT)
                 .where(PAYMENT.SALES_ORDER_ID.eq(salesOrderId))
                 .and(PAYMENT.STATUS.eq("AWAITING_VERIFICATION")));
+    }
+
+    /** The orders among {@code salesOrderIds} that have a slip waiting for review, in one query. */
+    public Set<Long> findSalesOrderIdsWithPaymentUnderReview(Collection<Long> salesOrderIds) {
+        if (salesOrderIds.isEmpty()) {
+            return Set.of();
+        }
+        return dsl.selectDistinct(PAYMENT.SALES_ORDER_ID).from(PAYMENT)
+                .where(PAYMENT.SALES_ORDER_ID.in(salesOrderIds))
+                .and(PAYMENT.STATUS.eq("AWAITING_VERIFICATION"))
+                .fetchSet(PAYMENT.SALES_ORDER_ID);
     }
 
     public Optional<SalesOrderRecord> findSalesOrderByIdempotencyKey(String idempotencyKey) {
