@@ -184,6 +184,16 @@ public class SellerOnboardingService implements SellerPort {
         SellerVerification request = require(verificationId);
         OffsetDateTime now = OffsetDateTime.now(clock);
 
+        // Submission checked this too, but two requests with one account can both be
+        // waiting; once the first is approved, the second would only hit the unique
+        // index and come back as an unexplained DATA_CONFLICT.
+        if (!request.status().isFinal()
+                && verifications.bankAccountUsedByAnother(request.bankAccountNumber(), request.sellerProfileId())) {
+            throw new ConflictException(ErrorCode.BANK_ACCOUNT_ALREADY_USED,
+                    "This bank account was approved for another seller after this request was filed;"
+                            + " reject it so the seller can submit another account");
+        }
+
         SellerVerification approved = decide(verificationId, request.status(),
                 VerificationStatus.APPROVED, adminId, now, null);
 

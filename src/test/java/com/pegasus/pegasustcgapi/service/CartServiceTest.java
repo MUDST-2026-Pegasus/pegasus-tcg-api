@@ -15,6 +15,7 @@ import static org.mockito.Mockito.verify;
 import com.pegasus.pegasustcgapi.dto.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.CartItemResponse;
 import com.pegasus.pegasustcgapi.dto.CartResponse;
+import com.pegasus.pegasustcgapi.dto.ListingCard;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -61,6 +62,9 @@ class CartServiceTest {
     @Mock
     private SellerProfileRepository sellerProfileRepository;
 
+    @Mock
+    private ListingCardRenderer cards;
+
     @InjectMocks
     private CartService cartService;
 
@@ -83,7 +87,8 @@ class CartServiceTest {
                 "THB",
                 10,
                 ListingStatus.ACTIVE,
-                purchasable);
+                purchasable,
+                "Seller Store");
     }
 
     @Nested
@@ -97,6 +102,8 @@ class CartServiceTest {
             ListingOffer listingOffer = offer(10L, 99L, new BigDecimal("150.00"), true);
 
             given(pricingPort.offer(10L)).willReturn(Optional.of(listingOffer));
+            given(cards.card(1L)).willReturn(new ListingCard(1L, "PIKA-025", "English / Holo", true,
+                    1L, "Pikachu ex", "pikachu-ex", (short) 1, "https://images.example/pikachu.png"));
             given(cartRepository.createForSession(anyString())).willAnswer(inv ->
                     new Cart(1L, null, inv.getArgument(0), "THB", OffsetDateTime.now(), OffsetDateTime.now(), null));
             given(cartRepository.upsertItem(eq(1L), eq(10L), eq(2), eq(new BigDecimal("150.00"))))
@@ -109,6 +116,11 @@ class CartServiceTest {
             assertThat(result.item().listingId()).isEqualTo(10L);
             assertThat(result.item().quantity()).isEqualTo(2);
             assertThat(result.item().unitPriceAtAdd()).isEqualByComparingTo("150.00");
+            assertThat(result.item().productName()).isEqualTo("Pikachu ex");
+            assertThat(result.item().variantLabel()).isEqualTo("English / Holo");
+            assertThat(result.item().sellerName()).isEqualTo("Seller Store");
+            assertThat(result.item().imageUrl()).isEqualTo("https://images.example/pikachu.png");
+            assertThat(result.item().productId()).isEqualTo(1L);
         }
 
         @Test
@@ -275,6 +287,9 @@ class CartServiceTest {
             ListingOffer offer2 = offer(20L, 99L, new BigDecimal("50.00"), true);
 
             given(pricingPort.offers(List.of(10L, 20L))).willReturn(Map.of(10L, offer1, 20L, offer2));
+            given(cards.cards(List.of(1L))).willReturn(Map.of(1L,
+                    new ListingCard(1L, "PIKA-025", "English / Holo", true,
+                            1L, "Pikachu ex", "pikachu-ex", (short) 1, "https://images.example/pikachu.png")));
 
             List<CartItemResponse> items = cartService.getCartItems(user, null);
 
@@ -289,6 +304,10 @@ class CartServiceTest {
             assertThat(res1.priceChanged()).isTrue();
             assertThat(res1.currentPrice()).isEqualByComparingTo("120.00");
             assertThat(res1.unitPriceAtAdd()).isEqualByComparingTo("100.00");
+            assertThat(res1.productName()).isEqualTo("Pikachu ex");
+            assertThat(res1.variantLabel()).isEqualTo("English / Holo");
+            assertThat(res1.sellerName()).isEqualTo("Seller Store");
+            assertThat(res1.productId()).isEqualTo(1L);
 
             assertThat(res2.priceChanged()).isFalse();
             assertThat(res2.currentPrice()).isEqualByComparingTo("50.00");

@@ -268,7 +268,7 @@ class CheckoutServiceTest {
             given(pricingPort.offers(List.of(100L))).willReturn(Map.of(100L, offer1));
             given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.empty());
             given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
-            given(ledgerPort.quoteCommission(anyLong(), any()))
+            given(ledgerPort.quoteCommission(anyLong(), any(), anyCollection()))
                     .willReturn(new CommissionQuote(new BigDecimal("5.0"), BigDecimal.TEN));
 
             // Insert throws DuplicateKeyException due to concurrent duplicate key
@@ -306,7 +306,7 @@ class CheckoutServiceTest {
             given(pricingPort.offers(List.of(100L))).willReturn(Map.of(100L, offer1));
             given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.empty());
             given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
-            given(ledgerPort.quoteCommission(anyLong(), any()))
+            given(ledgerPort.quoteCommission(anyLong(), any(), anyCollection()))
                     .willReturn(new CommissionQuote(new BigDecimal("5.0"), BigDecimal.TEN));
 
             given(orderRepository.insertSalesOrder(anyString(), anyLong(), anyString(), any(), any(), any(), any(), any(), any(), any(), eq(idemKey)))
@@ -406,7 +406,7 @@ class CheckoutServiceTest {
             // Two cards were asked for and only one came back.
             given(inventoryPort.reserve(any()))
                     .willReturn(Map.of(100L, List.of(new ReservedUnit(1001L, UUID.randomUUID()))));
-            given(ledgerPort.quoteCommission(anyLong(), any()))
+            given(ledgerPort.quoteCommission(anyLong(), any(), anyCollection()))
                     .willReturn(new CommissionQuote(RATE, BigDecimal.TEN));
             given(orderRepository.findListingDetails(List.of(100L)))
                     .willReturn(Map.of(100L, new ListingSnapshotDetails(100L, 1L, "NM", "Charizard", "EN / Foil", "Pokemon", "img1.jpg")));
@@ -511,9 +511,9 @@ class CheckoutServiceTest {
             given(inventoryPort.averageUnitCost(88L, 2L, CardCondition.NM)).willReturn(new BigDecimal("40.0000"));
 
             // Commission calculation
-            given(ledgerPort.quoteCommission(anyLong(), eq(new BigDecimal("300.00"))))
+            given(ledgerPort.quoteCommission(anyLong(), eq(new BigDecimal("300.00")), anyCollection()))
                     .willReturn(new CommissionQuote(RATE, new BigDecimal("30.00")));
-            given(ledgerPort.quoteCommission(anyLong(), eq(new BigDecimal("80.00"))))
+            given(ledgerPort.quoteCommission(anyLong(), eq(new BigDecimal("80.00")), anyCollection()))
                     .willReturn(new CommissionQuote(RATE, new BigDecimal("8.00")));
 
             // Insert records
@@ -591,7 +591,7 @@ class CheckoutServiceTest {
 
             ReservedUnit unit = new ReservedUnit(1001L, UUID.randomUUID());
             given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
-            given(ledgerPort.quoteCommission(anyLong(), any()))
+            given(ledgerPort.quoteCommission(anyLong(), any(), anyCollection()))
                     .willReturn(new CommissionQuote(new BigDecimal("5.0"), BigDecimal.TEN));
             given(orderRepository.findListingDetails(List.of(100L)))
                     .willReturn(Map.of(100L, new ListingSnapshotDetails(100L, 1L, "NM", "Charizard", "EN / Foil", "Pokemon", "img1.jpg")));
@@ -665,7 +665,7 @@ class CheckoutServiceTest {
             ReservedUnit unit = new ReservedUnit(1001L, UUID.randomUUID());
             given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
 
-            given(ledgerPort.quoteCommission(anyLong(), any())).willThrow(new IllegalStateException("Ledger communication failure"));
+            given(ledgerPort.quoteCommission(anyLong(), any(), anyCollection())).willThrow(new IllegalStateException("Ledger communication failure"));
 
             assertThatThrownBy(() -> checkoutService.checkout(buyer, idemKey, null, null))
                     .isInstanceOf(IllegalStateException.class);
@@ -705,11 +705,11 @@ class CheckoutServiceTest {
             ListingSnapshotDetails d3 = new ListingSnapshotDetails(102L, 3L, "NM", "Card C", "EN", "Pokemon", null);
             given(orderRepository.findListingDetails(List.of(100L, 101L, 102L))).willReturn(Map.of(100L, d1, 101L, d2, 102L, d3));
 
-            given(ledgerPort.quoteCommission(anyLong(), eq(new BigDecimal("100.00"))))
+            given(ledgerPort.quoteCommission(anyLong(), eq(new BigDecimal("100.00")), anyCollection()))
                     .willReturn(new CommissionQuote(RATE, new BigDecimal("10.00")));
-            given(ledgerPort.quoteCommission(anyLong(), eq(new BigDecimal("200.00"))))
+            given(ledgerPort.quoteCommission(anyLong(), eq(new BigDecimal("200.00")), anyCollection()))
                     .willReturn(new CommissionQuote(RATE, new BigDecimal("20.00")));
-            given(ledgerPort.quoteCommission(anyLong(), eq(new BigDecimal("300.00"))))
+            given(ledgerPort.quoteCommission(anyLong(), eq(new BigDecimal("300.00")), anyCollection()))
                     .willReturn(new CommissionQuote(RATE, new BigDecimal("30.00")));
 
             SalesOrderRecord salesOrder = salesOrderRecord(1L, 42L, "ORD-3S", idemKey);
@@ -785,7 +785,7 @@ class CheckoutServiceTest {
 
             ReservedUnit unit = new ReservedUnit(1001L, UUID.randomUUID());
             given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
-            given(ledgerPort.quoteCommission(anyLong(), any()))
+            given(ledgerPort.quoteCommission(anyLong(), any(), anyCollection()))
                     .willReturn(new CommissionQuote(new BigDecimal("5.0"), BigDecimal.TEN));
             given(orderRepository.findListingDetails(List.of(100L)))
                     .willReturn(Map.of(100L, new ListingSnapshotDetails(100L, 1L, "NM", "Charizard", "EN / Foil", "Pokemon", "img1.jpg")));

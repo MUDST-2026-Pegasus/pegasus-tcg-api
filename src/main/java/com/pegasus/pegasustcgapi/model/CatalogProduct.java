@@ -5,7 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * The card as a concept — "Pikachu ex from Terastal Festival, number 025/187".
+ * The card as a concept — "Pikachu ex from Terastal Festival, number 236/187".
  * True whether anybody is selling one or not, which is why it belongs to the
  * platform rather than to a seller [RQ-3].
  *

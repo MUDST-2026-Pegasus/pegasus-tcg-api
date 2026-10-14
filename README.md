@@ -290,6 +290,51 @@ POST   /users/{userId}/roles                     ADMIN
 DELETE /users/{userId}/roles/{role}              ADMIN
 ```
 
+### Finance and after-sales
+
+Bank transfers are manual: the buyer creates a payment, uploads a `PAYMENT_SLIP`, and an admin checks the actual bank receipt before approving it. No banking or payout provider is called. `payment.slip_auto_approve` must remain `false`; the API rejects enabling it. `payment.transfer_account` contains a placeholder until an admin supplies the real receiving account.
+
+```text
+POST /payments                              buyer; Idempotency-Key required
+POST /payments/{id}/slip                    buyer; uploaded PAYMENT_SLIP key
+GET  /payments/{id}                         buyer; poll PENDING/AWAITING_VERIFICATION/SUCCEEDED/FAILED
+GET  /admin/payments?status=AWAITING_VERIFICATION  ADMIN
+POST /admin/payments/{id}/verify            ADMIN; {"approved":true} or {"approved":false,"reason":"..."}
+GET  /me/wallet?page=0&size=20             seller; balances and ledger
+GET  /sellers/me/payouts                    seller
+POST /sellers/me/payouts                   seller; requires verified payout account
+GET  /admin/payouts?status=                ADMIN
+POST /admin/payouts/{id}/approve           ADMIN
+POST /admin/payouts/{id}/processing        ADMIN
+POST /admin/payouts/{id}/paid              ADMIN; confirms external transfer with proof
+POST /admin/payouts/{id}/reject            ADMIN
+POST /admin/payouts/{id}/fail              ADMIN
+GET  /admin/refunds?status=APPROVED        ADMIN
+GET  /refunds                              buyer; list own refunds
+GET  /refunds/{id}                         buyer; read own refund
+PUT  /refunds/{id}/destination             buyer; {"bankName":"...","accountName":"...","accountNumber":"..."}
+POST /admin/refunds/{id}/processing        ADMIN; {"accountNumber":"..."}; verifies the latest number and locks the destination before transfer
+POST /admin/refunds/{id}/processed         ADMIN; {"transferReference":"..."}; confirms transfer
+POST /admin/refunds/{id}/failed            ADMIN; {"reason":"..."}; records a failed attempt and unlocks the destination
+GET  /admin/refunds/{id}/transfers         ADMIN; immutable destination snapshots and transfer attempts
+GET  /orders/{sellerOrderId}/returns       buyer
+POST /orders/{sellerOrderId}/returns       buyer
+POST /orders/{sellerOrderId}/returns/{returnId}/ship buyer
+GET  /sellers/me/returns?status=           seller
+POST /sellers/me/returns/{id}/approve      seller
+POST /sellers/me/returns/{id}/reject       seller
+POST /sellers/me/returns/{id}/receive      seller
+POST /orders/{sellerOrderId}/reviews       buyer
+GET  /u/{username}/reviews                 public
+POST /sellers/me/reviews/{id}/reply        seller
+PUT  /admin/reviews/{id}/visibility        ADMIN
+```
+
+The buyer's payment is first credited to the platform wallet and held per seller order. Completing a seller order releases its non-refunded amount to the seller after commission. A buyer can request a return only while the seller order is shipped or delivered and before its escrow deadline (seven days after shipment by default). Confirming receipt or reaching that deadline releases escrow and closes the in-system return window. A request opened before the deadline pauses release until the dispute is resolved. A rejected claim resumes the original deadline; it does not release money early.
+
+Cancellation or an approved return creates an `APPROVED` refund obligation. For bank transfers, the buyer supplies a destination for that refund. An admin calls `/processing` before opening the bank app; this freezes the destination and saves an audit snapshot. After transferring money outside the system, the admin records the bank reference via `/processed`. This debits the platform wallet once. If the bank rejects the transfer, `/failed` records the reason and lets the buyer correct the destination for another attempt. Repeating `/processed` with the same reference returns the completed refund without posting money again. A seller payout is also debited only when an admin confirms it as paid. Manual confirmations must follow the real bank transfers to keep the ledger in sync with cash.
+
+
 ## API conventions
 
 - JSON requests use `Content-Type: application/json`.
@@ -504,3 +549,7 @@ are private by default; review package visibility and access after first publish
 See [GitHub Container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
 
 This publishes the backend image only; it does not deploy it to a server.
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).

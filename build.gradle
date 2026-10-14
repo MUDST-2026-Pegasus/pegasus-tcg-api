@@ -22,6 +22,7 @@ plugins {
 group = 'com.pegasus'
 version = '0.0.1-SNAPSHOT'
 description = 'pegasus-tcg-api'
+ext.license = 'Apache-2.0'
 
 java {
     toolchain {

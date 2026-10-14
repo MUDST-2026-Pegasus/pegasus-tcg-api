@@ -364,7 +364,8 @@ public class CheckoutService {
             BigDecimal sellerGrandTotal = sellerSubtotal.add(sellerShipping).subtract(sellerDiscount);
 
             // Commission is quoted on the items alone: a seller is not charged for postage.
-            CommissionQuote commission = ledgerPort.quoteCommission(sellerProfileId, sellerSubtotal);
+            CommissionQuote commission = ledgerPort.quoteCommission(sellerProfileId, sellerSubtotal,
+                    sellerItems.stream().map(i -> offers.get(i.listingId()).catalogVariantId()).toList());
             if (commission == null) {
                 commission = CommissionQuote.NONE;
             }

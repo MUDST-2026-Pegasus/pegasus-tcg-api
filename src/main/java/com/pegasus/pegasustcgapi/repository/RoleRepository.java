@@ -4,7 +4,10 @@ import static com.pegasus.pegasustcgapi.jooq.tables.AppRole.APP_ROLE;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserRole.USER_ROLE;
 
 import com.pegasus.pegasustcgapi.model.RoleCode;
+import java.util.Collection;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.jooq.DSLContext;
@@ -39,6 +42,20 @@ public class RoleRepository {
                 .fetch(APP_ROLE.CODE)
                 .forEach(code -> toRoleCode(code).ifPresent(codes::add));
         return codes;
+    }
+
+    /** One query for a whole page; users with no roles are simply absent from the map. */
+    public Map<Long, Set<RoleCode>> findCodesByUserIds(Collection<Long> userIds) {
+        Map<Long, Set<RoleCode>> byUser = new HashMap<>();
+        if (userIds.isEmpty()) return byUser;
+        dsl.select(USER_ROLE.USER_ID, APP_ROLE.CODE)
+                .from(USER_ROLE)
+                .join(APP_ROLE).on(APP_ROLE.ID.eq(USER_ROLE.ROLE_ID))
+                .where(USER_ROLE.USER_ID.in(userIds))
+                .fetch()
+                .forEach(r -> toRoleCode(r.value2()).ifPresent(code ->
+                        byUser.computeIfAbsent(r.value1(), k -> EnumSet.noneOf(RoleCode.class)).add(code)));
+        return byUser;
     }
 
     /**

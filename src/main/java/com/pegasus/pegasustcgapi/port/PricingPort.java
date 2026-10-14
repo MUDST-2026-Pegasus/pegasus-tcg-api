@@ -33,6 +33,21 @@ public interface PricingPort {
             String currency,
             int quantityAvailable,
             ListingStatus status,
-            boolean purchasable) {
+            boolean purchasable,
+            String sellerName) {
+
+        public ListingOffer(
+                long listingId,
+                long sellerProfileId,
+                long catalogVariantId,
+                CardCondition condition,
+                BigDecimal price,
+                String currency,
+                int quantityAvailable,
+                ListingStatus status,
+                boolean purchasable) {
+            this(listingId, sellerProfileId, catalogVariantId, condition, price, currency,
+                    quantityAvailable, status, purchasable, null);
+        }
     }
 }

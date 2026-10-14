@@ -30,7 +30,7 @@ public enum SellerOrderStatus {
     COMPLETED,
     /** Called off before it shipped; the cards went back on sale. */
     CANCELLED,
-    /** After-sales owns these three; the order module never drives them. */
+    /** After-sales moves through these states while escrow remains under dispute. */
     RETURN_REQUESTED,
     RETURNED,
     REFUNDED;
@@ -48,18 +48,19 @@ public enum SellerOrderStatus {
     /**
      * Where this status may move next.
      *
-     * <p>The after-sales statuses have no targets here on purpose: returns and
-     * refunds are another module's state machine, and inventing its edges would
-     * let this module drive transitions it does not own.
+     * <p>ReturnService drives the after-sales edges; ordinary order operations
+     * still use only their own eligible status sets.
      */
     public Set<SellerOrderStatus> targets() {
         return switch (this) {
             case PENDING_PAYMENT -> EnumSet.of(PAID, CANCELLED);
             case PAID -> EnumSet.of(PREPARING, SHIPPED, CANCELLED);
             case PREPARING -> EnumSet.of(SHIPPED, CANCELLED);
-            case SHIPPED -> EnumSet.of(DELIVERED, COMPLETED);
-            case DELIVERED -> EnumSet.of(COMPLETED);
-            case COMPLETED, CANCELLED, RETURN_REQUESTED, RETURNED, REFUNDED ->
+            case SHIPPED -> EnumSet.of(DELIVERED, COMPLETED, RETURN_REQUESTED);
+            case DELIVERED -> EnumSet.of(COMPLETED, RETURN_REQUESTED);
+            case RETURN_REQUESTED -> EnumSet.of(SHIPPED, DELIVERED, RETURNED, COMPLETED, REFUNDED);
+            case RETURNED -> EnumSet.of(COMPLETED, REFUNDED);
+            case COMPLETED, CANCELLED, REFUNDED ->
                     EnumSet.noneOf(SellerOrderStatus.class);
         };
     }

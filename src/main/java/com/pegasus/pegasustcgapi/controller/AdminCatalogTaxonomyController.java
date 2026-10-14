@@ -32,10 +32,10 @@ import org.springframework.web.bind.annotation.RestController;
  * Curating the catalogue's vocabulary [RQ-3]: the games, the fields their cards
  * have, the shelves and the releases.
  *
- * <p>Nothing here deletes. {@code catalog_product} points at a category and a set
- * with ON DELETE RESTRICT, so what is no longer offered is deactivated and the
- * products filed under it keep resolving. Attributes are the exception: no row
- * references one, so a mistaken field can go.
+ * <p>Games and categories are never deleted: {@code catalog_product} points at
+ * them with ON DELETE RESTRICT, so what is no longer offered is deactivated and
+ * the products filed under it keep resolving. An attribute can go because no row
+ * references one, and a card set can go once no product is filed under it.
  */
 @RestController
 @RequestMapping(ApiPaths.ADMIN)
@@ -155,5 +155,12 @@ public class AdminCatalogTaxonomyController {
 
         return ApiResult.success("Card set updated",
                 taxonomy.updateCardSet(cardSetId, request.toFields()));
+    }
+
+    /** A set that still has products, retired ones included, is refused with CARD_SET_IN_USE. */
+    @DeleteMapping("/card-sets/{cardSetId}")
+    public ApiResult<Void> deleteCardSet(@PathVariable int cardSetId) {
+        taxonomy.deleteCardSet(cardSetId);
+        return ApiResult.success("Card set deleted", null);
     }
 }

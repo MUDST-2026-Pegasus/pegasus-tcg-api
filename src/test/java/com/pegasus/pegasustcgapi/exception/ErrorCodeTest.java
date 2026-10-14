@@ -28,4 +28,37 @@ class ErrorCodeTest {
         // 400
         assertThat(ErrorCode.IDEMPOTENCY_KEY_REQUIRED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
+
+    @Test
+    @DisplayName("verifies finance error codes and HTTP statuses")
+    void financeErrorCodesMatchExpectedHttpStatus() {
+        // 404
+        assertThat(ErrorCode.PAYMENT_NOT_FOUND.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(ErrorCode.PAYOUT_NOT_FOUND.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(ErrorCode.REFUND_NOT_FOUND.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(ErrorCode.RETURN_NOT_FOUND.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(ErrorCode.REVIEW_NOT_FOUND.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(ErrorCode.COMMISSION_RULE_NOT_FOUND.status()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // 400
+        assertThat(ErrorCode.PAYMENT_METHOD_NOT_SUPPORTED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.COMMISSION_RULE_INVALID.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.PAYOUT_BELOW_MINIMUM.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // 409
+        assertThat(ErrorCode.ORDER_NOT_PAYABLE.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.PAYMENT_STATE.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.PAYOUT_STATE.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.RETURN_STATE.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.PAYMENT_AMOUNT_MISMATCH.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.PAYMENT_UNDER_REVIEW.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.SLIP_ALREADY_USED.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.INSUFFICIENT_BALANCE.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.REFUND_EXCEEDS_REFUNDABLE.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.RETURN_WINDOW_CLOSED.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.RETURN_ALREADY_OPEN.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.REVIEW_ORDER_NOT_COMPLETED.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.REVIEW_ALREADY_EXISTS.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.REVIEW_ALREADY_REPLIED.status()).isEqualTo(HttpStatus.CONFLICT);
+    }
 }

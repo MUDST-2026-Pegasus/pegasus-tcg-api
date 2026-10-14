@@ -46,6 +46,12 @@ SELECT g.id, 'SV8A', 'Terastal Festival', 'เทศกาลเทระสต�
  WHERE g.code = 'POKEMON'
    AND NOT EXISTS (SELECT 1 FROM card_set s WHERE s.game_id = g.id AND s.code = 'SV8A');
 
+INSERT INTO card_set (game_id, code, name, name_local, release_date, total_cards)
+SELECT g.id, 'MEW', 'Scarlet & Violet—151', 'โปเกมอนการ์ด 151', DATE '2023-09-22', 165
+  FROM game g
+ WHERE g.code = 'POKEMON'
+   AND NOT EXISTS (SELECT 1 FROM card_set s WHERE s.game_id = g.id AND s.code = 'MEW');
+
 -- ---------- the cards ----------
 --
 -- Four entries covering what the catalogue has to handle: a card with two
@@ -58,18 +64,18 @@ INSERT INTO catalog_product (
 SELECT g.id, c.id, s.id, v.product_type, v.name, v.name_local, v.slug,
        v.card_number, v.rarity_code, v.attributes
   FROM game g
-  JOIN card_set s ON s.game_id = g.id AND s.code = 'SV8A'
   CROSS JOIN LATERAL (VALUES
-        ('SINGLES', 'SINGLE_CARD', 'Pikachu ex',   'พิคาชู ex',  'pikachu-ex-025-187',
-         '025/187', 'RR',  '{"hp":200,"card_type":"Lightning","stage":"Basic"}'::jsonb),
-        ('SINGLES', 'SINGLE_CARD', 'Charizard ex', 'ลิซาร์ดอน ex', 'charizard-ex-006-165',
-         '006/165', 'SAR', '{"hp":330,"card_type":"Fire","stage":"Stage 2"}'::jsonb),
-        ('SINGLES', 'SINGLE_CARD', 'Mew ex',       'มิว ex',     'mew-ex-151-165',
-         '151/165', 'SR',  '{"hp":180,"card_type":"Psychic","stage":"Basic"}'::jsonb),
-        ('SEALED',  'BOOSTER_BOX', 'Terastal Festival Booster Box', NULL,
+        ('SV8A', 'SINGLES', 'SINGLE_CARD', 'Pikachu ex',   'พิคาชู ex',  'pikachu-ex-025-187',
+         '236/187', 'UR',  '{"hp":200,"card_type":"Lightning","stage":"Basic"}'::jsonb),
+        ('MEW', 'SINGLES', 'SINGLE_CARD', 'Charizard ex', 'ลิซาร์ดอน ex', 'charizard-ex-006-165',
+         '006/165', 'RR', '{"hp":330,"card_type":"Fire","stage":"Stage 2"}'::jsonb),
+        ('MEW', 'SINGLES', 'SINGLE_CARD', 'Mew ex',       'มิว ex',     'mew-ex-151-165',
+         '151/165', 'RR',  '{"hp":180,"card_type":"Psychic","stage":"Basic"}'::jsonb),
+        ('SV8A', 'SEALED',  'BOOSTER_BOX', 'Terastal Festival Booster Box', NULL,
          'terastal-festival-booster-box', NULL, NULL, '{}'::jsonb)
-       ) AS v(category_code, product_type, name, name_local, slug,
+       ) AS v(set_code, category_code, product_type, name, name_local, slug,
               card_number, rarity_code, attributes)
+  JOIN card_set s ON s.game_id = g.id AND s.code = v.set_code
   JOIN catalog_category c ON c.code = v.category_code AND c.game_id IS NULL
  WHERE g.code = 'POKEMON'
    AND NOT EXISTS (SELECT 1 FROM catalog_product p WHERE p.slug = v.slug);

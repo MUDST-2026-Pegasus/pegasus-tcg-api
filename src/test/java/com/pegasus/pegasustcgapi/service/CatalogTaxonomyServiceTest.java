@@ -240,6 +240,44 @@ class CatalogTaxonomyServiceTest {
     }
 
     @Test
+    @DisplayName("an empty set is deleted")
+    void deleteEmptyCardSet() {
+        given(cardSets.lockById(301)).willReturn(Optional.of(terastal()));
+        given(cardSets.hasProducts(301)).willReturn(false);
+
+        service.deleteCardSet(301);
+
+        verify(cardSets).delete(301);
+    }
+
+    @Test
+    @DisplayName("a set that still has products is refused, so they are not unfiled by ON DELETE SET NULL")
+    void deleteCardSetInUse() {
+        given(cardSets.lockById(301)).willReturn(Optional.of(terastal()));
+        given(cardSets.hasProducts(301)).willReturn(true);
+
+        assertThatThrownBy(() -> service.deleteCardSet(301))
+                .isInstanceOf(ConflictException.class)
+                .extracting(e -> ((ConflictException) e).errorCode())
+                .isEqualTo(ErrorCode.CARD_SET_IN_USE);
+
+        verify(cardSets, never()).delete(anyInt());
+    }
+
+    @Test
+    @DisplayName("deleting an unknown set is 404")
+    void deleteUnknownCardSet() {
+        given(cardSets.lockById(999)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.deleteCardSet(999))
+                .isInstanceOf(NotFoundException.class)
+                .extracting(e -> ((NotFoundException) e).errorCode())
+                .isEqualTo(ErrorCode.CARD_SET_NOT_FOUND);
+
+        verify(cardSets, never()).delete(anyInt());
+    }
+
+    @Test
     @DisplayName("a new tile picture has to be a finished catalogue upload, so a private file cannot go public")
     void newImageMustBeACatalogUpload() {
         String bankBook = "verifications/2026/09/bank-book.jpg";

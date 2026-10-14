@@ -1,6 +1,8 @@
 package com.pegasus.pegasustcgapi.port;
 
 import java.math.BigDecimal;
+import java.util.Collection;
+import java.time.OffsetDateTime;
 
 /**
  * Platform ledger and commission port stub for checkout and order completion.
@@ -18,8 +20,18 @@ public interface LedgerPort {
      */
     CommissionQuote quoteCommission(long sellerProfileId, BigDecimal itemsSubtotal);
 
+    default CommissionQuote quoteCommission(long sellerProfileId, BigDecimal itemsSubtotal,
+            Collection<Long> catalogVariantIds) {
+        return quoteCommission(sellerProfileId, itemsSubtotal);
+    }
+
     /** Hands the seller's share out of escrow once their sub-order completes. */
     void release(long sellerOrderId);
+
+    /** Queue a manual refund after a paid sub-order is cancelled. */
+    void refundOnCancel(long sellerOrderId, String reason, Long actorUserId);
+
+    void scheduleRelease(long sellerOrderId, OffsetDateTime dueAt);
 
     /**
      * @param ratePercent the rate applied, e.g. {@code 5.0} for five percent

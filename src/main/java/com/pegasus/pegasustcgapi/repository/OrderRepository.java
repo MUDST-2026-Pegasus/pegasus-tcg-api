@@ -8,6 +8,10 @@ import static com.pegasus.pegasustcgapi.jooq.tables.Game.GAME;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItemUnit.ORDER_ITEM_UNIT;
+import static com.pegasus.pegasustcgapi.jooq.tables.Payment.PAYMENT;
+import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
+import static com.pegasus.pegasustcgapi.jooq.tables.ReturnItem.RETURN_ITEM;
+import static com.pegasus.pegasustcgapi.jooq.tables.ReturnRequest.RETURN_REQUEST;
 import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrderStatusHistory.SELLER_ORDER_STATUS_HISTORY;
@@ -32,8 +36,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -91,6 +97,23 @@ public class OrderRepository {
         return dsl.selectFrom(SALES_ORDER)
                 .where(SALES_ORDER.ID.eq(id))
                 .fetchOptional();
+    }
+
+    public boolean hasPaymentUnderReview(long salesOrderId) {
+        return dsl.fetchExists(dsl.selectOne().from(PAYMENT)
+                .where(PAYMENT.SALES_ORDER_ID.eq(salesOrderId))
+                .and(PAYMENT.STATUS.eq("AWAITING_VERIFICATION")));
+    }
+
+    /** The orders among {@code salesOrderIds} that have a slip waiting for review, in one query. */
+    public Set<Long> findSalesOrderIdsWithPaymentUnderReview(Collection<Long> salesOrderIds) {
+        if (salesOrderIds.isEmpty()) {
+            return Set.of();
+        }
+        return dsl.selectDistinct(PAYMENT.SALES_ORDER_ID).from(PAYMENT)
+                .where(PAYMENT.SALES_ORDER_ID.in(salesOrderIds))
+                .and(PAYMENT.STATUS.eq("AWAITING_VERIFICATION"))
+                .fetchSet(PAYMENT.SALES_ORDER_ID);
     }
 
     public Optional<SalesOrderRecord> findSalesOrderByIdempotencyKey(String idempotencyKey) {
@@ -389,6 +412,59 @@ public class OrderRepository {
                 .fetchOptional();
     }
 
+    /** In no particular order; callers that care key the result by id. */
+    public List<SellerOrderRecord> findSellerOrdersByIds(Collection<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return dsl.selectFrom(SELLER_ORDER)
+                .where(SELLER_ORDER.ID.in(ids))
+                .fetch();
+    }
+
+    /**
+     * PAID to PREPARING, stamping when the seller took it on. The status guard is in
+     * the UPDATE itself, so two tabs accepting at once leave one history row, not two.
+     *
+     * @return rows changed: 0 when the order was no longer PAID
+     */
+    public int markSellerOrderAccepted(long sellerOrderId, OffsetDateTime acceptedAt) {
+        return dsl.update(SELLER_ORDER)
+                .set(SELLER_ORDER.STATUS, "PREPARING")
+                .set(SELLER_ORDER.ACCEPTED_AT, acceptedAt)
+                .set(SELLER_ORDER.UPDATED_AT, OffsetDateTime.now(clock))
+                .where(SELLER_ORDER.ID.eq(sellerOrderId))
+                .and(SELLER_ORDER.STATUS.eq("PAID"))
+                .execute();
+    }
+
+    /**
+     * What the cards cost the seller, from the weighted average frozen on each line
+     * at checkout, so restocking later never changes an old order's profit.
+     */
+    public Map<Long, BigDecimal> findCostTotalsBySellerOrderIds(Collection<Long> sellerOrderIds) {
+        if (sellerOrderIds.isEmpty()) {
+            return Map.of();
+        }
+        Field<BigDecimal> cost = DSL.coalesce(
+                DSL.sum(ORDER_ITEM.UNIT_COST_SNAPSHOT.mul(ORDER_ITEM.QUANTITY)), BigDecimal.ZERO);
+        return dsl.select(ORDER_ITEM.SELLER_ORDER_ID, cost)
+                .from(ORDER_ITEM)
+                .where(ORDER_ITEM.SELLER_ORDER_ID.in(sellerOrderIds))
+                .groupBy(ORDER_ITEM.SELLER_ORDER_ID)
+                .fetchMap(ORDER_ITEM.SELLER_ORDER_ID, r -> r.get(cost));
+    }
+
+    /** Orders this buyer paid for at this shop, the one being looked at included. */
+    public long countPaidOrdersOfBuyerAtSeller(long sellerProfileId, long buyerId) {
+        return dsl.fetchCount(dsl.selectOne()
+                .from(SELLER_ORDER)
+                .join(SALES_ORDER).on(SALES_ORDER.ID.eq(SELLER_ORDER.SALES_ORDER_ID))
+                .where(SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .and(SALES_ORDER.BUYER_ID.eq(buyerId))
+                .and(SALES_ORDER.PAID_AT.isNotNull()));
+    }
+
     public List<Long> findUnitIdsBySellerOrderId(long sellerOrderId) {
         return dsl.select(ORDER_ITEM_UNIT.LISTING_UNIT_ID)
                 .from(ORDER_ITEM_UNIT)
@@ -586,7 +662,10 @@ public class OrderRepository {
                         dsl.select(SALES_ORDER.ID)
                                 .from(SALES_ORDER)
                                 .where(SALES_ORDER.STATUS.eq("PENDING_PAYMENT"))
-                                .and(SALES_ORDER.PLACED_AT.lt(cutoff))))
+                                .and(SALES_ORDER.PLACED_AT.lt(cutoff))
+                                .andNotExists(dsl.selectOne().from(PAYMENT)
+                                        .where(PAYMENT.SALES_ORDER_ID.eq(SALES_ORDER.ID))
+                                        .and(PAYMENT.STATUS.in("AWAITING_VERIFICATION", "SUCCEEDED")))))
                 .orderBy(SELLER_ORDER.ID.asc())
                 .limit(limit)
                 .fetch();
@@ -594,6 +673,24 @@ public class OrderRepository {
 
     public int grantPurchasedUnitsToCollection(long buyerUserId, long sellerOrderId) {
         OffsetDateTime now = OffsetDateTime.now(clock);
+        // A received return can cover only some physical units of an order item.
+        // Use the same lowest-unit-id choice as restockReturn, including when the
+        // seller elected not to restock the returned unit.
+        List<Long> returnedUnits = new ArrayList<>();
+        dsl.select(RETURN_ITEM.ORDER_ITEM_ID, RETURN_ITEM.QUANTITY)
+                .from(RETURN_ITEM)
+                .join(RETURN_REQUEST).on(RETURN_REQUEST.ID.eq(RETURN_ITEM.RETURN_REQUEST_ID))
+                .join(REFUND).on(REFUND.RETURN_REQUEST_ID.eq(RETURN_REQUEST.ID))
+                .where(RETURN_REQUEST.SELLER_ORDER_ID.eq(sellerOrderId))
+                .and(RETURN_REQUEST.RECEIVED_AT.isNotNull())
+                .and(REFUND.STATUS.eq("PROCESSED"))
+                .fetch()
+                .forEach(item -> returnedUnits.addAll(dsl.select(ORDER_ITEM_UNIT.LISTING_UNIT_ID)
+                        .from(ORDER_ITEM_UNIT)
+                        .where(ORDER_ITEM_UNIT.ORDER_ITEM_ID.eq(item.value1()))
+                        .orderBy(ORDER_ITEM_UNIT.LISTING_UNIT_ID.asc())
+                        .limit(item.value2())
+                        .fetch(ORDER_ITEM_UNIT.LISTING_UNIT_ID)));
         return dsl.insertInto(COLLECTION_ITEM,
                         COLLECTION_ITEM.USER_ID,
                         COLLECTION_ITEM.CATALOG_VARIANT_ID,
@@ -620,6 +717,8 @@ public class OrderRepository {
                                 .from(ORDER_ITEM_UNIT)
                                 .join(ORDER_ITEM).on(ORDER_ITEM.ID.eq(ORDER_ITEM_UNIT.ORDER_ITEM_ID))
                                 .where(ORDER_ITEM.SELLER_ORDER_ID.eq(sellerOrderId))
+                                .and(returnedUnits.isEmpty() ? DSL.trueCondition()
+                                        : ORDER_ITEM_UNIT.LISTING_UNIT_ID.notIn(returnedUnits))
                                 .andNotExists(
                                         dsl.selectOne()
                                                 .from(COLLECTION_ITEM)

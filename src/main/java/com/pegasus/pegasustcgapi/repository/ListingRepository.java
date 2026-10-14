@@ -51,6 +51,13 @@ public class ListingRepository {
     private static final Field<UserStatus> ACCOUNT_STATUS = USER_ACCOUNT.STATUS.as("account_status");
     private static final Field<OffsetDateTime> ACCOUNT_DELETED_AT = USER_ACCOUNT.DELETED_AT.as("account_deleted_at");
 
+    /** The card's name, read per row, so the dashboard can be sorted A to Z without joining the page. */
+    private static final Field<String> PRODUCT_NAME = DSL.field(
+            DSL.select(CATALOG_PRODUCT.NAME)
+                    .from(CATALOG_VARIANT)
+                    .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                    .where(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID)));
+
     private final DSLContext dsl;
 
     public ListingRepository(DSLContext dsl) {
@@ -83,11 +90,11 @@ public class ListingRepository {
                 .map(ListingRepository::toListing);
     }
 
-    /** Newest change first, the order the dashboard index is built for. */
+    /** Newest change first unless the seller asks otherwise; the dashboard index is built for that one. */
     public List<Listing> findSellerPage(SellerListingQuery query) {
         return dsl.selectFrom(LISTING)
                 .where(sellerConditions(query))
-                .orderBy(LISTING.UPDATED_AT.desc(), LISTING.ID.desc())
+                .orderBy(sellerOrder(query.sort()))
                 .limit(query.limit())
                 .offset(query.offset())
                 .fetch(ListingRepository::toListing);
@@ -251,6 +258,8 @@ public class ListingRepository {
         fields.add(SELLER_PROFILE.VACATION_MODE);
         fields.add(ACCOUNT_STATUS);
         fields.add(ACCOUNT_DELETED_AT);
+        fields.add(USER_ACCOUNT.DISPLAY_NAME);
+        fields.add(USER_ACCOUNT.USERNAME);
 
         return dsl.select(fields)
                 .from(LISTING)
@@ -262,7 +271,9 @@ public class ListingRepository {
                         toListing(r.into(LISTING)),
                         SellerStatus.valueOf(r.get(SELLER_STATUS)),
                         r.get(SELLER_PROFILE.VACATION_MODE),
-                        r.get(ACCOUNT_STATUS) == UserStatus.ACTIVE && r.get(ACCOUNT_DELETED_AT) == null));
+                        r.get(ACCOUNT_STATUS) == UserStatus.ACTIVE && r.get(ACCOUNT_DELETED_AT) == null,
+                        r.get(USER_ACCOUNT.DISPLAY_NAME),
+                        r.get(USER_ACCOUNT.USERNAME)));
     }
 
     // ---------- the nightly job ----------
@@ -383,7 +394,50 @@ public class ListingRepository {
         if (query.condition() != null) {
             condition = condition.and(LISTING.CONDITION_CODE.eq(query.condition().name()));
         }
+        if (query.search() != null) {
+            String pattern = containsPattern(query.search());
+            // A semi-join like the market's, so the page and the count share this condition unchanged.
+            condition = condition.and(ilike(LISTING.LOT_LABEL, pattern)
+                    .or(LISTING.CATALOG_VARIANT_ID.in(
+                            DSL.select(CATALOG_VARIANT.ID)
+                                    .from(CATALOG_VARIANT)
+                                    .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                                    .where(ilike(CATALOG_PRODUCT.NAME, pattern)
+                                            .or(ilike(CATALOG_PRODUCT.NAME_LOCAL, pattern))
+                                            .or(ilike(CATALOG_PRODUCT.CARD_NUMBER, pattern))
+                                            .or(ilike(CATALOG_VARIANT.SKU, pattern))))));
+        }
         return condition;
+    }
+
+    /** Every order ends on the id, so rows that tie keep their place from one page to the next. */
+    private static List<SortField<?>> sellerOrder(SellerListingQuery.Sort sort) {
+        return switch (sort) {
+            case UPDATED -> List.of(LISTING.UPDATED_AT.desc(), LISTING.ID.desc());
+            case NEWEST -> List.of(LISTING.CREATED_AT.desc(), LISTING.ID.desc());
+            case PRICE_ASC -> List.of(LISTING.PRICE.asc(), LISTING.ID.asc());
+            case PRICE_DESC -> List.of(LISTING.PRICE.desc(), LISTING.ID.desc());
+            case STOCK_ASC -> List.of(LISTING.QUANTITY_AVAILABLE.asc(), LISTING.ID.asc());
+            case STOCK_DESC -> List.of(LISTING.QUANTITY_AVAILABLE.desc(), LISTING.ID.desc());
+            case NAME -> List.of(PRODUCT_NAME.asc(), LISTING.ID.asc());
+        };
+    }
+
+    /** "%text%" with the LIKE wildcards in the text taken literally. */
+    private static String containsPattern(String text) {
+        return "%" + text.trim()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_") + "%";
+    }
+
+    /**
+     * A real {@code ILIKE}, as in {@link CatalogProductRepository}: the trigram
+     * indexes are on the columns themselves, and {@code lower()} around them would
+     * leave the search on a sequential scan.
+     */
+    private static Condition ilike(Field<String> column, String pattern) {
+        return DSL.condition("{0} ILIKE {1} ESCAPE '\\'", column, DSL.val(pattern));
     }
 
     private static List<SortField<?>> order(PublicListingQuery.Sort sort) {
@@ -451,13 +505,32 @@ public class ListingRepository {
             BigDecimal ceiling) {
     }
 
+    /**
+     * @param search matched, case-insensitively and anywhere in the text, against the
+     *               card's name, local name and number, the printing's SKU and the
+     *               seller's own lot label; null for no search
+     */
     public record SellerListingQuery(
             long sellerProfileId,
             ListingStatus status,
             Long variantId,
             CardCondition condition,
+            String search,
+            Sort sort,
             int limit,
             int offset) {
+
+        /** Most recently changed first is what the dashboard opens on. */
+        public enum Sort {
+            UPDATED,
+            NEWEST,
+            PRICE_ASC,
+            PRICE_DESC,
+            /** Fewest cards left first — where a seller looks for what needs restocking. */
+            STOCK_ASC,
+            STOCK_DESC,
+            NAME
+        }
     }
 
     /** @param sellerUserId narrows the market to one storefront */
@@ -493,6 +566,8 @@ public class ListingRepository {
             Listing listing,
             SellerStatus sellerStatus,
             boolean sellerOnVacation,
-            boolean sellerAccountActive) {
+            boolean sellerAccountActive,
+            String sellerDisplayName,
+            String sellerUsername) {
     }
 }

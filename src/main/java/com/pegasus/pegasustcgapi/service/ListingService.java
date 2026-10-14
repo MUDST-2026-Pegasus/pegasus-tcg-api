@@ -21,6 +21,7 @@ import com.pegasus.pegasustcgapi.model.ListingUnit;
 import com.pegasus.pegasustcgapi.model.MarketKey;
 import com.pegasus.pegasustcgapi.model.PricingMode;
 import com.pegasus.pegasustcgapi.model.SellerProfile;
+import com.pegasus.pegasustcgapi.model.WeightedAverageCost;
 import com.pegasus.pegasustcgapi.port.SellerPort;
 import com.pegasus.pegasustcgapi.repository.CatalogVariantRepository;
 import com.pegasus.pegasustcgapi.repository.ListingImageRepository;
@@ -30,6 +31,7 @@ import com.pegasus.pegasustcgapi.repository.ListingRepository.Details;
 import com.pegasus.pegasustcgapi.repository.ListingRepository.Pricing;
 import com.pegasus.pegasustcgapi.repository.ListingRepository.SellerListingQuery;
 import com.pegasus.pegasustcgapi.repository.ListingUnitRepository;
+import com.pegasus.pegasustcgapi.repository.SellerVariantCostRepository;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.math.BigDecimal;
@@ -38,6 +40,7 @@ import java.time.OffsetDateTime;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -73,6 +76,7 @@ public class ListingService {
     private final CatalogVariantRepository variants;
     private final ListingCardRenderer cards;
     private final StorageService storage;
+    private final SellerVariantCostRepository costs;
     private final Clock clock;
 
     public ListingService(
@@ -84,6 +88,7 @@ public class ListingService {
             CatalogVariantRepository variants,
             ListingCardRenderer cards,
             StorageService storage,
+            SellerVariantCostRepository costs,
             Clock clock) {
 
         this.sellers = sellers;
@@ -94,19 +99,29 @@ public class ListingService {
         this.variants = variants;
         this.cards = cards;
         this.storage = storage;
+        this.costs = costs;
         this.clock = clock;
     }
 
     // ---------- reading ----------
 
-    /** The dashboard, most recently changed first. Deleted listings are gone from it. */
-    public PageResponse<SellerListingSummaryResponse> mine(
-            long userId, ListingStatus status, Long variantId, CardCondition condition, int page, int size) {
+    /**
+     * The dashboard, most recently changed first unless {@code sort} says otherwise.
+     * Deleted listings are gone from it.
+     *
+     * @param search card name, local name or number, SKU or lot label, matched anywhere
+     *               in the text; blank is no search
+     * @param sort   updated (the default), newest, price_asc, price_desc, stock_asc,
+     *               stock_desc or name
+     */
+    public PageResponse<SellerListingSummaryResponse> mine(long userId, ListingStatus status, Long variantId,
+            CardCondition condition, String search, String sort, int page, int size) {
 
         SellerProfile seller = sellers.requireProfile(userId);
         Paging paging = Paging.of(page, size);
-        SellerListingQuery query = new SellerListingQuery(
-                seller.id(), status, variantId, condition, paging.size(), paging.offset());
+        SellerListingQuery query = new SellerListingQuery(seller.id(), status, variantId, condition,
+                search == null || search.isBlank() ? null : search.trim(), parseSort(sort),
+                paging.size(), paging.offset());
 
         List<Listing> rows = listings.findSellerPage(query);
         Map<Long, ListingCard> cardsByVariant = cards.cards(rows.stream().map(Listing::catalogVariantId).toList());
@@ -345,6 +360,24 @@ public class ListingService {
         }
     }
 
+    /** Most recently changed first when nothing is asked for: the order the dashboard opens on. */
+    static SellerListingQuery.Sort parseSort(String sort) {
+        if (sort == null || sort.isBlank()) {
+            return SellerListingQuery.Sort.UPDATED;
+        }
+        return switch (sort.trim().toLowerCase(Locale.ROOT)) {
+            case "updated" -> SellerListingQuery.Sort.UPDATED;
+            case "newest" -> SellerListingQuery.Sort.NEWEST;
+            case "price", "price_asc" -> SellerListingQuery.Sort.PRICE_ASC;
+            case "price_desc" -> SellerListingQuery.Sort.PRICE_DESC;
+            case "stock", "stock_asc" -> SellerListingQuery.Sort.STOCK_ASC;
+            case "stock_desc" -> SellerListingQuery.Sort.STOCK_DESC;
+            case "name" -> SellerListingQuery.Sort.NAME;
+            default -> throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "sort must be one of updated, newest, price_asc, price_desc, stock_asc, stock_desc, name");
+        };
+    }
+
     // ---------- rendering ----------
 
     private SellerListingResponse render(Listing listing) {
@@ -358,7 +391,11 @@ public class ListingService {
                 .map(other -> SimilarListingResponse.of(other, listing))
                 .toList();
 
-        return SellerListingResponse.of(listing, cards.card(listing.catalogVariantId()), photos, similar);
+        // Read without a lock: the seller is only looking, a stock-in recomputes it under lock anyway
+        WeightedAverageCost cost = costs.find(listing.sellerProfileId(), market)
+                .orElse(WeightedAverageCost.EMPTY);
+
+        return SellerListingResponse.of(listing, cards.card(listing.catalogVariantId()), photos, similar, cost);
     }
 
     /**

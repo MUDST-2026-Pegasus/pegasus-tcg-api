@@ -24,6 +24,10 @@ public record OrderDetailsResponse(
         OffsetDateTime paidAt,
         OffsetDateTime completedAt,
         OffsetDateTime cancelledAt,
-        List<SellerOrderDetailsResponse> sellerOrders
+        List<SellerOrderDetailsResponse> sellerOrders,
+        /** A bank-transfer slip is waiting for admin review; the buyer can neither pay again nor cancel. */
+        boolean paymentUnderReview,
+        /** Last moment the buyer may cancel a paid order; null until the order is paid. */
+        OffsetDateTime cancellableUntil
 ) {
 }
