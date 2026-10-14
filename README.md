@@ -198,7 +198,45 @@ PUT    /addresses/{addressId}                   *
 DELETE /addresses/{addressId}                   *
 ```
 
-### Seller and verification (14)
+### ### Checkout shipping quotes (signed-in buyer)
+
+```text
+POST   /checkout/shipping-quotes                 *
+POST   /checkout                                 *
+```
+
+`POST /api/v1/checkout/shipping-quotes` accepts `{"cartItemIds":[12,13]}`;
+null, omitted, or empty `cartItemIds` quotes the entire authenticated buyer's cart.
+Only items in that buyer's cart are considered, using the same selection as checkout.
+No shipping address or idempotency key is required for quotes. This endpoint does
+not merge a guest cart, reserve stock, or create an order.
+
+The response `data` is an array of seller groups with `sellerProfileId`,
+`sellerName`, `itemCount` (sum of quantities), `itemsSubtotal`, `defaultOptionId`,
+and `options`. Options are active choices in `displayOrder`, then id order; each
+includes its tariff, delivery estimate, calculated `fee`, `free`, and `amountToFree`.
+`free` means the free-shipping threshold is reached. `amountToFree` is null when
+reached or when no threshold exists. A zero-fee tariff without a threshold has
+`fee: 0` and `free: false`. A seller with no active choices returns `options: []`
+and `defaultOptionId: null` so the client can explain why checkout is unavailable.
+Quotes enforce checkout's current-price and purchasability checks.
+
+Checkout accepts `shippingOptionBySeller` keyed by seller profile id. Omitting a
+seller's choice uses `defaultOptionId` for compatibility with existing clients.
+Both flows calculate postage with `ShippingOption.feeFor`.
+
+Before stock reservation, checkout rejects:
+
+- `400 SHIPPING_OPTION_INVALID`: the chosen option is inactive, missing, or belongs to another seller.
+- `400 SELLER_SHIPPING_UNAVAILABLE`: no active option exists; `data.details.sellerProfileId` identifies the shop.
+- `400 SHIPPING_ADDRESS_REQUIRED`: no explicit, default, or first saved shipping address exists.
+- `404 ADDRESS_NOT_FOUND`: an explicit address is missing, deleted, or belongs to another buyer.
+
+The dev seed scripts provide active delivery choices and default demo addresses.
+Re-run the applicable seed for existing local demo data. These are development
+fixtures, not production migrations.
+
+Seller and verification (14)
 
 ```text
 GET    /sellers/me                              *

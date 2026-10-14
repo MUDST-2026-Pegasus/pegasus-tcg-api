@@ -12,4 +12,8 @@ public class BadRequestException extends ApiException {
     public BadRequestException(ErrorCode errorCode, String message) {
         super(errorCode, message);
     }
+
+    public BadRequestException(ErrorCode errorCode, String message, java.util.Map<String, Object> details) {
+        super(errorCode, message, details);
+    }
 }
