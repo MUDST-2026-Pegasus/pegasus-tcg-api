@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.controller;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.FinanceViews.ReturnRequest;
+import com.pegasus.pegasustcgapi.dto.SellerReturnRequestResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.ReturnService;
 import com.pegasus.pegasustcgapi.service.ReturnService.Item;
@@ -70,11 +71,14 @@ public class ReturnController {
                 returnId, body.trackingNumber()), json));
     }
 
+    @Operation(summary = "Returns for the signed-in seller's orders")
+    @PreAuthorize("hasRole('SELLER')")
     @GetMapping(ApiPaths.SELLERS_ME + "/returns")
-    public ApiResult<List<ReturnRequest>> sellerQueue(@RequestParam(required = false) String status,
+    public ApiResult<List<SellerReturnRequestResponse>> sellerQueue(
+            @Parameter(description = "Optional status filter (e.g., REQUESTED, IN_TRANSIT)")
+            @RequestParam(required = false) String status,
             AuthPrincipal principal) {
-        return ApiResult.success(returns.sellerReturns(principal.userId(), status).stream()
-                .map(row -> ReturnRequest.from(row, json)).toList());
+        return ApiResult.success(returns.sellerReturns(principal.userId(), status));
     }
 
     @Operation(summary = "Short-lived evidence links for a return owned by this seller")
