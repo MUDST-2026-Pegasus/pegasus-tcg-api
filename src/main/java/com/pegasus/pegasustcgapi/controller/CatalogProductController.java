@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.dto.ProductDetailResponse;
+import com.pegasus.pegasustcgapi.dto.ProductMarketResponse;
 import com.pegasus.pegasustcgapi.dto.ProductSummaryResponse;
 import com.pegasus.pegasustcgapi.dto.TrendingProductResponse;
 import com.pegasus.pegasustcgapi.dto.VariantLookupResponse;
@@ -17,6 +18,7 @@ import com.pegasus.pegasustcgapi.service.CatalogProductService;
 import com.pegasus.pegasustcgapi.service.CatalogSearchService;
 import com.pegasus.pegasustcgapi.service.CatalogVariantService;
 import com.pegasus.pegasustcgapi.service.ProductBrowse;
+import com.pegasus.pegasustcgapi.service.ProductMarketService;
 import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.List;
@@ -44,14 +46,16 @@ public class CatalogProductController {
     private final CatalogVariantService variants;
     private final CatalogImageService images;
     private final CatalogSearchService search;
+    private final ProductMarketService market;
 
     public CatalogProductController(CatalogProductService products, CatalogVariantService variants,
-            CatalogImageService images, CatalogSearchService search) {
+            CatalogImageService images, CatalogSearchService search, ProductMarketService market) {
 
         this.products = products;
         this.variants = variants;
         this.images = images;
         this.search = search;
+        this.market = market;
     }
 
     /**
@@ -134,6 +138,13 @@ public class CatalogProductController {
                 product,
                 variants.listOfProduct(product.id(), false),
                 images.listOfProduct(product.id(), false)));
+    }
+
+    /** Separate from product detail so existing clients and browse pages do not fetch market history unnecessarily. */
+    @GetMapping("/products/{idOrSlug}/market")
+    public ApiResult<List<ProductMarketResponse>> market(@PathVariable String idOrSlug) {
+        CatalogProduct product = products.requireActiveByIdOrSlug(idOrSlug);
+        return ApiResult.success(market.ofProduct(product.id()));
     }
 
     @GetMapping("/products/{productId}/variants")

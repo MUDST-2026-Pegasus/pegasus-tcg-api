@@ -336,6 +336,7 @@ PUT    /admin/card-sets/{cardSetId}                               ADMIN
 GET    /catalog/products?gameId={gameId}&q={query}&page=0&size=20
 GET    /catalog/variants/by-code/{code}
 GET    /catalog/products/{idOrSlug}
+GET    /catalog/products/{idOrSlug}/market
 GET    /catalog/products/{productId}/variants
 GET    /catalog/variants/{variantId}
 GET    /catalog/products/{productId}/images
@@ -352,6 +353,8 @@ DELETE /admin/catalog/products/{productId}/images/{imageId}       ADMIN
 ```
 
 `GET /catalog/products` and its admin counterpart support `gameId`, `categoryId`, `cardSetId`, `productType`, `q`, `sort`, `page`, `size`, plus dynamic attribute filters such as `attr.hp=200`. Supported sort values are `name`, `newest`, and `cardnumber`.
+
+`GET /catalog/products/{idOrSlug}/market` is public and returns an array for each active variant and condition with a market statistic. Each entry has `catalogVariantId`, `condition`, the latest `medianPrice` and `statDate`, `change30dPercent`, `lastSold` (`price` and order-item `soldAt`), and `lowSample` (`sampleSize < 3`). The percentage compares against the nearest statistic **on or before** the Bangkok calendar date 30 days ago; it is `null` when there is no such row or the earlier median is zero. `lastSold` is `null` when there is no shipped, delivered, or completed sale. This separate route keeps the existing product-detail response unchanged for current callers.
 
 ### Collections and uploads (8)
 
