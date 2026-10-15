@@ -146,7 +146,7 @@ Seed documents uploaded to pegasus/
 Product pictures: 168 downloaded, 0 already there, 0 placeholder(s)
 ==> Loading the data (one transaction; nothing changes if any check fails)
  accounts | products | printings | listings | cards | orders | ledger_rows | reviews
-       21 |      138 |       239 |      435 |  2049 |     65 |         329 |      25
+       21 |      138 |       239 |      602 |  2313 |     65 |         329 |      25
 ==> Checking that every picture the data points at is in MinIO
 All 328 pictures are in MinIO.
 ```
