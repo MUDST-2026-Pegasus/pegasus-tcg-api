@@ -87,8 +87,8 @@ UPDATE collection_item ci
 -- ---------- price statistics ----------
 -- Today's row is computed exactly as the nightly job computes it (ACTIVE listings
 -- of verified sellers not on vacation, sales in the last 30 days). The 29 days
--- before it are a gentle, repeatable drift around today's prices so the charts
--- have a history.
+-- before it plus the 30-day comparison day are a gentle, repeatable drift
+-- around today's prices.
 CREATE TEMP TABLE seed_market_today ON COMMIT DROP AS
 SELECT l.catalog_variant_id, l.condition_code,
        round(CAST(percentile_cont(0.5) WITHIN GROUP (ORDER BY l.price) AS numeric), 2)  AS median_price,
@@ -121,7 +121,7 @@ SELECT t.catalog_variant_id, t.condition_code,
        CASE WHEN d.n = 0 THEN t.listings ELSE greatest(1, t.listings + (d.n % 3) - 1) END,
        pg_temp.ago(d.n) - interval '2 hours'
   FROM seed_market_today t
- CROSS JOIN generate_series(0, 29) AS d(n)
+ CROSS JOIN generate_series(0, 30) AS d(n)
  CROSS JOIN LATERAL (
         SELECT CASE WHEN d.n = 0 THEN 1::numeric
                     ELSE round((1 + 0.0035 * d.n * CASE WHEN t.catalog_variant_id % 2 = 0 THEN 1 ELSE -1 END
