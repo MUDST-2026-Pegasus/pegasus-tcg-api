@@ -16,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pegasus.pegasustcgapi.dto.SellerListingResponse;
 import com.pegasus.pegasustcgapi.dto.SimilarListingResponse;
+import com.pegasus.pegasustcgapi.dto.StockInHistoryResponse;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.jooq.tables.records.ListingPriceHistoryRecord;
@@ -25,6 +26,7 @@ import com.pegasus.pegasustcgapi.model.CardCondition;
 import com.pegasus.pegasustcgapi.model.ListingStatus;
 import com.pegasus.pegasustcgapi.model.ListingUnitStatus;
 import com.pegasus.pegasustcgapi.model.MarketKey;
+import com.pegasus.pegasustcgapi.model.MovementType;
 import com.pegasus.pegasustcgapi.model.PricingMode;
 import com.pegasus.pegasustcgapi.port.InventoryPort;
 import com.pegasus.pegasustcgapi.port.InventoryPort.ReservedUnit;
@@ -89,6 +91,9 @@ class ListingInventoryIntegrationTest {
 
     @Autowired
     private MarketPricingService marketPricing;
+
+    @Autowired
+    private InventoryService inventoryService;
 
     private long userId;
     private long sellerProfileId;
@@ -212,6 +217,67 @@ class ListingInventoryIntegrationTest {
         assertThat(cost.getAverageUnitCost()).isEqualByComparingTo("500.0000");
     }
 
+    // ---------- restock history [TCG-502] ----------
+
+    @Test
+    @DisplayName("restock history — each stock-in reads back as one lot with the average it left, and sold counts what shipped")
+    void stockInsReadBackAsLots() {
+        long listingId = onSale(4, "700.00", PricingMode.MANUAL, null);
+        OffsetDateTime acquired = OffsetDateTime.parse("2026-10-01T09:00:00+07:00");
+        units.stockIn(userId, new StockIn(null, null, listingId, 2, new BigDecimal("800.00"), acquired, null,
+                "TCG Expo · อ้างอิง R-12"));
+
+        List<ReservedUnit> held = inventory.reserve(Map.of(listingId, 1)).get(listingId);
+        inventory.commitSale(8002L, List.of(held.getFirst().unitId()), null);
+
+        // Someone else's cards of the same printing stay out of this seller's history.
+        long otherUser = anotherVerifiedSeller();
+        units.stockIn(otherUser, new StockIn(variantId, CardCondition.NM, null, 3, new BigDecimal("50.00"),
+                null, null, null));
+
+        StockInHistoryResponse history = inventoryService.stockIns(userId, variantId, CardCondition.NM, 0, 20);
+
+        assertThat(history.receivedTotal()).isEqualTo(6);
+        assertThat(history.soldTotal()).isEqualTo(1);
+        assertThat(history.lots().totalItems()).isEqualTo(2);
+
+        StockInHistoryResponse.Lot newest = history.lots().items().get(0);
+        assertThat(newest.movementType()).isEqualTo(MovementType.RESTOCK);
+        assertThat(newest.quantity()).isEqualTo(2);
+        assertThat(newest.unitCost()).isEqualByComparingTo("800.00");
+        assertThat(newest.totalCost()).isEqualByComparingTo("1600.00");
+        assertThat(newest.averageCostAfter()).isEqualByComparingTo("600.0000");
+        assertThat(newest.receivedAt()).isEqualTo(acquired);
+        assertThat(newest.note()).isEqualTo("TCG Expo · อ้างอิง R-12");
+        assertThat(newest.batchUid()).isNotNull();
+
+        StockInHistoryResponse.Lot first = history.lots().items().get(1);
+        assertThat(first.movementType()).isEqualTo(MovementType.INITIAL_STOCK);
+        assertThat(first.quantity()).isEqualTo(4);
+        assertThat(first.averageCostAfter()).isEqualByComparingTo("500.0000");
+        assertThat(first.batchUid()).isNotEqualTo(newest.batchUid());
+    }
+
+    @Test
+    @DisplayName("restock history — lines booked before batches existed still group into their lots")
+    void stockInsWithoutBatchesStillGroup() {
+        long listingId = onSale(4, "700.00", PricingMode.MANUAL, null);
+        units.stockIn(userId, new StockIn(null, null, listingId, 2, new BigDecimal("800.00"), null, null, null));
+        dsl.update(INVENTORY_MOVEMENT)
+                .setNull(INVENTORY_MOVEMENT.STOCK_IN_BATCH_UID)
+                .setNull(INVENTORY_MOVEMENT.AVERAGE_COST_AFTER)
+                .where(INVENTORY_MOVEMENT.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .execute();
+
+        StockInHistoryResponse history = inventoryService.stockIns(userId, variantId, CardCondition.NM, 0, 20);
+
+        assertThat(history.lots().items())
+                .extracting(StockInHistoryResponse.Lot::quantity)
+                .containsExactly(2, 4);
+        assertThat(history.lots().items())
+                .allSatisfy(lot -> assertThat(lot.averageCostAfter()).isNull());
+    }
+
     // ---------- guide tests 4 and 5 ----------
 
     @Test
@@ -293,6 +359,24 @@ class ListingInventoryIntegrationTest {
 
     private static Details noDetails() {
         return new Details(null, null, null, null);
+    }
+
+    /** A second verified seller, for checks that one seller never sees another's stock. */
+    private long anotherVerifiedSeller() {
+        String tag = Long.toString(System.nanoTime(), 36);
+        long otherUser = dsl.insertInto(USER_ACCOUNT)
+                .set(USER_ACCOUNT.EMAIL, "other_" + tag + "@example.com")
+                .set(USER_ACCOUNT.PASSWORD_HASH, "x")
+                .set(USER_ACCOUNT.USERNAME, "other_" + tag)
+                .set(USER_ACCOUNT.DISPLAY_NAME, "Other " + tag)
+                .returningResult(USER_ACCOUNT.ID)
+                .fetchSingle(USER_ACCOUNT.ID);
+        dsl.insertInto(SELLER_PROFILE)
+                .set(SELLER_PROFILE.USER_ID, otherUser)
+                .set(SELLER_PROFILE.STATUS, "VERIFIED")
+                .set(SELLER_PROFILE.VERIFIED_AT, OffsetDateTime.now())
+                .execute();
+        return otherUser;
     }
 
     /** A listing on sale with {@code cards} cards, built through the calls a seller makes. */

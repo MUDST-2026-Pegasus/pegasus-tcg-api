@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.InventoryMovementResponse;
 import com.pegasus.pegasustcgapi.dto.ListingUnitResponse;
+import com.pegasus.pegasustcgapi.dto.StockInHistoryResponse;
 import com.pegasus.pegasustcgapi.dto.StockInRequest;
 import com.pegasus.pegasustcgapi.dto.UnitMoveRequest;
 import com.pegasus.pegasustcgapi.dto.UnitUpdateRequest;
@@ -119,5 +120,20 @@ public class SellerInventoryController {
 
         return ApiResult.success(inventory.movements(
                 principal.userId(), variantId, condition, type, listingId, unitUid, page, size));
+    }
+
+    /**
+     * The restock history of one printing in one condition: a row per stock-in,
+     * newest first, with the cards received and sold across all of it [TCG-502].
+     */
+    @GetMapping("/inventory/stock-ins")
+    public ApiResult<StockInHistoryResponse> stockIns(
+            @RequestParam long variantId,
+            @RequestParam CardCondition condition,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            AuthPrincipal principal) {
+
+        return ApiResult.success(inventory.stockIns(principal.userId(), variantId, condition, page, size));
     }
 }
