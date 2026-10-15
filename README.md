@@ -111,7 +111,6 @@ Every account signs in with `Password123!`:
 | Account | What it shows |
 | --- | --- |
 | `admin@example.com` | Admin: a payment slip awaiting approval, refunds to transfer (one after a failed attempt), payouts in every state, seller verifications to review |
-| `support@example.com` | Support role |
 | `cardkingdom@example.com`, `tcgcorner@example.com`, `mintvault@example.com`, `store@pegasus.example.com`, `seller@example.com`, `grandline@example.com` | Verified sellers with listings, stock, orders to ship, returns to answer, reviews and payouts. Mint Vault holds graded cards |
 | `mai@example.com`, `ton@example.com`, `buyer@example.com`, `ploy@example.com`, `nattapong@example.com` | Buyers with order history, open orders, returns, carts, wish lists and collections |
 | `kanto@example.com` | Seller on vacation; listings hidden |
