@@ -2,6 +2,8 @@ package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import com.pegasus.pegasustcgapi.dto.ShippingQuoteRequest;
+import com.pegasus.pegasustcgapi.dto.ShippingQuoteResponse;
 import com.pegasus.pegasustcgapi.dto.CheckoutRequest;
 import com.pegasus.pegasustcgapi.dto.CheckoutResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
@@ -13,6 +15,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,7 +43,7 @@ public class CheckoutController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Order already placed with this idempotency key (replayed response)"),
             @ApiResponse(responseCode = "201", description = "Order created successfully"),
-            @ApiResponse(responseCode = "400", description = "Idempotency key missing or invalid request"),
+            @ApiResponse(responseCode = "400", description = "Missing idempotency key, SHIPPING_OPTION_INVALID, SELLER_SHIPPING_UNAVAILABLE (details.sellerProfileId), or SHIPPING_ADDRESS_REQUIRED"),
             @ApiResponse(responseCode = "401", description = "Unauthenticated"),
             @ApiResponse(responseCode = "409", description = "Cart empty, price changed, listing unpurchasable, cannot buy own listing, or idempotency conflict")
     })
@@ -57,5 +60,18 @@ public class CheckoutController {
         String message = response.replayed() ? "Order retrieved successfully (idempotent replay)" : "Order placed successfully";
         return ResponseEntity.status(status)
                 .body(ApiResult.success(message, response));
+    }
+    @Operation(summary = "Quote shipping for selected cart items", description = "Returns active choices per seller in display order, including computed fees and the default option. Null or empty cartItemIds selects the entire buyer cart. Quotes require no address, reserve no stock, and create no order. A seller with no active choices has options=[] and defaultOptionId=null.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Shipping quotes grouped by seller"),
+            @ApiResponse(responseCode = "400", description = "Invalid cart item identifiers"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "409", description = "Cart empty, item prices changed, own listing, or listing unavailable")
+    })
+    @PostMapping("/shipping-quotes")
+    public ApiResult<List<ShippingQuoteResponse>> shippingQuotes(
+            @Valid @RequestBody(required = false) ShippingQuoteRequest request,
+            AuthPrincipal principal) {
+        return ApiResult.success(checkoutService.shippingQuotes(principal, request));
     }
 }

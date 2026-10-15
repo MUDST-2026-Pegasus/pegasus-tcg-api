@@ -90,6 +90,9 @@ class CheckoutServiceTest {
     @Mock
     private LedgerPort ledgerPort;
 
+    @Mock
+    private ShippingOptionService shippingOptionService;
+
     private CheckoutService checkoutService;
 
     @BeforeEach
@@ -98,6 +101,13 @@ class CheckoutServiceTest {
         // than generated here.
         org.mockito.Mockito.lenient().when(orderRepository.nextOrderNumber())
                 .thenReturn("PGS-20260920-000123");
+        org.mockito.Mockito.lenient().when(addressService.list(anyLong())).thenReturn(List.of(
+                new Address(55L, 42L, "Home", "Test buyer", "0812345678", "Line 1", null,
+                        null, "Khlong Toei", "Bangkok", "10110", "TH", true, true, OffsetDateTime.now())));
+        org.mockito.Mockito.lenient().when(shippingOptionService.resolveForCheckout(anyLong(), any()))
+                .thenAnswer(call -> new com.pegasus.pegasustcgapi.model.ShippingOption(
+                        1L, call.getArgument(0, Long.class), "Test shipping", "TEST", BigDecimal.ZERO,
+                        BigDecimal.ZERO, null, null, null, true, (short) 0));
         // Built by hand rather than with @InjectMocks: the production constructor
         // insists on a real transaction manager, and the JSON writer and clock are
         // collaborators the tests want to pin down rather than leave null.
@@ -107,7 +117,7 @@ class CheckoutServiceTest {
                 orderRepository,
                 addressService,
                 sellerProfileRepository,
-                null,
+                shippingOptionService,
                 pricingPort,
                 inventoryPort,
                 ledgerPort,
@@ -525,17 +535,17 @@ class CheckoutServiceTest {
 
             given(orderRepository.insertSalesOrder(anyString(), eq(42L), eq("THB"),
                     eq(new BigDecimal("380.00")), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
-                    eq(new BigDecimal("380.00")), eq(null), any(), eq(null), eq(idemKey)))
+                    eq(new BigDecimal("380.00")), eq(55L), any(), eq(null), eq(idemKey)))
                     .willReturn(salesOrder);
 
             given(orderRepository.insertSellerOrder(eq(1L), eq(77L), anyString(),
                     eq(new BigDecimal("300.00")), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
-                    eq(new BigDecimal("300.00")), eq(RATE), eq(new BigDecimal("30.00")), eq(new BigDecimal("270.00")), eq(null)))
+                    eq(new BigDecimal("300.00")), eq(RATE), eq(new BigDecimal("30.00")), eq(new BigDecimal("270.00")), eq(1L)))
                     .willReturn(sellerOrder1);
 
             given(orderRepository.insertSellerOrder(eq(1L), eq(88L), anyString(),
                     eq(new BigDecimal("80.00")), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
-                    eq(new BigDecimal("80.00")), eq(RATE), eq(new BigDecimal("8.00")), eq(new BigDecimal("72.00")), eq(null)))
+                    eq(new BigDecimal("80.00")), eq(RATE), eq(new BigDecimal("8.00")), eq(new BigDecimal("72.00")), eq(1L)))
                     .willReturn(sellerOrder2);
 
             given(orderRepository.insertOrderItem(eq(10L), eq(100L), eq(1L), eq(2),
@@ -662,15 +672,13 @@ class CheckoutServiceTest {
             given(pricingPort.offers(List.of(100L))).willReturn(Map.of(100L, offer1));
             given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.empty());
 
-            ReservedUnit unit = new ReservedUnit(1001L, UUID.randomUUID());
-            given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
-
             given(ledgerPort.quoteCommission(anyLong(), any(), anyCollection())).willThrow(new IllegalStateException("Ledger communication failure"));
 
             assertThatThrownBy(() -> checkoutService.checkout(buyer, idemKey, null, null))
                     .isInstanceOf(IllegalStateException.class);
 
             verify(orderRepository, never()).insertSalesOrder(anyString(), anyLong(), anyString(), any(), any(), any(), any(), any(), any(), any(), anyString());
+            verify(inventoryPort, never()).reserve(any());
             verify(cartRepository, never()).deleteItemsByCartId(anyLong());
         }
 
@@ -724,20 +732,20 @@ class CheckoutServiceTest {
 
             given(orderRepository.insertSalesOrder(anyString(), eq(42L), eq("THB"),
                     eq(new BigDecimal("600.00")), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
-                    eq(new BigDecimal("600.00")), eq(null), any(), eq(null), eq(idemKey)))
+                    eq(new BigDecimal("600.00")), eq(55L), any(), eq(null), eq(idemKey)))
                     .willReturn(salesOrder);
 
             given(orderRepository.insertSellerOrder(eq(1L), eq(77L), anyString(),
                     eq(new BigDecimal("100.00")), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
-                    eq(new BigDecimal("100.00")), eq(RATE), eq(new BigDecimal("10.00")), eq(new BigDecimal("90.00")), eq(null)))
+                    eq(new BigDecimal("100.00")), eq(RATE), eq(new BigDecimal("10.00")), eq(new BigDecimal("90.00")), eq(1L)))
                     .willReturn(so1);
             given(orderRepository.insertSellerOrder(eq(1L), eq(88L), anyString(),
                     eq(new BigDecimal("200.00")), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
-                    eq(new BigDecimal("200.00")), eq(RATE), eq(new BigDecimal("20.00")), eq(new BigDecimal("180.00")), eq(null)))
+                    eq(new BigDecimal("200.00")), eq(RATE), eq(new BigDecimal("20.00")), eq(new BigDecimal("180.00")), eq(1L)))
                     .willReturn(so2);
             given(orderRepository.insertSellerOrder(eq(1L), eq(99L), anyString(),
                     eq(new BigDecimal("300.00")), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
-                    eq(new BigDecimal("300.00")), eq(RATE), eq(new BigDecimal("30.00")), eq(new BigDecimal("270.00")), eq(null)))
+                    eq(new BigDecimal("300.00")), eq(RATE), eq(new BigDecimal("30.00")), eq(new BigDecimal("270.00")), eq(1L)))
                     .willReturn(so3);
 
             given(orderRepository.insertOrderItem(eq(10L), eq(100L), eq(1L), eq(1), eq(new BigDecimal("100.00")), eq(new BigDecimal("100.00")), any(), anyString(), anyString(), anyString(), any(), any()))

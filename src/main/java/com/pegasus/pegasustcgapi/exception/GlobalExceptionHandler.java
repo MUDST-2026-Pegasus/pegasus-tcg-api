@@ -49,7 +49,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiResult<ApiError>> handleApiException(ApiException ex, HttpServletRequest request) {
-        return build(ex.errorCode(), ex.getMessage(), request, List.of());
+        return build(ex.errorCode(), ex.getMessage(), request, List.of(), ex.details());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -193,11 +193,17 @@ public class GlobalExceptionHandler {
             HttpServletRequest request,
             List<ApiError.FieldViolation> violations) {
 
+        return build(code, message, request, violations, java.util.Map.of());
+    }
+
+    private static ResponseEntity<ApiResult<ApiError>> build(
+            ErrorCode code, String message, HttpServletRequest request,
+            List<ApiError.FieldViolation> violations, java.util.Map<String, Object> details) {
         ApiError detail = new ApiError(
                 code.name(),
                 request.getRequestURI(),
                 OffsetDateTime.now(),
-                violations);
+                violations, details);
 
         return ResponseEntity.status(code.status()).body(ApiResult.error(message, detail));
     }

@@ -14,7 +14,12 @@ public record ApiError(
         String code,
         String path,
         OffsetDateTime timestamp,
-        List<FieldViolation> violations) {
+        List<FieldViolation> violations,
+        java.util.Map<String, Object> details) {
+
+    public ApiError(String code, String path, OffsetDateTime timestamp, List<FieldViolation> violations) {
+        this(code, path, timestamp, violations, java.util.Map.of());
+    }
 
     /** One rejected field, reported alongside {@link ErrorCode#VALIDATION_FAILED}. */
     public record FieldViolation(String field, String message) {

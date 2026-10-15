@@ -96,6 +96,12 @@ class CheckoutConcurrencyIntegrationTest {
     @MockitoSpyBean
     private LedgerPort ledgerPort;
 
+    @Autowired
+    private AddressService addresses;
+
+    @Autowired
+    private ShippingOptionService shipping;
+
     private long sellerUserId;
     private long sellerProfileId;
     private long variantId;
@@ -119,6 +125,10 @@ class CheckoutConcurrencyIntegrationTest {
                 .set(SELLER_PROFILE.VERIFIED_AT, OffsetDateTime.now())
                 .returningResult(SELLER_PROFILE.ID)
                 .fetchSingle(SELLER_PROFILE.ID);
+
+        shipping.create(sellerUserId, new com.pegasus.pegasustcgapi.repository.ShippingOptionRepository.OptionFields(
+                "Test standard shipping", "THAILAND_POST", BigDecimal.ZERO, BigDecimal.ZERO, null,
+                (short) 1, (short) 3, true, (short) 0));
 
         sellerPrincipal = new AuthPrincipal(sellerUserId, "seller_" + tag + "@example.com", "seller_" + tag, Set.of(RoleCode.SELLER));
 
@@ -187,6 +197,9 @@ class CheckoutConcurrencyIntegrationTest {
                 .returningResult(USER_ACCOUNT.ID)
                 .fetchSingle(USER_ACCOUNT.ID);
 
+        addresses.create(buyerId, new com.pegasus.pegasustcgapi.repository.AddressRepository.AddressFields(
+                "Home", "Test buyer", "0812345678", "99 Test Road", null, null,
+                "Khlong Toei", "Bangkok", "10110", "TH", true, true));
         return new AuthPrincipal(buyerId, "buyer_" + tag + "_" + index + "@example.com", "buyer_" + tag + "_" + index, Set.of(RoleCode.BUYER));
     }
 
