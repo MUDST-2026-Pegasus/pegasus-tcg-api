@@ -93,7 +93,7 @@ class SellerOrderControllerTest {
 
     private static Summary mockSummary(long id, String status) {
         return new Summary(mockSellerOrderDetails(id, status), "PGS-20261013-000001",
-                new Buyer(5L, "buyer_one", "Buyer One"), OffsetDateTime.now(), OffsetDateTime.now().plusDays(2),
+                new Buyer(5L, "buyer_one", "Buyer One", null), OffsetDateTime.now(), OffsetDateTime.now().plusDays(2),
                 "{\"recipientName\":\"Buyer One\"}", null);
     }
 
