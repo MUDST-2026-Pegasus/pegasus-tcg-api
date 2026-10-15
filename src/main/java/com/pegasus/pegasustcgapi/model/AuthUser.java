@@ -25,10 +25,18 @@ public record AuthUser(
         OffsetDateTime lastLoginAt,
         OffsetDateTime lockedUntil,
         OffsetDateTime createdAt,
-        Set<RoleCode> roles) {
+        Set<RoleCode> roles, boolean phonePublic) {
+
+    public AuthUser(long id, String email, String username, String displayName, String passwordHash,
+            String bio, String phone, String avatarUrl, UserStatus status, short failedLoginAttempts,
+            OffsetDateTime lastLoginAt, OffsetDateTime lockedUntil, OffsetDateTime createdAt,
+            Set<RoleCode> roles) {
+        this(id, email, username, displayName, passwordHash, bio, phone, avatarUrl, status,
+                failedLoginAttempts, lastLoginAt, lockedUntil, createdAt, roles, false);
+    }
 
     public AuthUser withRoles(Set<RoleCode> newRoles) {
         return new AuthUser(id, email, username, displayName, passwordHash, bio, phone, avatarUrl,
-                status, failedLoginAttempts, lastLoginAt, lockedUntil, createdAt, newRoles);
+                status, failedLoginAttempts, lastLoginAt, lockedUntil, createdAt, newRoles, phonePublic);
     }
 }

@@ -8,7 +8,7 @@
         codegen compile \
         env check deps bootjar \
         docker-build docker-run docker-stop \
-        swagger api-docs seed-catalog seed-home test-swagger
+        swagger api-docs seed-catalog seed-home seed-full test-swagger
 
 # ── Tool aliases ──────────────────────────────────────────────
 ifeq ($(OS),Windows_NT)
@@ -130,3 +130,14 @@ seed-home: ## Load home page sample data and upload its pictures to MinIO; run t
 	docker cp src/test/resources/db/seed-images/. pegasus-tcg-minio:/tmp/seed-images
 	docker exec pegasus-tcg-minio sh -c "sh /tmp/seed-images/upload.sh $(MINIO_BUCKET)"
 	@docker exec -i pegasus-tcg-postgres psql -U postgres -d pegasus_tcg -v ON_ERROR_STOP=1 < src/test/resources/db/home_seed.sql
+
+# ── Full demo data ───────────────────────────────────────────
+
+# Every table, real product pictures in MinIO. Refuses a database that already has
+# data unless RESET=1, which wipes it first: make seed-full RESET=1
+seed-full: ## Load demo data into every table with real pictures in MinIO; RESET=1 wipes the DB first (Command: scripts/seed-full.sh or scripts/seed-full.ps1)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/seed-full.ps1 $(if $(filter 1,$(RESET)),-Reset,)
+else
+	bash scripts/seed-full.sh $(if $(filter 1,$(RESET)),--reset,)
+endif

@@ -21,6 +21,7 @@ public final class AuthUserBuilder {
     private String displayName = "Ploy";
     private String passwordHash = FakePasswordEncoder.encoded("correct-horse");
     private String bio;
+    private boolean phonePublic;
     private String phone = "+66812345678";
     private String avatarUrl;
     private UserStatus status = UserStatus.ACTIVE;
@@ -87,6 +88,11 @@ public final class AuthUserBuilder {
         return this;
     }
 
+    public AuthUserBuilder withPhonePublic(boolean value) {
+        this.phonePublic = value;
+        return this;
+    }
+
     public AuthUserBuilder withAvatarUrl(String value) {
         this.avatarUrl = value;
         return this;
@@ -99,6 +105,6 @@ public final class AuthUserBuilder {
 
     public AuthUser build() {
         return new AuthUser(id, email, username, displayName, passwordHash, bio, phone, avatarUrl,
-                status, failedLoginAttempts, lastLoginAt, lockedUntil, CREATED_AT, roles);
+                status, failedLoginAttempts, lastLoginAt, lockedUntil, CREATED_AT, roles, phonePublic);
     }
 }

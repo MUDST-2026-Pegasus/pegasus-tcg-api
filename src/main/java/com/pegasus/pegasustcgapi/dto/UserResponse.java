@@ -18,7 +18,7 @@ public record UserResponse(
         UserStatus status,
         Set<RoleCode> roles,
         OffsetDateTime createdAt,
-        OffsetDateTime lastLoginAt) {
+        OffsetDateTime lastLoginAt, boolean phonePublic) {
 
     public static UserResponse from(AuthUser user) {
         return new UserResponse(
@@ -32,7 +32,7 @@ public record UserResponse(
                 user.status(),
                 user.roles(),
                 user.createdAt(),
-                user.lastLoginAt());
+                user.lastLoginAt(), user.phonePublic());
     }
 
     /**
@@ -52,6 +52,6 @@ public record UserResponse(
                 user.status(),
                 user.roles(),
                 user.createdAt(),
-                user.lastLoginAt());
+                user.lastLoginAt(), user.phonePublic());
     }
 }

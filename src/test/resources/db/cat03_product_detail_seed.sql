@@ -103,4 +103,30 @@ WHERE NOT EXISTS (SELECT 1 FROM collection_item ci
                   WHERE ci.user_id = u.id AND ci.catalog_variant_id = cv.id
                     AND ci.personal_note = 'seed:cat03' AND ci.deleted_at IS NULL);
 
+
+-- ORD-10: demo checkout always needs an active tariff and a usable default address.
+INSERT INTO seller_shipping_option (seller_profile_id, name, carrier_code, base_fee, per_item_fee,
+                                    est_days_min, est_days_max, is_active, display_order)
+SELECT sp.id, 'Standard delivery', 'THAILAND_POST', 50.00, 5.00, 1, 3, true, 0
+FROM seller_profile sp JOIN user_account u ON u.id = sp.user_id
+WHERE (u.bio = 'CAT-03 local demo account' AND u.username LIKE 'demo_cat03_%') AND sp.status = 'VERIFIED'
+  AND NOT EXISTS (SELECT 1 FROM seller_shipping_option o WHERE o.seller_profile_id = sp.id AND o.is_active);
+
+INSERT INTO address (user_id, label, recipient_name, phone, line1, subdistrict, district, province,
+                     postal_code, country_code, is_default_shipping, is_default_billing)
+SELECT u.id, 'Home', u.display_name, '0812345678', '123 Pegasus Lane', 'Khlong Toei', 'Khlong Toei',
+       'Bangkok', '10110', 'TH', true, true
+FROM user_account u
+WHERE (u.bio = 'CAT-03 local demo account' AND u.username LIKE 'demo_cat03_%')
+  AND NOT EXISTS (SELECT 1 FROM address a WHERE a.user_id = u.id AND a.deleted_at IS NULL);
+
+-- Preserve existing demo address details, selecting a default if none was set.
+UPDATE address SET is_default_shipping = true
+WHERE id IN (
+    SELECT DISTINCT ON (a.user_id) a.id FROM address a JOIN user_account u ON u.id = a.user_id
+    WHERE (u.bio = 'CAT-03 local demo account' AND u.username LIKE 'demo_cat03_%') AND a.deleted_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM address d WHERE d.user_id = a.user_id
+                      AND d.deleted_at IS NULL AND d.is_default_shipping)
+    ORDER BY a.user_id, a.id
+);
 COMMIT;

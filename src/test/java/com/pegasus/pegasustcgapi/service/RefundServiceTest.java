@@ -2,15 +2,19 @@ package com.pegasus.pegasustcgapi.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.pegasus.pegasustcgapi.exception.ConflictException;
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
+import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.jooq.tables.records.EscrowHoldRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.RefundRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.RefundTransferAttemptRecord;
+import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.repository.EscrowRepository;
 import com.pegasus.pegasustcgapi.repository.OrderRepository;
 import com.pegasus.pegasustcgapi.repository.PaymentRepository;
@@ -58,6 +62,47 @@ class RefundServiceTest {
         refund.setAccountName("Buyer");
         refund.setAccountNumber("1234567890");
         return refund;
+    }
+
+    private void buyerOwns(RefundRecord refund, long buyerId) {
+        SalesOrderRecord order = new SalesOrderRecord();
+        order.setBuyerId(buyerId);
+        when(refunds.find(refund.getId())).thenReturn(Optional.of(refund));
+        when(payments.findOrder(refund.getSalesOrderId())).thenReturn(Optional.of(order));
+    }
+
+    @Test void buyerCanSaveNormalizedDestinationForApprovedBankRefund() {
+        RefundRecord refund = refund("APPROVED");
+        buyerOwns(refund, 7L);
+        when(refunds.lock(5L)).thenReturn(Optional.of(refund));
+        when(refunds.setDestination(5L, "Test Bank", "Buyer", "1234567890")).thenReturn(1);
+
+        service.setDestination(5L, 7L, " Test Bank ", " Buyer ", "123 456-7890");
+
+        verify(payments).lockOrder(2L);
+        verify(refunds).setDestination(5L, "Test Bank", "Buyer", "1234567890");
+    }
+
+    @Test void anotherBuyerCannotReadOrChangeRefundDestination() {
+        RefundRecord refund = refund("APPROVED");
+        buyerOwns(refund, 7L);
+
+        assertThatThrownBy(() -> service.setDestination(5L, 8L, "Bank", "Other", "1234567890"))
+                .isInstanceOf(NotFoundException.class);
+        verifyNoInteractions(transfers, escrow, ledger);
+        org.mockito.Mockito.verify(payments, never()).lockOrder(2L);
+        org.mockito.Mockito.verify(refunds, never()).setDestination(anyLong(), any(), any(), any());
+    }
+
+    @Test void destinationRejectsInvalidAccountBeforePersisting() {
+        RefundRecord refund = refund("APPROVED");
+        buyerOwns(refund, 7L);
+        when(refunds.lock(5L)).thenReturn(Optional.of(refund));
+
+        assertThatThrownBy(() -> service.setDestination(5L, 7L, "Bank", "Buyer", "123-45"))
+                .isInstanceOf(BadRequestException.class);
+        verify(payments).lockOrder(2L);
+        org.mockito.Mockito.verify(refunds, never()).setDestination(anyLong(), any(), any(), any());
     }
 
     @Test void staleBankNumberCannotStartExternalTransfer() {

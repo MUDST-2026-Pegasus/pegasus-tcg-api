@@ -2,6 +2,9 @@ package com.pegasus.pegasustcgapi.service;
 
 import com.pegasus.pegasustcgapi.common.CartSessionKey;
 import com.pegasus.pegasustcgapi.dto.CheckoutRequest;
+import com.pegasus.pegasustcgapi.dto.ShippingQuoteRequest;
+import com.pegasus.pegasustcgapi.dto.ShippingQuoteResponse;
+import com.pegasus.pegasustcgapi.dto.ShippingQuoteOptionResponse;
 import com.pegasus.pegasustcgapi.dto.CheckoutResponse;
 import com.pegasus.pegasustcgapi.dto.CheckoutResponse.OrderItemResponse;
 import com.pegasus.pegasustcgapi.dto.CheckoutResponse.SellerOrderResponse;
@@ -51,6 +54,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
@@ -91,7 +95,7 @@ public class CheckoutService {
             OrderRepository orderRepository,
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
-            @Autowired(required = false) ShippingOptionService shippingOptionService,
+            ShippingOptionService shippingOptionService,
             @Autowired(required = false) StorageService storageService,
             PricingPort pricingPort,
             InventoryPort inventoryPort,
@@ -142,7 +146,7 @@ public class CheckoutService {
         this.orderRepository = orderRepository;
         this.addressService = addressService;
         this.sellerProfileRepository = sellerProfileRepository;
-        this.shippingOptionService = shippingOptionService;
+        this.shippingOptionService = Objects.requireNonNull(shippingOptionService, "ShippingOptionService is required for checkout");
         this.storageService = storageService;
         this.pricingPort = pricingPort;
         this.inventoryPort = inventoryPort;
@@ -263,69 +267,18 @@ public class CheckoutService {
         // If guest session key is present, merge it into permanent user cart first
         cartService.mergeGuestCartIfPresent(principal, guestSessionKey);
 
-        // 1. Retrieve user's cart and items
-        Cart cart = cartRepository.findByUserId(principal.userId()).orElse(null);
-        if (cart == null) {
-            throw new ConflictException(ErrorCode.CART_EMPTY);
-        }
-        List<CartItem> allItems = cartRepository.findItemsByCartId(cart.id());
-        if (allItems.isEmpty()) {
-            throw new ConflictException(ErrorCode.CART_EMPTY);
-        }
-        List<CartItem> items;
-        if (request != null && request.cartItemIds() != null && !request.cartItemIds().isEmpty()) {
-            Set<Long> allowedIds = new HashSet<>(request.cartItemIds());
-            items = allItems.stream().filter(item -> allowedIds.contains(item.id())).toList();
-            if (items.isEmpty()) {
-                throw new ConflictException(ErrorCode.CART_EMPTY);
-            }
-        } else {
-            items = allItems;
-        }
-
-        // 2. Batch validate pricing and purchasability
+        CartSelection selection = selectCartItems(principal.userId(), request == null ? null : request.cartItemIds());
+        Cart cart = selection.cart();
+        List<CartItem> allItems = selection.allItems();
+        List<CartItem> items = selection.items();
+        Map<Long, ListingOffer> offers = validatedOffers(principal, items);
         List<Long> listingIds = items.stream().map(CartItem::listingId).distinct().toList();
-        Map<Long, ListingOffer> offers = pricingPort.offers(listingIds);
 
-        Optional<SellerProfile> buyerSellerProfile = sellerProfileRepository.findByUserId(principal.userId());
-        Long buyerSellerProfileId = buyerSellerProfile.map(SellerProfile::id).orElse(null);
-
-        List<PriceChange> priceChanges = new ArrayList<>();
-        for (CartItem item : items) {
-            ListingOffer offer = offers.get(item.listingId());
-            if (offer == null) {
-                throw new ConflictException(ErrorCode.LISTING_NOT_PURCHASABLE);
-            }
-            if (!offer.purchasable()) {
-                throw new ConflictException(ErrorCode.LISTING_NOT_PURCHASABLE);
-            }
-            if (buyerSellerProfileId != null && buyerSellerProfileId.equals(offer.sellerProfileId())) {
-                throw new ConflictException(ErrorCode.CANNOT_BUY_OWN_LISTING);
-            }
-            if (offer.price().compareTo(item.unitPriceAtAdd()) != 0) {
-                // Collected rather than thrown on the first one: the buyer should see
-                // every line that moved, not be sent back one at a time.
-                priceChanges.add(new PriceChange(
-                        item.id(), item.listingId(), item.unitPriceAtAdd(), offer.price()));
-            }
-        }
-        if (!priceChanges.isEmpty()) {
-            throw new CartPriceChangedException(priceChanges);
-        }
-
-        // 3. Inventory Reservation (strictly rolls back on failure)
-        Map<Long, Integer> quantityByListing = new LinkedHashMap<>();
-        for (CartItem item : items) {
-            quantityByListing.merge(item.listingId(), item.quantity(), Integer::sum);
-        }
-        Map<Long, List<ReservedUnit>> heldUnitsByListing = inventoryPort.reserve(quantityByListing);
-
-        // 4. Group cart items by sellerProfileId & calculate subtotals, shipping, commission
-        Map<Long, List<CartItem>> itemsBySeller = new LinkedHashMap<>();
-        for (CartItem item : items) {
-            ListingOffer offer = offers.get(item.listingId());
-            itemsBySeller.computeIfAbsent(offer.sellerProfileId(), k -> new ArrayList<>()).add(item);
-        }
+        // Delivery prerequisites are validated before any stock is reserved.
+        Address address = resolveAddress(principal.userId(), request == null ? null : request.shippingAddressId());
+        Long shippingAddressId = address.id();
+        // Group and price each seller before any inventory reservation.
+        Map<Long, List<CartItem>> itemsBySeller = groupBySeller(items, offers);
 
         BigDecimal itemsSubtotal = BigDecimal.ZERO;
         BigDecimal shippingTotal = BigDecimal.ZERO;
@@ -356,10 +309,9 @@ public class CheckoutService {
             Long requestedOptionId = (request != null && request.shippingOptionBySeller() != null)
                     ? request.shippingOptionBySeller().get(sellerProfileId)
                     : null;
-            Long optionId = resolveShippingOptionId(sellerProfileId, requestedOptionId);
-            BigDecimal sellerShipping = shippingFor(sellerProfileId, requestedOptionId, optionId,
-                    sellerItemCount, sellerSubtotal);
-
+            ShippingOption option = shippingOptionService.resolveForCheckout(sellerProfileId, requestedOptionId);
+            Long optionId = option.id();
+            BigDecimal sellerShipping = option.feeFor(sellerItemCount, sellerSubtotal);
             BigDecimal sellerDiscount = BigDecimal.ZERO;
             BigDecimal sellerGrandTotal = sellerSubtotal.add(sellerShipping).subtract(sellerDiscount);
 
@@ -382,25 +334,16 @@ public class CheckoutService {
 
         BigDecimal grandTotal = itemsSubtotal.add(shippingTotal).subtract(discountTotal);
 
-        // 5. Address resolution & snapshot
-        Long shippingAddressId = request != null ? request.shippingAddressId() : null;
-        Address address;
-        if (shippingAddressId != null) {
-            address = addressService.get(principal.userId(), shippingAddressId);
-        } else {
-            List<Address> userAddresses = addressService.list(principal.userId());
-            address = userAddresses.stream()
-                    .filter(Address::defaultShipping)
-                    .findFirst()
-                    .or(() -> userAddresses.stream().findFirst())
-                    .orElse(null);
-            if (address != null) {
-                shippingAddressId = address.id();
-            }
-        }
         JSONB addressSnapshot = createAddressSnapshot(address);
         String buyerNote = request != null ? request.buyerNote() : null;
         String orderNumber = orderRepository.nextOrderNumber();
+
+        // Reserve only after every seller can ship and the buyer has a valid address (strictly rolls back on failure)
+        Map<Long, Integer> quantityByListing = new LinkedHashMap<>();
+        for (CartItem item : items) {
+            quantityByListing.merge(item.listingId(), item.quantity(), Integer::sum);
+        }
+        Map<Long, List<ReservedUnit>> heldUnitsByListing = inventoryPort.reserve(quantityByListing);
 
         // 6. Insert Sales Order
         SalesOrderRecord salesOrder = orderRepository.insertSalesOrder(
@@ -499,50 +442,108 @@ public class CheckoutService {
         return getOrderDetails(salesOrder.getId(), false);
     }
 
-    /**
-     * Which of the seller's delivery choices this sub-order is posted with.
-     *
-     * <p>Resolved here as well as inside {@code feeFor} so the id can be frozen
-     * onto {@code seller_order.shipping_option_id}: otherwise an order records what
-     * postage cost but not what the buyer actually picked.
-     */
-    private Long resolveShippingOptionId(long sellerProfileId, Long requestedOptionId) {
-        if (requestedOptionId != null || shippingOptionService == null) {
-            return requestedOptionId;
-        }
-        return shippingOptionService.listActive(sellerProfileId).stream()
-                .findFirst()
-                .map(ShippingOption::id)
-                .orElse(null);
-    }
+    private record CartSelection(Cart cart, List<CartItem> allItems, List<CartItem> items) {}
 
-    /**
-     * What this seller charges to post their part of the basket.
-     *
-     * <p>The two ways {@code feeFor} can fail are not the same failure. A buyer who
-     * named an option that is not this seller's gets a 400 — silently charging zero
-     * would let anyone post for free. A seller who has configured none is a gap in
-     * their shop, not in the request, so the order goes through at zero and says so
-     * in the log.
-     */
-    private BigDecimal shippingFor(
-            long sellerProfileId, Long requestedOptionId, Long optionId, int itemCount, BigDecimal itemsSubtotal) {
-        if (shippingOptionService == null) {
-            return BigDecimal.ZERO;
+    /** Both quote and checkout select exclusively from this buyer's cart. */
+    private CartSelection selectCartItems(long userId, List<Long> cartItemIds) {
+        // 1. Retrieve user's cart and items
+        Cart cart = cartRepository.findByUserId(userId).orElse(null);
+        if (cart == null) {
+            throw new ConflictException(ErrorCode.CART_EMPTY);
         }
-        try {
-            return shippingOptionService.feeFor(sellerProfileId, optionId, itemCount, itemsSubtotal);
-        } catch (NotFoundException e) {
-            if (requestedOptionId != null) {
-                throw new BadRequestException(ErrorCode.SHIPPING_OPTION_INVALID,
-                        "Shipping option " + requestedOptionId + " is not offered by seller " + sellerProfileId);
+        List<CartItem> allItems = cartRepository.findItemsByCartId(cart.id());
+        if (allItems.isEmpty()) {
+            throw new ConflictException(ErrorCode.CART_EMPTY);
+        }
+        List<CartItem> items;
+        if (cartItemIds != null && !cartItemIds.isEmpty()) {
+            Set<Long> allowedIds = new HashSet<>(cartItemIds);
+            items = allItems.stream().filter(item -> allowedIds.contains(item.id())).toList();
+            if (items.isEmpty()) {
+                throw new ConflictException(ErrorCode.CART_EMPTY);
             }
-            log.warn("Seller {} has no active shipping option; charging no shipping on this sub-order",
-                    sellerProfileId);
-            return BigDecimal.ZERO;
+        } else {
+            items = allItems;
         }
+
+        return new CartSelection(cart, allItems, items);
     }
 
+    private Map<Long, ListingOffer> validatedOffers(AuthPrincipal principal, List<CartItem> items) {
+        // 2. Batch validate pricing and purchasability
+        List<Long> listingIds = items.stream().map(CartItem::listingId).distinct().toList();
+        Map<Long, ListingOffer> offers = pricingPort.offers(listingIds);
+
+        Optional<SellerProfile> buyerSellerProfile = sellerProfileRepository.findByUserId(principal.userId());
+        Long buyerSellerProfileId = buyerSellerProfile.map(SellerProfile::id).orElse(null);
+
+        List<PriceChange> priceChanges = new ArrayList<>();
+        for (CartItem item : items) {
+            ListingOffer offer = offers.get(item.listingId());
+            if (offer == null) {
+                throw new ConflictException(ErrorCode.LISTING_NOT_PURCHASABLE);
+            }
+            if (!offer.purchasable()) {
+                throw new ConflictException(ErrorCode.LISTING_NOT_PURCHASABLE);
+            }
+            if (buyerSellerProfileId != null && buyerSellerProfileId.equals(offer.sellerProfileId())) {
+                throw new ConflictException(ErrorCode.CANNOT_BUY_OWN_LISTING);
+            }
+            if (offer.price().compareTo(item.unitPriceAtAdd()) != 0) {
+                // Collected rather than thrown on the first one: the buyer should see
+                // every line that moved, not be sent back one at a time.
+                priceChanges.add(new PriceChange(
+                        item.id(), item.listingId(), item.unitPriceAtAdd(), offer.price()));
+            }
+        }
+        if (!priceChanges.isEmpty()) {
+            throw new CartPriceChangedException(priceChanges);
+        }
+
+        return offers;
+    }
+
+    private Map<Long, List<CartItem>> groupBySeller(List<CartItem> items, Map<Long, ListingOffer> offers) {
+        Map<Long, List<CartItem>> grouped = new LinkedHashMap<>();
+        for (CartItem item : items) {
+            grouped.computeIfAbsent(offers.get(item.listingId()).sellerProfileId(), ignored -> new ArrayList<>()).add(item);
+        }
+        return grouped;
+    }
+
+    private Address resolveAddress(long userId, Long addressId) {
+        Address address;
+        if (addressId != null) {
+            address = addressService.get(userId, addressId);
+        } else {
+            List<Address> addresses = addressService.list(userId);
+            address = addresses.stream().filter(Address::defaultShipping).findFirst()
+                    .or(() -> addresses.stream().findFirst()).orElse(null);
+        }
+        if (address == null) throw new BadRequestException(ErrorCode.SHIPPING_ADDRESS_REQUIRED);
+        return address;
+    }
+
+    @Transactional(readOnly = true)
+    public List<ShippingQuoteResponse> shippingQuotes(AuthPrincipal principal, ShippingQuoteRequest request) {
+        if (principal == null) throw new UnauthorizedException(ErrorCode.UNAUTHENTICATED);
+        List<CartItem> items = selectCartItems(principal.userId(), request == null ? null : request.cartItemIds()).items();
+        Map<Long, ListingOffer> offers = validatedOffers(principal, items);
+        List<ShippingQuoteResponse> quotes = new ArrayList<>();
+        for (var entry : groupBySeller(items, offers).entrySet()) {
+            long sellerId = entry.getKey();
+            List<CartItem> sellerItems = entry.getValue();
+            int count = sellerItems.stream().mapToInt(CartItem::quantity).sum();
+            BigDecimal subtotal = sellerItems.stream()
+                    .map(item -> item.unitPriceAtAdd().multiply(BigDecimal.valueOf(item.quantity())))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            List<ShippingQuoteOptionResponse> options = shippingOptionService.listActive(sellerId).stream()
+                    .map(option -> ShippingQuoteOptionResponse.from(option, count, subtotal)).toList();
+            quotes.add(new ShippingQuoteResponse(sellerId, offers.get(sellerItems.getFirst().listingId()).sellerName(),
+                    count, subtotal, options.isEmpty() ? null : options.getFirst().id(), options));
+        }
+        return quotes;
+    }
     public CheckoutResponse getOrderDetails(long salesOrderId) {
         return getOrderDetails(salesOrderId, false);
     }
@@ -630,9 +631,6 @@ public class CheckoutService {
      * can never check out again — or quietly change what the stored record says.
      */
     private JSONB createAddressSnapshot(Address a) {
-        if (a == null) {
-            return JSONB.valueOf("{}");
-        }
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("id", a.id());
         snapshot.put("recipientName", a.recipientName());

@@ -72,6 +72,57 @@ docker exec -i pegasus-tcg-postgres psql -U postgres -d pegasus_tcg \
 
 The seed is safe to rerun and does not create an admin user.
 
+### Full demo data
+
+Guides in Thai: [RUN_SEED.md](RUN_SEED.md) runs the seed and lists every test account with its password; [SEED_GUIDE.md](SEED_GUIDE.md) starts from a clean machine.
+
+`full-seed` fills every table with data that behaves like a few months of real use: 138 real products across seven games plus real accessories, 21 accounts, 180 listings, 65 orders in every state, payments, escrow, refunds, returns, reviews, payouts and price history. The money and stock add up the way the application expects; the seed checks this before committing and loads nothing if a check fails.
+
+Product pictures are real. They are not stored in git: the seed downloads them from the publishers' and brands' servers into your own MinIO, so the first run needs internet access (about 60 MB). A picture that cannot be fetched gets a placeholder and is retried on the next run. Bank books, transfer slips, postage receipts and return photos are drawings made for the seed and carry a SAMPLE watermark.
+
+Start PostgreSQL and MinIO, and run the API once so Flyway creates the tables. Then load into the empty database:
+
+```bash
+make seed-full
+```
+
+The seed refuses a database that already has accounts, products or orders. To wipe the data and load the seed, which deletes everything except the migration history and the role list:
+
+```bash
+make seed-full RESET=1
+```
+
+Without `make`, run the script directly. On Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\seed-full.ps1 -Reset
+```
+
+On macOS, Linux or Git Bash:
+
+```bash
+bash scripts/seed-full.sh --reset
+```
+
+Add `-SkipImages` or `--skip-images` to reload the data without downloading pictures again. The scripts read `POSTGRES_DB`, `POSTGRES_USER`, `MINIO_BUCKET` and `MINIO_PUBLIC_ENDPOINT` from `.env`.
+
+Every account signs in with `Password123!`:
+
+| Account | What it shows |
+| --- | --- |
+| `admin@example.com` | Admin: a payment slip awaiting approval, refunds to transfer (one after a failed attempt), payouts in every state, seller verifications to review |
+| `support@example.com` | Support role |
+| `cardkingdom@example.com`, `tcgcorner@example.com`, `mintvault@example.com`, `store@pegasus.example.com`, `seller@example.com`, `grandline@example.com` | Verified sellers with listings, stock, orders to ship, returns to answer, reviews and payouts. Mint Vault holds graded cards |
+| `mai@example.com`, `ton@example.com`, `buyer@example.com`, `ploy@example.com`, `nattapong@example.com` | Buyers with order history, open orders, returns, carts, wish lists and collections |
+| `kanto@example.com` | Seller on vacation; listings hidden |
+| `banned@example.com` | Suspended seller; listings blocked |
+| `newbie@example.com`, `packrippers@example.com`, `shady@example.com` | Seller applications: submitted, under review, rejected |
+| `locked@example.com`, `suspended@example.com` | Locked after failed sign-ins; suspended account |
+
+Two orders change on their own after loading, as real ones would: the most recent unpaid order is cancelled by the payment-timeout job an hour after it was placed, and parcels shipped in the last week are completed by the escrow job once their seven days pass.
+
+The seed's sources are in `src/test/resources/db/full-seed/`: numbered SQL files run in one transaction, `image-sources.txt` lists the real pictures and where they come from, and `images/` holds the generated documents.
+
 ## Build and Run with Docker (full stack)
 
 You can run the entire backend infrastructure — PostgreSQL, MinIO, **and** the Spring Boot application — with a single command using Docker Compose. The Dockerfile performs a multi-stage build that runs Gradle inside an isolated build container, so **you do not need Java or Gradle installed on your host machine**.
@@ -198,7 +249,45 @@ PUT    /addresses/{addressId}                   *
 DELETE /addresses/{addressId}                   *
 ```
 
-### Seller and verification (14)
+### ### Checkout shipping quotes (signed-in buyer)
+
+```text
+POST   /checkout/shipping-quotes                 *
+POST   /checkout                                 *
+```
+
+`POST /api/v1/checkout/shipping-quotes` accepts `{"cartItemIds":[12,13]}`;
+null, omitted, or empty `cartItemIds` quotes the entire authenticated buyer's cart.
+Only items in that buyer's cart are considered, using the same selection as checkout.
+No shipping address or idempotency key is required for quotes. This endpoint does
+not merge a guest cart, reserve stock, or create an order.
+
+The response `data` is an array of seller groups with `sellerProfileId`,
+`sellerName`, `itemCount` (sum of quantities), `itemsSubtotal`, `defaultOptionId`,
+and `options`. Options are active choices in `displayOrder`, then id order; each
+includes its tariff, delivery estimate, calculated `fee`, `free`, and `amountToFree`.
+`free` means the free-shipping threshold is reached. `amountToFree` is null when
+reached or when no threshold exists. A zero-fee tariff without a threshold has
+`fee: 0` and `free: false`. A seller with no active choices returns `options: []`
+and `defaultOptionId: null` so the client can explain why checkout is unavailable.
+Quotes enforce checkout's current-price and purchasability checks.
+
+Checkout accepts `shippingOptionBySeller` keyed by seller profile id. Omitting a
+seller's choice uses `defaultOptionId` for compatibility with existing clients.
+Both flows calculate postage with `ShippingOption.feeFor`.
+
+Before stock reservation, checkout rejects:
+
+- `400 SHIPPING_OPTION_INVALID`: the chosen option is inactive, missing, or belongs to another seller.
+- `400 SELLER_SHIPPING_UNAVAILABLE`: no active option exists; `data.details.sellerProfileId` identifies the shop.
+- `400 SHIPPING_ADDRESS_REQUIRED`: no explicit, default, or first saved shipping address exists.
+- `404 ADDRESS_NOT_FOUND`: an explicit address is missing, deleted, or belongs to another buyer.
+
+The dev seed scripts provide active delivery choices and default demo addresses.
+Re-run the applicable seed for existing local demo data. These are development
+fixtures, not production migrations.
+
+Seller and verification (14)
 
 ```text
 GET    /sellers/me                              *

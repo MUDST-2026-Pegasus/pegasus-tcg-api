@@ -8,6 +8,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
+import static com.pegasus.pegasustcgapi.jooq.tables.AppRole.APP_ROLE;
+import static com.pegasus.pegasustcgapi.jooq.tables.UserRole.USER_ROLE;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerPayoutAccount.SELLER_PAYOUT_ACCOUNT;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -197,5 +201,60 @@ class SellerVerificationIntegrationTest {
                                 .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[?(@.bankBookImageKey == '%s')].bankBookImageUrl", key).exists());
+    }
+
+    @Test
+    @DisplayName("admin approval grants seller access and verified payout account exactly once")
+    void approvalOpensSellerAccessAndCannotBeRepeated() throws Exception {
+        String key = "verifications/" + UUID.randomUUID() + ".jpg";
+        when(storageService.requireUploadedFor(UploadPurpose.SELLER_VERIFICATION, key))
+                .thenReturn(new com.pegasus.pegasustcgapi.storage.StoredObject(key, 1024L, "image/jpeg"));
+        String account = "123456" + userId;
+        String request = """
+                {"legalFirstName":"Somchai","legalLastName":"Jaidee","bankCode":"KBANK",
+                 "bankName":"Kasikorn","bankAccountNumber":"%s","bankBookImageKey":"%s"}
+                """.formatted(account, key);
+
+        String submitted = mockMvc.perform(post("/api/v1/sellers/me/verifications")
+                        .with(jwt().jwt(j -> j.subject(String.valueOf(userId))))
+                        .contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long verificationId = objectMapper.readTree(submitted).path("data").path("id").asLong();
+        assertThat(verificationId).isPositive();
+
+        long adminId = dsl.insertInto(USER_ACCOUNT)
+                .set(USER_ACCOUNT.EMAIL, "admin_" + username + "@example.com")
+                .set(USER_ACCOUNT.PASSWORD_HASH, "x")
+                .set(USER_ACCOUNT.USERNAME, "admin_" + username)
+                .set(USER_ACCOUNT.DISPLAY_NAME, "Admin")
+                .returningResult(USER_ACCOUNT.ID).fetchSingle().value1();
+        var admin = jwt().jwt(j -> j.subject(String.valueOf(adminId)).claim("roles", List.of("ADMIN")))
+                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"));
+
+        mockMvc.perform(post("/api/v1/admin/verifications/{id}/start-review", verificationId).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("UNDER_REVIEW"));
+        mockMvc.perform(post("/api/v1/admin/verifications/{id}/approve", verificationId).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"));
+
+        Long profileId = dsl.select(SELLER_PROFILE.ID).from(SELLER_PROFILE)
+                .where(SELLER_PROFILE.USER_ID.eq(userId)).fetchOne(SELLER_PROFILE.ID);
+        assertThat(profileId).isNotNull();
+        assertThat(dsl.select(SELLER_PROFILE.STATUS).from(SELLER_PROFILE)
+                .where(SELLER_PROFILE.ID.eq(profileId)).fetchOne(SELLER_PROFILE.STATUS)).isEqualTo("VERIFIED");
+        assertThat(dsl.select(APP_ROLE.CODE).from(USER_ROLE)
+                .join(APP_ROLE).on(APP_ROLE.ID.eq(USER_ROLE.ROLE_ID))
+                .where(USER_ROLE.USER_ID.eq(userId)).fetch(APP_ROLE.CODE)).contains("SELLER");
+        assertThat(dsl.select(SELLER_PAYOUT_ACCOUNT.ACCOUNT_NUMBER).from(SELLER_PAYOUT_ACCOUNT)
+                .where(SELLER_PAYOUT_ACCOUNT.SELLER_PROFILE_ID.eq(profileId))
+                .fetchOne(SELLER_PAYOUT_ACCOUNT.ACCOUNT_NUMBER)).isEqualTo(account);
+
+        mockMvc.perform(post("/api/v1/admin/verifications/{id}/approve", verificationId).with(admin))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.data.code").value("VERIFICATION_ALREADY_DECIDED"));
+        assertThat(dsl.fetchCount(SELLER_PAYOUT_ACCOUNT,
+                SELLER_PAYOUT_ACCOUNT.SELLER_PROFILE_ID.eq(profileId))).isEqualTo(1);
     }
 }

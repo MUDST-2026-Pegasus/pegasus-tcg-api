@@ -6,6 +6,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIA
 import static com.pegasus.pegasustcgapi.jooq.tables.Game.GAME;
 import static com.pegasus.pegasustcgapi.jooq.tables.PlatformSetting.PLATFORM_SETTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerShippingOption.SELLER_SHIPPING_OPTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.dto.ListingUnitResponse;
@@ -77,6 +78,13 @@ public class TestData {
     }
 
     public AuthPrincipal buyer() {
+        AuthPrincipal buyer = buyerWithoutAddress();
+        address(buyer);
+        return buyer;
+    }
+
+    /** Explicit fixture for checkout's missing-address refusal. */
+    public AuthPrincipal buyerWithoutAddress() {
         return principal(user("buyer"), Set.of(RoleCode.BUYER));
     }
 
@@ -93,6 +101,16 @@ public class TestData {
                 .set(SELLER_PROFILE.VERIFIED_AT, OffsetDateTime.now())
                 .returningResult(SELLER_PROFILE.ID)
                 .fetchSingle(SELLER_PROFILE.ID);
+        // A real, active zero-fee test tariff; never rely on a missing tariff meaning free shipping.
+        // Explicit tariffs a test creates sort before this fallback.
+        dsl.insertInto(SELLER_SHIPPING_OPTION)
+                .set(SELLER_SHIPPING_OPTION.SELLER_PROFILE_ID, profileId)
+                .set(SELLER_SHIPPING_OPTION.NAME, "Test standard shipping")
+                .set(SELLER_SHIPPING_OPTION.BASE_FEE, BigDecimal.ZERO)
+                .set(SELLER_SHIPPING_OPTION.PER_ITEM_FEE, BigDecimal.ZERO)
+                .set(SELLER_SHIPPING_OPTION.IS_ACTIVE, true)
+                .set(SELLER_SHIPPING_OPTION.DISPLAY_ORDER, (short) 32767)
+                .execute();
         return new Seller(user.userId(), profileId, user);
     }
 

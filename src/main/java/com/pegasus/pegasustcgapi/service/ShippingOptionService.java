@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service;
 
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.ShippingOption;
@@ -63,26 +64,23 @@ public class ShippingOptionService {
         }
     }
 
-    /**
-     * Shipping for one sub-order.
-     *
-     * @param optionId null falls back to the seller's first active option
-     * @param itemCount cards in this seller's part of the basket, not the whole basket
-     * @throws NotFoundException the option is not this seller's, or they have none configured
-     */
-    public BigDecimal feeFor(long sellerProfileId, Long optionId, int itemCount, BigDecimal itemsSubtotal) {
-        ShippingOption option = optionId == null
-                ? firstActive(sellerProfileId)
-                : options.findByIdAndSeller(optionId, sellerProfileId).orElseThrow(
-                        () -> new NotFoundException(ErrorCode.SHIPPING_OPTION_NOT_FOUND));
-
-        return option.feeFor(itemCount, itemsSubtotal);
+    /** Resolves and validates one choice once, so its id and fee always belong to the same option. */
+    public ShippingOption resolveForCheckout(long sellerProfileId, Long optionId) {
+        if (optionId != null) {
+            return options.findByIdAndSeller(optionId, sellerProfileId)
+                    .filter(ShippingOption::active)
+                    .orElseThrow(() -> new BadRequestException(ErrorCode.SHIPPING_OPTION_INVALID,
+                            "Shipping option " + optionId + " is not active for seller " + sellerProfileId,
+                            java.util.Map.of("sellerProfileId", sellerProfileId, "shippingOptionId", optionId)));
+        }
+        return listActive(sellerProfileId).stream().findFirst()
+                .orElseThrow(() -> new BadRequestException(ErrorCode.SELLER_SHIPPING_UNAVAILABLE,
+                        ErrorCode.SELLER_SHIPPING_UNAVAILABLE.defaultMessage(),
+                        java.util.Map.of("sellerProfileId", sellerProfileId)));
     }
 
-    private ShippingOption firstActive(long sellerProfileId) {
-        return options.findBySellerProfileId(sellerProfileId, true).stream()
-                .findFirst()
-                .orElseThrow(() -> new NotFoundException(ErrorCode.SHIPPING_OPTION_NOT_FOUND,
-                        "This seller has no active shipping option"));
+    /** Uses the same model calculation as quotes; inactive options cannot be priced for checkout. */
+    public BigDecimal feeFor(long sellerProfileId, Long optionId, int itemCount, BigDecimal itemsSubtotal) {
+        return resolveForCheckout(sellerProfileId, optionId).feeFor(itemCount, itemsSubtotal);
     }
 }

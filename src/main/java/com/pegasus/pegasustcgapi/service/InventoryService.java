@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.service;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.dto.InventoryMovementResponse;
+import com.pegasus.pegasustcgapi.dto.StockInHistoryResponse;
 import com.pegasus.pegasustcgapi.dto.ListingCard;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -19,6 +20,8 @@ import com.pegasus.pegasustcgapi.port.InventoryPort;
 import com.pegasus.pegasustcgapi.port.SellerPort;
 import com.pegasus.pegasustcgapi.repository.InventoryMovementRepository;
 import com.pegasus.pegasustcgapi.repository.InventoryMovementRepository.MovementQuery;
+import com.pegasus.pegasustcgapi.repository.InventoryMovementRepository.StockFlow;
+import com.pegasus.pegasustcgapi.repository.InventoryMovementRepository.StockInQuery;
 import com.pegasus.pegasustcgapi.repository.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.repository.SellerVariantCostRepository;
 import java.math.BigDecimal;
@@ -92,6 +95,21 @@ public class InventoryService implements InventoryPort {
                 .map(m -> InventoryMovementResponse.of(m, cardsByVariant.get(m.catalogVariantId())))
                 .toList();
         return PageResponse.of(items, paging.page(), paging.size(), movements.count(query));
+    }
+
+    /** One printing and condition's stock-ins, a lot per row, newest first, with what came in and went out. */
+    public StockInHistoryResponse stockIns(long userId, long variantId, CardCondition condition, int page, int size) {
+        SellerProfile seller = sellers.requireProfile(userId);
+        Paging paging = Paging.of(page, size);
+        StockInQuery query = new StockInQuery(seller.id(), variantId, condition, paging.size(), paging.offset());
+
+        List<StockInHistoryResponse.Lot> lots = movements.findStockIns(query).stream()
+                .map(StockInHistoryResponse.Lot::of)
+                .toList();
+        StockFlow flow = movements.stockFlow(seller.id(), variantId, condition);
+
+        return new StockInHistoryResponse(flow.received(), flow.sold(),
+                PageResponse.of(lots, paging.page(), paging.size(), movements.countStockIns(query)));
     }
 
     // ---------- InventoryPort ----------

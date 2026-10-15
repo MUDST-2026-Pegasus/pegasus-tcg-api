@@ -13,14 +13,18 @@ import com.pegasus.pegasustcgapi.repository.PaymentRepository;
 import com.pegasus.pegasustcgapi.repository.ReturnRepository;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
+import com.pegasus.pegasustcgapi.dto.SellerReturnRequestResponse;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
@@ -96,9 +100,78 @@ public class ReturnService {
         return request;
     }
 
+    private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
+
     @Transactional(readOnly = true)
-    public List<ReturnRequestRecord> sellerReturns(long sellerUserId, String status) {
-        return returns.forSeller(sellers.requireProfile(sellerUserId).id(), status);
+    public List<SellerReturnRequestResponse> sellerReturns(long sellerUserId, String status) {
+        long sellerProfileId = sellers.requireProfile(sellerUserId).id();
+        List<ReturnRepository.SellerReturnRow> returnRows = returns.findSellerReturns(sellerProfileId, status);
+        if (returnRows.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> returnIds = returnRows.stream().map(ReturnRepository.SellerReturnRow::id).toList();
+        List<ReturnRepository.SellerReturnItemRow> itemRows = returns.findReturnItemsBatch(returnIds);
+
+        Map<Long, List<SellerReturnRequestResponse.SellerReturnItem>> itemsByReturnId = itemRows.stream()
+                .collect(Collectors.groupingBy(
+                        ReturnRepository.SellerReturnItemRow::returnRequestId,
+                        Collectors.mapping(item -> {
+                            String imageUrl = null;
+                            if (storage != null && item.imageKey() != null && !item.imageKey().isBlank()) {
+                                try {
+                                    imageUrl = storage.presignDownload(item.imageKey());
+                                } catch (Exception e) {
+                                    // Ignore storage failures
+                                }
+                            }
+                            return new SellerReturnRequestResponse.SellerReturnItem(
+                                    item.returnItemId(),
+                                    item.orderItemId(),
+                                    item.cardName(),
+                                    item.variantLabel(),
+                                    item.conditionCode(),
+                                    imageUrl,
+                                    item.unitPrice(),
+                                    item.quantityReturned(),
+                                    item.quantityOrdered(),
+                                    item.restock()
+                            );
+                        }, Collectors.toList())
+                ));
+
+        return returnRows.stream().map(row -> {
+            List<String> evidenceKeys = List.of();
+            if (row.evidenceKeys() != null && row.evidenceKeys().data() != null) {
+                try {
+                    evidenceKeys = json.readValue(row.evidenceKeys().data(), STRING_LIST);
+                } catch (Exception e) {
+                    evidenceKeys = List.of();
+                }
+            }
+
+            return new SellerReturnRequestResponse(
+                    row.id(),
+                    row.sellerOrderId(),
+                    row.sellerOrderNumber(),
+                    new SellerReturnRequestResponse.BuyerSummary(row.buyerUsername(), row.buyerDisplayName()),
+                    row.sellerOrderGrandTotal(),
+                    row.deliveredAt(),
+                    row.autoCompleteAt(),
+                    row.reasonCode(),
+                    row.description(),
+                    row.status(),
+                    row.resolution(),
+                    row.refundAmount(),
+                    evidenceKeys,
+                    row.returnTrackingNumber(),
+                    row.requestedAt(),
+                    row.reviewedAt(),
+                    row.receivedAt(),
+                    row.closedAt(),
+                    itemsByReturnId.getOrDefault(row.id(), List.of())
+            );
+        }).toList();
     }
 
     @Transactional(readOnly = true)
