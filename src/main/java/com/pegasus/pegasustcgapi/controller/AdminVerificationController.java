@@ -56,9 +56,7 @@ public class AdminVerificationController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        List<VerificationResponse> items = onboarding.queue(status, page, size).stream()
-                .map(mapper::toResponse)
-                .toList();
+        List<VerificationResponse> items = mapper.toResponses(onboarding.queue(status, page, size));
 
         return ApiResult.success(
                 PageResponse.of(items, page, size, onboarding.queueSize(status)));
