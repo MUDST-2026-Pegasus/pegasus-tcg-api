@@ -92,6 +92,85 @@ class CartServiceTest {
     }
 
     @Nested
+    @DisplayName("Explicit price acceptance")
+    class AcceptPricesTests {
+        private final OffsetDateTime now = OffsetDateTime.now();
+        private final Cart userCart = new Cart(5L, 42L, null, "THB", now, now, null);
+        private final CartItem first = new CartItem(10L, 5L, 100L, 2, new BigDecimal("100.00"), now, now);
+        private final CartItem second = new CartItem(11L, 5L, 101L, 1, new BigDecimal("100.00"), now, now);
+
+        @Test
+        void acceptsOnlyRequestedOwnedItemsAndReturnsRefreshedCart() {
+            given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
+            given(cartRepository.findByUserId(42L)).willReturn(Optional.of(userCart));
+            CartItem accepted = new CartItem(10L, 5L, 100L, 2, new BigDecimal("80.00"), now, now);
+            given(cartRepository.findItemsByCartId(5L))
+                    .willReturn(List.of(first, second), List.of(accepted, second));
+            given(pricingPort.offers(List.of(100L)))
+                    .willReturn(Map.of(100L, offer(100L, 99L, new BigDecimal("80.00"), true)));
+            given(pricingPort.offers(List.of(100L, 101L))).willReturn(Map.of(
+                    100L, offer(100L, 99L, new BigDecimal("80.00"), true),
+                    101L, offer(101L, 99L, new BigDecimal("120.00"), true)));
+
+            CartResponse result = cartService.acceptPrices(principal(42L), null, List.of(10L));
+
+            verify(cartRepository).updateItemPrice(10L, 5L, new BigDecimal("80.00"));
+            verify(cartRepository, never()).updateItemPrice(eq(11L), anyLong(), any());
+            assertThat(result.items().getFirst().priceChanged()).isFalse();
+            assertThat(result.items().getFirst().unitPriceAtAdd()).isEqualByComparingTo("80.00");
+            assertThat(result.items().get(1).priceChanged()).isTrue();
+            assertThat(result.itemsSubtotal()).isEqualByComparingTo("280.00");
+        }
+
+        @Test
+        void refusesAnotherCartsItemBeforeUpdatingAnyPrices() {
+            given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
+            given(cartRepository.findItemsByCartId(5L)).willReturn(List.of(first));
+
+            assertThatThrownBy(() -> cartService.acceptPrices(principal(42L), null, List.of(10L, 999L)))
+                    .isInstanceOfSatisfying(NotFoundException.class,
+                            error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.CART_ITEM_NOT_FOUND));
+            verify(cartRepository, never()).updateItemPrice(anyLong(), anyLong(), any());
+            verify(pricingPort, never()).offers(any());
+        }
+
+        @Test
+        void guestCanAcceptAllChangedPricesAndUnavailableItemsStayUnavailable() {
+            Cart guestCart = new Cart(5L, null, GUEST_KEY_A, "THB", now, now, null);
+            given(cartRepository.findBySessionKey(GUEST_KEY_A)).willReturn(Optional.of(guestCart));
+            given(cartRepository.findItemsByCartId(5L)).willReturn(List.of(first, second));
+            given(pricingPort.offers(List.of(100L, 101L))).willReturn(Map.of(
+                    100L, offer(100L, 99L, new BigDecimal("120.00"), true),
+                    101L, offer(101L, 99L, new BigDecimal("80.00"), false)));
+
+            CartResponse result = cartService.acceptPrices(null, GUEST_KEY_A, null);
+
+            assertThat(result.sessionKey()).isEqualTo(GUEST_KEY_A);
+            verify(cartRepository).updateItemPrice(10L, 5L, new BigDecimal("120.00"));
+            verify(cartRepository, never()).updateItemPrice(eq(11L), anyLong(), any());
+            assertThat(result.items().get(1).purchasable()).isFalse();
+        }
+
+        @Test
+        void guestCannotAcceptWithoutAnExistingSession() {
+            assertThatThrownBy(() -> cartService.acceptPrices(null, null, null))
+                    .isInstanceOf(NotFoundException.class);
+            verify(cartRepository, never()).updateItemPrice(anyLong(), anyLong(), any());
+        }
+
+        @Test
+        void explicitEmptySelectionDoesNotAcceptAnything() {
+            given(cartRepository.getOrCreateForUser(42L)).willReturn(userCart);
+            given(cartRepository.findByUserId(42L)).willReturn(Optional.of(userCart));
+            given(cartRepository.findItemsByCartId(5L)).willReturn(List.of());
+
+            cartService.acceptPrices(principal(42L), null, List.of());
+
+            verify(cartRepository, never()).updateItemPrice(anyLong(), anyLong(), any());
+        }
+    }
+
+    @Nested
     @DisplayName("Session Management & Adding Items")
     class AddItemTests {
 

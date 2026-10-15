@@ -21,9 +21,12 @@ import com.pegasus.pegasustcgapi.repository.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -306,6 +309,35 @@ public class CartService {
                 details != null ? details.sellerName() : offer.sellerName(),
                 imageUrl != null ? imageUrl : card == null ? null : card.officialImageUrl(),
                 card == null ? null : card.productId());
+    }
+
+    /** Only this explicit action accepts changed prices; quantity edits and checkout never do. */
+    @Transactional
+    public CartResponse acceptPrices(AuthPrincipal principal, String sessionKey, List<Long> cartItemIds) {
+        Cart cart = requireWritableCart(principal, sessionKey);
+        List<CartItem> items = cartRepository.findItemsByCartId(cart.id());
+        if (cartItemIds != null) {
+            Set<Long> requested = new HashSet<>(cartItemIds);
+            Set<Long> owned = items.stream().map(CartItem::id).collect(Collectors.toSet());
+            // Validate the entire selection before writing any prices.
+            if (!owned.containsAll(requested)) {
+                throw new NotFoundException(ErrorCode.CART_ITEM_NOT_FOUND);
+            }
+            items = items.stream().filter(item -> requested.contains(item.id())).toList();
+        }
+        if (!items.isEmpty()) {
+            Map<Long, ListingOffer> offers = pricingPort.offers(
+                    items.stream().map(CartItem::listingId).distinct().toList());
+            for (CartItem item : items) {
+                ListingOffer offer = offers.get(item.listingId());
+                // Unavailable listings stay in the cart for the buyer to remove or deselect.
+                if (offer != null && offer.purchasable() && offer.price() != null
+                        && item.unitPriceAtAdd().compareTo(offer.price()) != 0) {
+                    cartRepository.updateItemPrice(item.id(), cart.id(), offer.price());
+                }
+            }
+        }
+        return getCart(principal, principal == null ? sessionKey : null);
     }
 
     /**

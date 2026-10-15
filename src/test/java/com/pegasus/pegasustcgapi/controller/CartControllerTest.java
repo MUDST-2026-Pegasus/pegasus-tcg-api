@@ -72,6 +72,39 @@ class CartControllerTest {
     }
 
     @Test
+    void guestAcceptsSelectedPricesAndGetsCartAndSessionHeader() throws Exception {
+        CartResponse response = new CartResponse(1L, null, "guest-session", "THB",
+                List.of(mockItemResponse(100L, 5L, 1, new BigDecimal("80.00"), false)), 1, new BigDecimal("80.00"));
+        given(cartService.acceptPrices(null, "guest-session", List.of(100L))).willReturn(response);
+
+        mockMvc.perform(post(ApiPaths.CART + "/items/accept-prices")
+                        .header("X-Cart-Session", "guest-session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cartItemIds\":[100]}"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Cart-Session", "guest-session"))
+                .andExpect(jsonPath("$.data.items[0].priceChanged").value(false))
+                .andExpect(jsonPath("$.data.itemsSubtotal").value(80));
+    }
+
+    @Test
+    void acceptAllPricesSupportsOmittedBody() throws Exception {
+        given(cartService.acceptPrices(null, "guest-session", null)).willReturn(
+                new CartResponse(1L, null, "guest-session", "THB", List.of(), 0, BigDecimal.ZERO));
+
+        mockMvc.perform(post(ApiPaths.CART + "/items/accept-prices").header("X-Cart-Session", "guest-session"))
+                .andExpect(status().isOk());
+        verify(cartService).acceptPrices(null, "guest-session", null);
+    }
+
+    @Test
+    void acceptPricesRejectsInvalidIds() throws Exception {
+        mockMvc.perform(post(ApiPaths.CART + "/items/accept-prices")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"cartItemIds\":[0,null]}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("POST /api/v1/cart/items returns X-Cart-Session header for guest")
     void guestAddItemSetsCartSessionHeader() throws Exception {
         String sessionKey = "test-session-cart-12345";
