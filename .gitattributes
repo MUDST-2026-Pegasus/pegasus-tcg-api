@@ -2,3 +2,6 @@
 *.bat text eol=crlf
 *.jar binary
 *.sh text eol=lf
+# The full seed runs inside Linux containers; keep its text files LF on every checkout.
+src/test/resources/db/full-seed/*.sql text eol=lf
+src/test/resources/db/full-seed/*.txt text eol=lf
