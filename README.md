@@ -76,7 +76,7 @@ The seed is safe to rerun and does not create an admin user.
 
 Guides in Thai: [RUN_SEED.md](RUN_SEED.md) runs the seed and lists every test account with its password; [SEED_GUIDE.md](SEED_GUIDE.md) starts from a clean machine.
 
-`full-seed` fills every table with data that behaves like a few months of real use: 138 real products across seven games plus real accessories, 21 accounts, 180 listings, 65 orders in every state, payments, escrow, refunds, returns, reviews, payouts and price history. The money and stock add up the way the application expects; the seed checks this before committing and loads nothing if a check fails.
+`full-seed` fills every table with data that behaves like a few months of real use: 138 real products across seven games plus real accessories, 21 accounts, 435 listings (most cards offered by several shops in several conditions and printings), 65 orders in every state, payments, escrow, refunds, returns, reviews, payouts and price history. The money and stock add up the way the application expects; the seed checks this before committing and loads nothing if a check fails.
 
 Product pictures are real. They are not stored in git: the seed downloads them from the publishers' and brands' servers into your own MinIO, so the first run needs internet access (about 60 MB). A picture that cannot be fetched gets a placeholder and is retried on the next run. Bank books, transfer slips, postage receipts and return photos are drawings made for the seed and carry a SAMPLE watermark.
 
