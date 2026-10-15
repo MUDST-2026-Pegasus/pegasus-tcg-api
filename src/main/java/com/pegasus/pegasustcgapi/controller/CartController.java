@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import com.pegasus.pegasustcgapi.dto.AcceptCartPricesRequest;
 import com.pegasus.pegasustcgapi.dto.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.CartItemResponse;
 import com.pegasus.pegasustcgapi.dto.CartResponse;
@@ -110,6 +111,26 @@ public class CartController {
             builder.header("X-Cart-Session", response.sessionKey());
         }
         return builder.body(ApiResult.success(response));
+    }
+
+    @Operation(summary = "Accept current cart prices", description = "Explicitly accepts changed prices in the caller's cart. Omit the body or cartItemIds to accept all changed prices. Supports guest sessions.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Prices accepted; latest cart returned"),
+            @ApiResponse(responseCode = "400", description = "Invalid cart item IDs"),
+            @ApiResponse(responseCode = "404", description = "Cart or item not found in current cart")
+    })
+    @PostMapping("/items/accept-prices")
+    public ResponseEntity<ApiResult<CartResponse>> acceptPrices(
+            @Valid @RequestBody(required = false) AcceptCartPricesRequest request,
+            @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
+            Optional<AuthPrincipal> principal) {
+        CartResponse response = cartService.acceptPrices(principal.orElse(null), sessionKey,
+                request == null ? null : request.cartItemIds());
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
+        if (principal.isEmpty() && response.sessionKey() != null) {
+            builder.header("X-Cart-Session", response.sessionKey());
+        }
+        return builder.body(ApiResult.success("Cart prices accepted", response));
     }
 
     @Operation(summary = "Update cart item quantity", description = "Updates the quantity of an item in the current cart. Supports guest sessions and authenticated users.")

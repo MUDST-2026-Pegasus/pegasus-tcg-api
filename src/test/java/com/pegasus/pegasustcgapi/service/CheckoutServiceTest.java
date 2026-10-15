@@ -367,7 +367,7 @@ class CheckoutServiceTest {
         }
 
         @Test
-        @DisplayName("throws CART_PRICE_CHANGED naming every line that moved, and re-pins the cart to the new prices")
+        @DisplayName("throws CART_PRICE_CHANGED and preserves unaccepted prices on every retry")
         void priceMismatchThrows() {
             AuthPrincipal buyer = principal(42L);
             Cart cart = new Cart(5L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
@@ -392,11 +392,26 @@ class CheckoutServiceTest {
                         });
                     });
 
-            // Written outside the rolled-back checkout transaction, or the buyer would
-            // meet the same refusal on every retry.
-            verify(cartRepository).updateItemPrice(10L, 5L, new BigDecimal("120.00"));
-            verify(cartRepository, never()).updateItemPrice(eq(11L), anyLong(), any());
+            assertThatThrownBy(() -> checkoutService.checkout(buyer, "idem-1", null, null))
+                    .isInstanceOf(CartPriceChangedException.class);
+            verify(cartRepository, never()).updateItemPrice(anyLong(), anyLong(), any());
             verify(inventoryPort, never()).reserve(any());
+        }
+
+        @Test
+        @DisplayName("shipping quotes reject unaccepted prices without re-pinning")
+        void shippingQuotesRequireAcceptedPrices() {
+            Cart cart = new Cart(5L, 42L, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+            CartItem item = new CartItem(10L, 5L, 100L, 1, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            given(cartRepository.findByUserId(42L)).willReturn(Optional.of(cart));
+            given(cartRepository.findItemsByCartId(5L)).willReturn(List.of(item));
+            given(pricingPort.offers(List.of(100L))).willReturn(Map.of(100L, offer(100L, 88L, new BigDecimal("80.00"), true)));
+            given(sellerProfileRepository.findByUserId(42L)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> checkoutService.shippingQuotes(principal(42L),
+                    new com.pegasus.pegasustcgapi.dto.ShippingQuoteRequest(List.of(10L))))
+                    .isInstanceOf(CartPriceChangedException.class);
+            verify(cartRepository, never()).updateItemPrice(anyLong(), anyLong(), any());
         }
 
         @Test

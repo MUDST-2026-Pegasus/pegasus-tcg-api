@@ -215,13 +215,6 @@ public class CheckoutService {
         // 2. Atomic checkout execution
         try {
             return executeInTransaction(() -> executeCheckout(principal, trimmedKey, sessionKey, request));
-        } catch (CartPriceChangedException e) {
-            // The checkout transaction rolled back, taking the refreshed prices with
-            // it, so they are written again in one of their own. Without this the
-            // buyer would be told the price moved and then meet the same refusal on
-            // every retry.
-            repinCartPrices(principal, e.changes());
-            throw e;
         } catch (DuplicateKeyException | IntegrityConstraintViolationException e) {
             // Race condition: another concurrent transaction committed with the same key.
             // This transaction rolled back. Re-query winner's committed order.
@@ -235,18 +228,6 @@ public class CheckoutService {
                     })
                     .orElseThrow(() -> e);
         }
-    }
-
-    private void repinCartPrices(AuthPrincipal principal, List<PriceChange> changes) {
-        if (changes.isEmpty()) {
-            return;
-        }
-        executeInTransaction(() -> {
-            cartRepository.findByUserId(principal.userId()).ifPresent(cart ->
-                    changes.forEach(change ->
-                            cartRepository.updateItemPrice(change.cartItemId(), cart.id(), change.newPrice())));
-            return null;
-        });
     }
 
     private <T> T executeInTransaction(Supplier<T> action) {

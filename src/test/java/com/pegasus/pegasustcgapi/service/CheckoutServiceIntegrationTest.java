@@ -13,10 +13,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.pegasus.pegasustcgapi.dto.CartItemRequest;
+import com.pegasus.pegasustcgapi.dto.CartResponse;
+import com.pegasus.pegasustcgapi.dto.ShippingQuoteRequest;
 import com.pegasus.pegasustcgapi.dto.CheckoutRequest;
 import com.pegasus.pegasustcgapi.dto.CheckoutResponse;
 import com.pegasus.pegasustcgapi.dto.CheckoutResponse.SellerOrderResponse;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
+import com.pegasus.pegasustcgapi.exception.CartPriceChangedException;
+import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.jooq.tables.records.ListingRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
@@ -25,12 +29,15 @@ import com.pegasus.pegasustcgapi.model.CardCondition;
 import com.pegasus.pegasustcgapi.model.ListingUnitStatus;
 import com.pegasus.pegasustcgapi.repository.AddressRepository.AddressFields;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.common.ApiPaths;
+import com.pegasus.pegasustcgapi.support.ApiClient;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import com.pegasus.pegasustcgapi.support.TestData.Card;
 import com.pegasus.pegasustcgapi.support.TestData.Listing;
 import com.pegasus.pegasustcgapi.support.TestData.Seller;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -81,6 +88,72 @@ class CheckoutServiceIntegrationTest extends PostgresIntegrationTest {
     private int cartLines(AuthPrincipal who) {
         return dsl.fetchCount(CART_ITEM, CART_ITEM.CART_ID.in(
                 dsl.select(CART.ID).from(CART).where(CART.USER_ID.eq(who.userId()))));
+    }
+
+    @Test
+    void priceAcceptanceEndpointSupportsAuthenticatedUsersAndGuests() {
+        Listing listing = data.onSale(seller, card, CardCondition.NM, 3, "100.00");
+        long ownId = cartService.addItem(buyer, null, new CartItemRequest(listing.id(), 1)).item().id();
+        var guest = cartService.addItem(null, null, new CartItemRequest(listing.id(), 1));
+        dsl.update(LISTING).set(LISTING.PRICE, new BigDecimal("120.00"))
+                .where(LISTING.ID.eq(listing.id())).execute();
+        ApiClient api = new ApiClient(port);
+
+        var userResult = api.post(ApiPaths.CART + "/items/accept-prices", data.bearer(buyer), Map.of("cartItemIds", List.of(ownId)));
+        assertThat(userResult.status()).isEqualTo(200);
+        assertThat(userResult.data().path("items").get(0).path("priceChanged").asBoolean()).isFalse();
+        assertThat(userResult.data().path("items").get(0).path("unitPriceAtAdd").decimalValue()).isEqualByComparingTo("120.00");
+        assertThat(cartService.getCart(null, guest.sessionKey()).items().getFirst().priceChanged()).isTrue();
+
+        var guestResult = api.post(ApiPaths.CART + "/items/accept-prices", null, null, Map.of("X-Cart-Session", guest.sessionKey()));
+        assertThat(guestResult.status()).isEqualTo(200);
+        assertThat(guestResult.header("X-Cart-Session")).contains(guest.sessionKey());
+        assertThat(guestResult.data().path("items").get(0).path("priceChanged").asBoolean()).isFalse();
+    }
+
+    @Test
+    void changedPricesRequireAcceptanceBeforeQuotesAndCheckout() {
+        Listing listing = data.onSale(seller, card, CardCondition.NM, 3, "100.00");
+        long itemId = cartService.addItem(buyer, null, new CartItemRequest(listing.id(), 2)).item().id();
+        dsl.update(LISTING).set(LISTING.PRICE, new BigDecimal("80.00"))
+                .where(LISTING.ID.eq(listing.id())).execute();
+
+        assertThatThrownBy(() -> checkoutService.shippingQuotes(buyer, new ShippingQuoteRequest(List.of(itemId))))
+                .isInstanceOf(CartPriceChangedException.class);
+        assertThatThrownBy(() -> checkout(buyer)).isInstanceOf(CartPriceChangedException.class);
+        CartResponse refused = cartService.getCart(buyer, null);
+        assertThat(refused.items().getFirst().priceChanged()).isTrue();
+        assertThat(refused.items().getFirst().unitPriceAtAdd()).isEqualByComparingTo("100.00");
+
+        CartResponse accepted = cartService.acceptPrices(buyer, null, List.of(itemId));
+        assertThat(accepted.items().getFirst().priceChanged()).isFalse();
+        assertThat(accepted.itemsSubtotal()).isEqualByComparingTo("160.00");
+        assertThat(checkoutService.shippingQuotes(buyer, new ShippingQuoteRequest(List.of(itemId))))
+                .singleElement().satisfies(quote -> assertThat(quote.itemsSubtotal()).isEqualByComparingTo("160.00"));
+        CheckoutResponse order = checkout(buyer);
+        assertThat(order.itemsSubtotal()).isEqualByComparingTo("160.00");
+        assertThat(order.sellerOrders().getFirst().items().getFirst().unitPrice()).isEqualByComparingTo("80.00");
+    }
+
+    @Test
+    void acceptingForeignItemIsAtomicAndGuestAcceptanceIsScopedToItsSession() {
+        Listing listing = data.onSale(seller, card, CardCondition.NM, 3, "100.00");
+        long ownId = cartService.addItem(buyer, null, new CartItemRequest(listing.id(), 1)).item().id();
+        var guest = cartService.addItem(null, null, new CartItemRequest(listing.id(), 1));
+        long guestId = guest.item().id();
+        dsl.update(LISTING).set(LISTING.PRICE, new BigDecimal("120.00"))
+                .where(LISTING.ID.eq(listing.id())).execute();
+
+        assertThatThrownBy(() -> cartService.acceptPrices(buyer, null, List.of(ownId, guestId)))
+                .isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> cartService.acceptPrices(null, guest.sessionKey(), List.of(ownId)))
+                .isInstanceOf(NotFoundException.class);
+        assertThat(cartService.getCart(buyer, null).items().getFirst().unitPriceAtAdd()).isEqualByComparingTo("100.00");
+
+        CartResponse accepted = cartService.acceptPrices(null, guest.sessionKey(), null);
+        assertThat(accepted.items().getFirst().priceChanged()).isFalse();
+        assertThat(accepted.items().getFirst().unitPriceAtAdd()).isEqualByComparingTo("120.00");
+        assertThat(cartService.getCart(buyer, null).items().getFirst().priceChanged()).isTrue();
     }
 
     @Test
