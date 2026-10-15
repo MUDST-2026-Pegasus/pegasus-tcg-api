@@ -4,6 +4,7 @@ import com.pegasus.pegasustcgapi.model.CardCondition;
 import com.pegasus.pegasustcgapi.model.Listing;
 import com.pegasus.pegasustcgapi.model.ListingStatus;
 import com.pegasus.pegasustcgapi.repository.ListingRepository.PublicListing;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
@@ -26,6 +27,7 @@ public record PublicListingResponse(
         ListingStatus status,
         String publicNote,
         Seller seller,
+        Delivery delivery,
         String primaryPhotoUrl,
         OffsetDateTime publishedAt) {
 
@@ -34,11 +36,22 @@ public record PublicListingResponse(
         Listing l = row.listing();
         return new PublicListingResponse(l.id(), card, l.condition(), l.gradingCompany(), l.gradeValue(),
                 l.price(), l.currency(), l.quantityAvailable(), l.status(), l.publicNote(),
-                new Seller(row.sellerUsername(), row.sellerDisplayName(), sellerAvatarUrl),
+                new Seller(row.sellerUsername(), row.sellerDisplayName(), sellerAvatarUrl,
+                        row.verified(), row.ratingAvg(), row.ratingCount(), row.salesCount()),
+                new Delivery(row.delivery().fastestEstDaysMin(), row.delivery().fastestEstDaysMax(),
+                        row.delivery().freeShipping(), row.delivery().optionCount()),
                 primaryPhotoUrl, l.publishedAt());
     }
 
     /** @param username links to {@code /u/{username}} */
-    public record Seller(String username, String displayName, String avatarUrl) {
+    public record Seller(String username, String displayName, String avatarUrl,
+                         boolean verified,
+                         @Schema(description = "Average rating; null until the seller has a review", nullable = true)
+                         BigDecimal ratingAvg,
+                         int ratingCount, int salesCount) {
     }
+
+    @Schema(description = "Summary of the seller's active shipping options for one unit at this listing price")
+    public record Delivery(Short fastestEstDaysMin, Short fastestEstDaysMax,
+                           boolean freeShipping, int optionCount) {}
 }
