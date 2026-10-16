@@ -278,7 +278,8 @@ public class CartRepository {
             String productName,
             String variantLabel,
             String sellerName,
-            String imageKey) {
+            String imageKey,
+            String sellerUsername) {
     }
 
     public Map<Long, CartListingDetails> findCartListingDetails(Collection<Long> listingIds) {
@@ -293,7 +294,8 @@ public class CartRepository {
                 CATALOG_VARIANT.EDITION,
                 CATALOG_VARIANT.PRINTING_NOTE,
                 DSL.coalesce(USER_ACCOUNT.DISPLAY_NAME, USER_ACCOUNT.USERNAME),
-                CATALOG_IMAGE.IMAGE_KEY)
+                CATALOG_IMAGE.IMAGE_KEY,
+                USER_ACCOUNT.USERNAME)
                 .from(LISTING)
                 .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
                 .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
@@ -322,7 +324,8 @@ public class CartRepository {
                             r.get(CATALOG_PRODUCT.NAME),
                             label.toString(),
                             r.value7(),
-                            r.get(CATALOG_IMAGE.IMAGE_KEY));
+                            r.get(CATALOG_IMAGE.IMAGE_KEY),
+                            r.get(USER_ACCOUNT.USERNAME));
                 });
     }
 
