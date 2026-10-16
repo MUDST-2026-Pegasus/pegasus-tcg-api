@@ -91,6 +91,24 @@ class CheckoutServiceIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void cartResponsesExposeTheActualSellerUsernameForUsersAndGuests() {
+        Listing listing = data.onSale(seller, card, CardCondition.NM, 3, "100.00");
+        String username = seller.principal().username();
+        var added = cartService.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
+        assertThat(added.item().sellerUsername()).isEqualTo(username);
+        assertThat(cartService.updateItemQuantity(buyer, null, added.item().id(), 2).sellerUsername()).isEqualTo(username);
+
+        ApiClient api = new ApiClient(port);
+        var response = api.get(ApiPaths.CART, data.bearer(buyer));
+        assertThat(response.status()).isEqualTo(200);
+        assertThat(response.data().path("items").get(0).path("sellerUsername").asString()).isEqualTo(username);
+
+        var guest = cartService.addItem(null, null, new CartItemRequest(listing.id(), 1));
+        assertThat(guest.item().sellerUsername()).isEqualTo(username);
+        assertThat(cartService.getCart(null, guest.sessionKey()).items().getFirst().sellerUsername()).isEqualTo(username);
+    }
+
+    @Test
     void priceAcceptanceEndpointSupportsAuthenticatedUsersAndGuests() {
         Listing listing = data.onSale(seller, card, CardCondition.NM, 3, "100.00");
         long ownId = cartService.addItem(buyer, null, new CartItemRequest(listing.id(), 1)).item().id();
