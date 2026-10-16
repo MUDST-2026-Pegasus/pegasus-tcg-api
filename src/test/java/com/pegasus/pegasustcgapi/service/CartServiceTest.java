@@ -30,6 +30,7 @@ import com.pegasus.pegasustcgapi.model.SellerStatus;
 import com.pegasus.pegasustcgapi.port.PricingPort;
 import com.pegasus.pegasustcgapi.port.PricingPort.ListingOffer;
 import com.pegasus.pegasustcgapi.repository.CartRepository;
+import com.pegasus.pegasustcgapi.repository.CartRepository.CartListingDetails;
 import com.pegasus.pegasustcgapi.repository.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import java.math.BigDecimal;
@@ -366,6 +367,8 @@ class CartServiceTest {
             ListingOffer offer2 = offer(20L, 99L, new BigDecimal("50.00"), true);
 
             given(pricingPort.offers(List.of(10L, 20L))).willReturn(Map.of(10L, offer1, 20L, offer2));
+            given(cartRepository.findCartListingDetails(List.of(10L, 20L))).willReturn(Map.of(
+                    10L, new CartListingDetails(10L, "Pikachu ex", "English / Holo", "Seller Store", null, "seller_store")));
             given(cards.cards(List.of(1L))).willReturn(Map.of(1L,
                     new ListingCard(1L, "PIKA-025", "English / Holo", true,
                             1L, "Pikachu ex", "pikachu-ex", (short) 1, "https://images.example/pikachu.png")));
@@ -386,6 +389,7 @@ class CartServiceTest {
             assertThat(res1.productName()).isEqualTo("Pikachu ex");
             assertThat(res1.variantLabel()).isEqualTo("English / Holo");
             assertThat(res1.sellerName()).isEqualTo("Seller Store");
+            assertThat(res1.sellerUsername()).isEqualTo("seller_store");
             assertThat(res1.productId()).isEqualTo(1L);
 
             assertThat(res2.priceChanged()).isFalse();
