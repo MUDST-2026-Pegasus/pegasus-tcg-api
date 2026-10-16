@@ -1,11 +1,14 @@
 package com.pegasus.pegasustcgapi.repository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
+import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerProfileRecord;
 import com.pegasus.pegasustcgapi.model.SellerProfile;
 import com.pegasus.pegasustcgapi.model.SellerStatus;
 import java.time.OffsetDateTime;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -25,6 +28,17 @@ public class SellerProfileRepository {
                 .where(SELLER_PROFILE.USER_ID.eq(userId))
                 .fetchOptional()
                 .map(SellerProfileRepository::toProfile);
+    }
+
+    /** Each seller's avatar object key, keyed by profile id; sellers without a picture are left out. */
+    public Map<Long, String> avatarKeys(Collection<Long> ids) {
+        if (ids.isEmpty()) return Map.of();
+        return dsl.select(SELLER_PROFILE.ID, USER_ACCOUNT.AVATAR_URL)
+                .from(SELLER_PROFILE)
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .where(SELLER_PROFILE.ID.in(ids))
+                .and(USER_ACCOUNT.AVATAR_URL.isNotNull())
+                .fetchMap(SELLER_PROFILE.ID, USER_ACCOUNT.AVATAR_URL);
     }
 
     public Optional<SellerProfile> findById(long id) {

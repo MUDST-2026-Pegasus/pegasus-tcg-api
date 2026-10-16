@@ -87,13 +87,13 @@ public class ReviewRepository {
         return dsl.select(SELLER_REVIEW.ID, SELLER_REVIEW.SELLER_ORDER_ID,
                         SELLER_REVIEW.RATING, SELLER_REVIEW.TITLE, SELLER_REVIEW.COMMENT,
                         SELLER_REVIEW.REPLY_COMMENT, SELLER_REVIEW.IS_VISIBLE,
-                        SELLER_REVIEW.CREATED_AT, USER_ACCOUNT.USERNAME)
+                        SELLER_REVIEW.CREATED_AT, USER_ACCOUNT.USERNAME, USER_ACCOUNT.AVATAR_URL)
                 .from(SELLER_REVIEW).join(USER_ACCOUNT)
                 .on(USER_ACCOUNT.ID.eq(SELLER_REVIEW.REVIEWER_ID))
                 .where(SELLER_REVIEW.SELLER_PROFILE_ID.eq(sellerId))
                 .orderBy(SELLER_REVIEW.CREATED_AT.desc(), SELLER_REVIEW.ID.desc())
                 .fetch(r -> new AdminReview(r.value1(), r.value2(), r.value3(), r.value4(),
-                        r.value5(), r.value6(), r.value7(), r.value8(), r.value9()));
+                        r.value5(), r.value6(), r.value7(), r.value8(), r.value9(), r.value10()));
     }
 
     public List<PublicReview> visible(long sellerId) {
@@ -148,8 +148,17 @@ public class ReviewRepository {
             String replyComment, OffsetDateTime createdAt, String reviewerUsername) {
     }
 
+    /**
+     * @param reviewerAvatarUrl the reviewer's avatar object key as read here;
+     *                          {@link com.pegasus.pegasustcgapi.service.ReviewService} swaps it for a signed link
+     */
     public record AdminReview(long id, long sellerOrderId, short rating, String title,
             String comment, String replyComment, boolean visible, OffsetDateTime createdAt,
-            String reviewerUsername) {
+            String reviewerUsername, String reviewerAvatarUrl) {
+
+        public AdminReview withReviewerAvatarUrl(String url) {
+            return new AdminReview(id, sellerOrderId, rating, title, comment, replyComment,
+                    visible, createdAt, reviewerUsername, url);
+        }
     }
 }

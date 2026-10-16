@@ -9,6 +9,7 @@ import com.pegasus.pegasustcgapi.repository.PaymentRepository;
 import com.pegasus.pegasustcgapi.repository.ReviewRepository;
 import com.pegasus.pegasustcgapi.repository.ReviewRepository.AdminReview;
 import com.pegasus.pegasustcgapi.repository.ReviewRepository.PublicReview;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -21,11 +22,14 @@ public class ReviewService {
 
     private final ReviewRepository reviews;
     private final PaymentRepository orders;
+    private final StorageService storage;
     private final Clock clock;
 
-    public ReviewService(ReviewRepository reviews, PaymentRepository orders, Clock clock) {
+    public ReviewService(ReviewRepository reviews, PaymentRepository orders,
+            StorageService storage, Clock clock) {
         this.reviews = reviews;
         this.orders = orders;
+        this.storage = storage;
         this.clock = clock;
     }
 
@@ -69,7 +73,10 @@ public class ReviewService {
     public List<AdminReview> adminReviews(String username) {
         long sellerId = reviews.sellerIdByUsername(username)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.SELLER_NOT_FOUND));
-        return reviews.allForSeller(sellerId);
+        return reviews.allForSeller(sellerId).stream()
+                .map(r -> r.reviewerAvatarUrl() == null ? r
+                        : r.withReviewerAvatarUrl(storage.presignDownload(r.reviewerAvatarUrl())))
+                .toList();
     }
 
     @Transactional
