@@ -53,7 +53,7 @@ jobs:
         run: ./gradlew build --no-daemon
 
       - name: Upload application JAR
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         uses: actions/upload-artifact@v7
         with:
           name: application-jar
@@ -114,7 +114,7 @@ jobs:
   publish:
     name: Publish API image
     needs: [quality, secrets, codeql]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -150,7 +150,7 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE }}:sha-${{ github.sha }}
-            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.ref_name == 'main' && 'latest' || 'develop' }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -158,7 +158,7 @@ jobs:
   deploy:
     name: Bump image in gitops
     needs: publish
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
@@ -166,6 +166,8 @@ jobs:
       cancel-in-progress: false
     env:
       GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+      # main deploys to prod (Argo CD), develop to local (applied by hand).
+      OVERLAY: ${{ github.ref_name == 'main' && 'prod' || 'local' }}
     steps:
       - name: Check gitops token
         run: ': "${GITOPS_TOKEN:?Set the GITOPS_TOKEN repository secret}"'
@@ -177,9 +179,9 @@ jobs:
           ref: main
           token: ${{ secrets.GITOPS_TOKEN }}
 
-      # Pin the image the publish job just pushed; Argo CD rolls it out.
+      # Pin the image the publish job just pushed.
       - name: Set image tag
-        working-directory: apps/overlays/prod
+        working-directory: apps/overlays/${{ env.OVERLAY }}
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
           # Only touch this image's newTag line; fail if the entry is missing.
@@ -197,7 +199,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "deploy(prod): ${GITHUB_REPOSITORY#*/} sha-${GITHUB_SHA::7}" || exit 0
+          git commit -am "deploy(${OVERLAY}): ${GITHUB_REPOSITORY#*/} sha-${GITHUB_SHA::7}" || exit 0
           # The other app repo may have pushed a bump in the meantime.
           for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
           exit 1
