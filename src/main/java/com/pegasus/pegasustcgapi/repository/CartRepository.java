@@ -232,8 +232,7 @@ public class CartRepository {
     }
 
     /**
-     * Re-pins an item to the price it sells for now, so the buyer can look at the
-     * new figure and check out again [CR-3].
+     * Re-pins an owned item after the buyer explicitly accepts its current price.
      */
     public CartItem updateItemPrice(long itemId, long cartId, BigDecimal unitPriceAtAdd) {
         CartItemRecord record = dsl.update(CART_ITEM)

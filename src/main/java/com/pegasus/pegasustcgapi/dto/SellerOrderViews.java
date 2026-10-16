@@ -16,8 +16,11 @@ public final class SellerOrderViews {
 
     private SellerOrderViews() {}
 
-    /** @param id the buyer's {@code user_account.id} */
-    public record Buyer(long id, String username, String displayName) {
+    /**
+     * @param id        the buyer's {@code user_account.id}
+     * @param avatarUrl short-lived link to the buyer's profile picture, null when they have none
+     */
+    public record Buyer(long id, String username, String displayName, String avatarUrl) {
     }
 
     /**

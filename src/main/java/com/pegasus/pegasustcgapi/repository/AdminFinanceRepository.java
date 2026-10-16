@@ -24,6 +24,7 @@ import com.pegasus.pegasustcgapi.dto.AdminFinanceViews.SellerSplit;
 import com.pegasus.pegasustcgapi.dto.AdminFinanceViews.WalletSnapshot;
 import com.pegasus.pegasustcgapi.jooq.tables.SellerProfile;
 import com.pegasus.pegasustcgapi.jooq.tables.UserAccount;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.Collection;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import org.jooq.DSLContext;
 import org.jooq.Field;
+import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -51,9 +53,26 @@ public class AdminFinanceRepository {
     private static final SellerProfile SELLER = SELLER_PROFILE.as("seller");
 
     private final DSLContext dsl;
+    private final StorageService storage;
 
-    public AdminFinanceRepository(DSLContext dsl) {
+    public AdminFinanceRepository(DSLContext dsl, StorageService storage) {
         this.dsl = dsl;
+        this.storage = storage;
+    }
+
+    private Party buyer(Record r) {
+        return new Party(r.get(BUYER.ID), r.get(BUYER.USERNAME), r.get(BUYER.DISPLAY_NAME),
+                avatar(r.get(BUYER.AVATAR_URL)));
+    }
+
+    private Party seller(Record r, long sellerProfileId) {
+        return new Party(sellerProfileId, r.get(SELLER_ACCOUNT.USERNAME),
+                r.get(SELLER_ACCOUNT.DISPLAY_NAME), avatar(r.get(SELLER_ACCOUNT.AVATAR_URL)));
+    }
+
+    /** {@code user_account.avatar_url} holds an object key; the page needs a short-lived link. */
+    private String avatar(String key) {
+        return key == null ? null : storage.presignDownload(key);
     }
 
     // ---- payments -------------------------------------------------------
@@ -68,7 +87,7 @@ public class AdminFinanceRepository {
     /** Oldest first: the order closest to its payment deadline is checked first. */
     public List<PaymentRow> payments(String status) {
         return dsl.select(PAYMENT.ID, PAYMENT.SALES_ORDER_ID, SALES_ORDER.ORDER_NUMBER,
-                        BUYER.ID, BUYER.USERNAME, BUYER.DISPLAY_NAME, PAYMENT.AMOUNT,
+                        BUYER.ID, BUYER.USERNAME, BUYER.DISPLAY_NAME, BUYER.AVATAR_URL, PAYMENT.AMOUNT,
                         PAYMENT.STATUS, PAYMENT.METHOD, PAYMENT.REFERENCE_CODE,
                         PAYMENT.SLIP_IMAGE_KEY, PAYMENT.FAILURE_REASON, PAYMENT.CREATED_AT,
                         SALES_ORDER.PLACED_AT, PAYMENT.VERIFIED_AT)
@@ -79,7 +98,7 @@ public class AdminFinanceRepository {
                 .orderBy(PAYMENT.CREATED_AT.asc(), PAYMENT.ID.asc())
                 .fetch(r -> new PaymentRow(r.get(PAYMENT.ID), r.get(PAYMENT.SALES_ORDER_ID),
                         r.get(SALES_ORDER.ORDER_NUMBER),
-                        new Party(r.get(BUYER.ID), r.get(BUYER.USERNAME), r.get(BUYER.DISPLAY_NAME)),
+                        buyer(r),
                         r.get(PAYMENT.AMOUNT), r.get(PAYMENT.STATUS), r.get(PAYMENT.METHOD),
                         r.get(PAYMENT.REFERENCE_CODE), r.get(PAYMENT.SLIP_IMAGE_KEY),
                         r.get(PAYMENT.FAILURE_REASON), r.get(PAYMENT.CREATED_AT),
@@ -91,7 +110,7 @@ public class AdminFinanceRepository {
         if (salesOrderIds.isEmpty()) return Map.of();
         return dsl.select(SELLER_ORDER.SALES_ORDER_ID, SELLER_ORDER.ID,
                         SELLER_ORDER.SELLER_ORDER_NUMBER, SELLER.ID, SELLER_ACCOUNT.USERNAME,
-                        SELLER_ACCOUNT.DISPLAY_NAME, SELLER_ORDER.GRAND_TOTAL)
+                        SELLER_ACCOUNT.DISPLAY_NAME, SELLER_ACCOUNT.AVATAR_URL, SELLER_ORDER.GRAND_TOTAL)
                 .from(SELLER_ORDER)
                 .join(SELLER).on(SELLER.ID.eq(SELLER_ORDER.SELLER_PROFILE_ID))
                 .join(SELLER_ACCOUNT).on(SELLER_ACCOUNT.ID.eq(SELLER.USER_ID))
@@ -101,8 +120,7 @@ public class AdminFinanceRepository {
                 .fetchGroups(r -> r.get(SELLER_ORDER.SALES_ORDER_ID),
                         r -> new SellerSplit(r.get(SELLER_ORDER.ID),
                                 r.get(SELLER_ORDER.SELLER_ORDER_NUMBER),
-                                new Party(r.get(SELLER.ID), r.get(SELLER_ACCOUNT.USERNAME),
-                                        r.get(SELLER_ACCOUNT.DISPLAY_NAME)),
+                                seller(r, r.get(SELLER.ID)),
                                 r.get(SELLER_ORDER.GRAND_TOTAL)));
     }
 
@@ -160,8 +178,9 @@ public class AdminFinanceRepository {
         var query = dsl.select(REFUND.ID, REFUND.SALES_ORDER_ID, SALES_ORDER.ORDER_NUMBER,
                         REFUND.SELLER_ORDER_ID, SELLER_ORDER.SELLER_ORDER_NUMBER,
                         REFUND.RETURN_REQUEST_ID, RETURN_REQUEST.RESOLUTION,
-                        BUYER.ID, BUYER.USERNAME, BUYER.DISPLAY_NAME,
+                        BUYER.ID, BUYER.USERNAME, BUYER.DISPLAY_NAME, BUYER.AVATAR_URL,
                         SELLER.ID, SELLER_ACCOUNT.USERNAME, SELLER_ACCOUNT.DISPLAY_NAME,
+                        SELLER_ACCOUNT.AVATAR_URL,
                         REFUND.AMOUNT, REFUND.REASON, REFUND.STATUS, REFUND.METHOD,
                         REFUND.BANK_NAME, REFUND.ACCOUNT_NAME, REFUND.ACCOUNT_NUMBER,
                         REFUND.TRANSFER_REFERENCE, ESCROW_HOLD.AMOUNT, ESCROW_HOLD.REFUNDED_AMOUNT,
@@ -181,9 +200,8 @@ public class AdminFinanceRepository {
                 r.get(SALES_ORDER.ORDER_NUMBER), r.get(REFUND.SELLER_ORDER_ID),
                 r.get(SELLER_ORDER.SELLER_ORDER_NUMBER), r.get(REFUND.RETURN_REQUEST_ID),
                 r.get(RETURN_REQUEST.RESOLUTION),
-                new Party(r.get(BUYER.ID), r.get(BUYER.USERNAME), r.get(BUYER.DISPLAY_NAME)),
-                r.get(SELLER.ID) == null ? null : new Party(r.get(SELLER.ID),
-                        r.get(SELLER_ACCOUNT.USERNAME), r.get(SELLER_ACCOUNT.DISPLAY_NAME)),
+                buyer(r),
+                r.get(SELLER.ID) == null ? null : seller(r, r.get(SELLER.ID)),
                 r.get(REFUND.AMOUNT), r.get(REFUND.REASON), r.get(REFUND.STATUS), r.get(REFUND.METHOD),
                 r.get(REFUND.BANK_NAME), r.get(REFUND.ACCOUNT_NAME), r.get(REFUND.ACCOUNT_NUMBER),
                 r.get(REFUND.TRANSFER_REFERENCE), r.get(ESCROW_HOLD.AMOUNT),
@@ -226,7 +244,7 @@ public class AdminFinanceRepository {
     /** @param status one payout status, or null for all; oldest request first either way */
     public List<PayoutRow> payouts(String status) {
         var query = dsl.select(PAYOUT.ID, PAYOUT.SELLER_PROFILE_ID, SELLER_ACCOUNT.USERNAME,
-                        SELLER_ACCOUNT.DISPLAY_NAME, PAYOUT.AMOUNT, PAYOUT.CURRENCY, PAYOUT.STATUS,
+                        SELLER_ACCOUNT.DISPLAY_NAME, SELLER_ACCOUNT.AVATAR_URL, PAYOUT.AMOUNT, PAYOUT.CURRENCY, PAYOUT.STATUS,
                         SELLER_PAYOUT_ACCOUNT.BANK_NAME, SELLER_PAYOUT_ACCOUNT.ACCOUNT_NAME,
                         SELLER_PAYOUT_ACCOUNT.ACCOUNT_NUMBER, SELLER_PAYOUT_ACCOUNT.VERIFIED_AT,
                         WALLET.BALANCE_AVAILABLE, WALLET.BALANCE_PENDING, RESERVED,
@@ -241,8 +259,7 @@ public class AdminFinanceRepository {
         return (status == null ? query : query.where(PAYOUT.STATUS.eq(status)))
                 .orderBy(PAYOUT.REQUESTED_AT.asc(), PAYOUT.ID.asc())
                 .fetch(r -> new PayoutRow(r.get(PAYOUT.ID), r.get(PAYOUT.SELLER_PROFILE_ID),
-                        new Party(r.get(PAYOUT.SELLER_PROFILE_ID), r.get(SELLER_ACCOUNT.USERNAME),
-                                r.get(SELLER_ACCOUNT.DISPLAY_NAME)),
+                        seller(r, r.get(PAYOUT.SELLER_PROFILE_ID)),
                         r.get(PAYOUT.AMOUNT), r.get(PAYOUT.CURRENCY), r.get(PAYOUT.STATUS),
                         r.get(SELLER_PAYOUT_ACCOUNT.ACCOUNT_NUMBER) == null ? null : new PayoutAccount(
                                 r.get(SELLER_PAYOUT_ACCOUNT.BANK_NAME), r.get(SELLER_PAYOUT_ACCOUNT.ACCOUNT_NAME),

@@ -18,8 +18,11 @@ public final class AdminFinanceViews {
 
     private AdminFinanceViews() {}
 
-    /** @param id the buyer's {@code user_account.id}, or the seller's {@code seller_profile.id} */
-    public record Party(long id, String username, String displayName) {
+    /**
+     * @param id        the buyer's {@code user_account.id}, or the seller's {@code seller_profile.id}
+     * @param avatarUrl short-lived link to the person's profile picture, null when they have none
+     */
+    public record Party(long id, String username, String displayName, String avatarUrl) {
     }
 
     /** One shop's share of a paid order; it becomes that shop's escrow hold on approval. */

@@ -3,7 +3,10 @@ package com.pegasus.pegasustcgapi.repository;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerRatingSummary.SELLER_RATING_SUMMARY;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerShippingOption.SELLER_SHIPPING_OPTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.ListingRecord;
@@ -18,7 +21,10 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -219,12 +225,12 @@ public class ListingRepository {
     // ---------- the market ----------
 
     public List<PublicListing> findPublicPage(PublicListingQuery query) {
-        return publicSelect()
+        return enrich(publicSelect()
                 .where(publicConditions(query))
                 .orderBy(order(query.sort()))
                 .limit(query.limit())
                 .offset(query.offset())
-                .fetch(ListingRepository::toPublic);
+                .fetch(ListingRepository::toPublic));
     }
 
     public long countPublic(PublicListingQuery query) {
@@ -238,12 +244,12 @@ public class ListingRepository {
 
     /** A page a buyer may open: on sale or sold out, from a seller who is open for business. */
     public Optional<PublicListing> findPublic(long listingId) {
-        return publicSelect()
+        List<PublicListing> rows = publicSelect()
                 .where(LISTING.ID.eq(listingId))
                 .and(sellerOpenForBusiness())
                 .and(LISTING.STATUS.in(ListingStatus.ACTIVE.name(), ListingStatus.SOLD_OUT.name()))
-                .fetchOptional()
-                .map(ListingRepository::toPublic);
+                .fetch(ListingRepository::toPublic);
+        return enrich(rows).stream().findFirst();
     }
 
     // ---------- checkout ----------
@@ -324,12 +330,56 @@ public class ListingRepository {
         fields.add(USER_ACCOUNT.USERNAME);
         fields.add(USER_ACCOUNT.DISPLAY_NAME);
         fields.add(USER_ACCOUNT.AVATAR_URL);
+        fields.add(SELLER_PROFILE.STATUS);
+        fields.add(SELLER_RATING_SUMMARY.RATING_AVG);
+        fields.add(SELLER_RATING_SUMMARY.RATING_COUNT);
 
         return dsl.select(fields)
                 .from(LISTING)
                 .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
-                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID));
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .leftJoin(SELLER_RATING_SUMMARY).on(SELLER_RATING_SUMMARY.SELLER_PROFILE_ID.eq(SELLER_PROFILE.ID));
     }
+
+    /** Two grouped reads for the whole page, regardless of how many listings it contains. */
+    private List<PublicListing> enrich(List<PublicListing> rows) {
+        if (rows.isEmpty()) return rows;
+        List<Long> sellerIds = rows.stream().map(r -> r.listing().sellerProfileId()).distinct().toList();
+        Map<Long, Integer> sales = dsl.select(SELLER_ORDER.SELLER_PROFILE_ID, DSL.count())
+                .from(SELLER_ORDER)
+                .where(SELLER_ORDER.SELLER_PROFILE_ID.in(sellerIds))
+                .and(SELLER_ORDER.STATUS.in(AdminMetricsRepository.SOLD_STATUSES))
+                .groupBy(SELLER_ORDER.SELLER_PROFILE_ID)
+                .fetchMap(SELLER_ORDER.SELLER_PROFILE_ID, DSL.count());
+
+        Map<Long, List<ShippingOption>> shipping = new HashMap<>();
+        dsl.select(SELLER_SHIPPING_OPTION.SELLER_PROFILE_ID, SELLER_SHIPPING_OPTION.EST_DAYS_MIN,
+                        SELLER_SHIPPING_OPTION.EST_DAYS_MAX, SELLER_SHIPPING_OPTION.BASE_FEE,
+                        SELLER_SHIPPING_OPTION.FREE_THRESHOLD)
+                .from(SELLER_SHIPPING_OPTION)
+                .where(SELLER_SHIPPING_OPTION.SELLER_PROFILE_ID.in(sellerIds))
+                .and(SELLER_SHIPPING_OPTION.IS_ACTIVE.isTrue())
+                .fetch().forEach(r -> shipping.computeIfAbsent(r.value1(), ignored -> new ArrayList<>())
+                        .add(new ShippingOption(r.value2(), r.value3(), r.value4(), r.value5())));
+
+        return rows.stream().map(row -> {
+            List<ShippingOption> options = shipping.getOrDefault(row.listing().sellerProfileId(), List.of());
+            ShippingOption fastest = options.stream()
+                    .filter(o -> o.maxDays() != null)
+                    .min(Comparator.comparing(ShippingOption::maxDays)
+                            .thenComparing(ShippingOption::minDays, Comparator.nullsLast(Comparator.naturalOrder())))
+                    .orElse(null);
+            boolean free = options.stream().anyMatch(o -> o.baseFee().signum() == 0
+                    || o.freeThreshold() != null && row.listing().price().compareTo(o.freeThreshold()) >= 0);
+            return new PublicListing(row.listing(), row.sellerUsername(), row.sellerDisplayName(),
+                    row.sellerAvatarUrl(), row.verified(), row.ratingAvg(), row.ratingCount(),
+                    sales.getOrDefault(row.listing().sellerProfileId(), 0),
+                    new Delivery(fastest == null ? null : fastest.minDays(),
+                            fastest == null ? null : fastest.maxDays(), free, options.size()));
+        }).toList();
+    }
+
+    private record ShippingOption(Short minDays, Short maxDays, BigDecimal baseFee, BigDecimal freeThreshold) {}
 
     /**
      * A seller buyers can see: verified, not on vacation, and an account that is
@@ -457,7 +507,12 @@ public class ListingRepository {
                 toListing(r.into(LISTING)),
                 r.get(USER_ACCOUNT.USERNAME),
                 r.get(USER_ACCOUNT.DISPLAY_NAME),
-                r.get(USER_ACCOUNT.AVATAR_URL));
+                r.get(USER_ACCOUNT.AVATAR_URL),
+                SellerStatus.VERIFIED.name().equals(r.get(SELLER_PROFILE.STATUS)),
+                r.get(SELLER_RATING_SUMMARY.RATING_COUNT) == null || r.get(SELLER_RATING_SUMMARY.RATING_COUNT) == 0
+                        ? null : r.get(SELLER_RATING_SUMMARY.RATING_AVG),
+                r.get(SELLER_RATING_SUMMARY.RATING_COUNT) == null ? 0 : r.get(SELLER_RATING_SUMMARY.RATING_COUNT),
+                0, new Delivery(null, null, false, 0));
     }
 
     static Listing toListing(ListingRecord r) {
@@ -559,8 +614,16 @@ public class ListingRepository {
             Listing listing,
             String sellerUsername,
             String sellerDisplayName,
-            String sellerAvatarUrl) {
+            String sellerAvatarUrl,
+            boolean verified,
+            BigDecimal ratingAvg,
+            int ratingCount,
+            int salesCount,
+            Delivery delivery) {
     }
+
+    public record Delivery(Short fastestEstDaysMin, Short fastestEstDaysMax,
+                           boolean freeShipping, int optionCount) {}
 
     public record Offer(
             Listing listing,

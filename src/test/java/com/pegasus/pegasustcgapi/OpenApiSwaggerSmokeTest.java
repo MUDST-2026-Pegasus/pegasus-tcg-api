@@ -64,6 +64,21 @@ class OpenApiSwaggerSmokeTest {
     }
 
     @Test
+    @DisplayName("documents public listing seller reputation and delivery fields")
+    void documentsPublicListingSummary() throws Exception {
+        mockMvc.perform(get("/v1/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.components.schemas.PublicListingResponse.properties.delivery").exists())
+                .andExpect(jsonPath("$.components.schemas.PublicListingResponse.properties.seller").exists())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.allOf(
+                                org.hamcrest.Matchers.containsString("fastestEstDaysMin"),
+                                org.hamcrest.Matchers.containsString("freeShipping"),
+                                org.hamcrest.Matchers.containsString("salesCount"),
+                                org.hamcrest.Matchers.containsString("ratingAvg"))));
+    }
+
+    @Test
     @DisplayName("redirects /v1/api-doc to /v1/api-docs")
     void openApiDocsAliasRedirects() throws Exception {
         mockMvc.perform(get("/v1/api-doc"))

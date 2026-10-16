@@ -6,8 +6,10 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.VariantMarketStatRecord;
 import com.pegasus.pegasustcgapi.model.CardCondition;
 import com.pegasus.pegasustcgapi.model.MarketKey;
 import com.pegasus.pegasustcgapi.model.MarketStat;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -99,6 +101,62 @@ public class VariantMarketStatRepository {
                 .limit(1)
                 .fetchOptional()
                 .map(VariantMarketStatRepository::toStat);
+    }
+
+    public record ProductMarketRow(long catalogVariantId, CardCondition condition, LocalDate statDate,
+            BigDecimal medianPrice, int sampleSize, BigDecimal baselineMedian,
+            BigDecimal lastSoldPrice, OffsetDateTime lastSoldAt) {
+    }
+
+    /** One read for every active printing/condition with a statistic, its 30-day baseline and latest fulfilled sale. */
+    public List<ProductMarketRow> latestByProduct(long productId, LocalDate baselineDate) {
+        return dsl.resultQuery("""
+                SELECT latest.catalog_variant_id, latest.condition_code, latest.stat_date,
+                       latest.median_price, latest.sample_size,
+                       baseline.median_price AS baseline_median,
+                       sold.unit_price AS last_sold_price, sold.created_at AS last_sold_at
+                  FROM (
+                        SELECT DISTINCT ON (s.catalog_variant_id, s.condition_code)
+                               s.catalog_variant_id, s.condition_code, s.stat_date,
+                               s.median_price, s.sample_size
+                          FROM variant_market_stat s
+                          JOIN catalog_variant v ON v.id = s.catalog_variant_id
+                         WHERE v.catalog_product_id = ? AND v.is_active
+                         ORDER BY s.catalog_variant_id, s.condition_code, s.stat_date DESC
+                       ) latest
+                  LEFT JOIN LATERAL (
+                        SELECT s.median_price
+                          FROM variant_market_stat s
+                         WHERE s.catalog_variant_id = latest.catalog_variant_id
+                           AND s.condition_code = latest.condition_code
+                           AND s.stat_date <= ?
+                           AND s.stat_date < latest.stat_date
+                         ORDER BY s.stat_date DESC
+                         LIMIT 1
+                       ) baseline ON true
+                  LEFT JOIN LATERAL (
+                        SELECT oi.unit_price, oi.created_at
+                          FROM order_item oi
+                          JOIN seller_order so ON so.id = oi.seller_order_id
+                          JOIN sales_order o ON o.id = so.sales_order_id
+                         WHERE oi.catalog_variant_id = latest.catalog_variant_id
+                           AND oi.condition_snapshot = latest.condition_code
+                           AND so.status IN ('SHIPPED', 'DELIVERED', 'COMPLETED')
+                           AND o.status IN ('PAID', 'PARTIALLY_COMPLETED', 'COMPLETED')
+                         ORDER BY oi.created_at DESC, oi.id DESC
+                         LIMIT 1
+                       ) sold ON true
+                 ORDER BY latest.catalog_variant_id, latest.condition_code
+                """, productId, baselineDate)
+                .fetch(r -> new ProductMarketRow(
+                        r.get("catalog_variant_id", Long.class),
+                        CardCondition.valueOf(r.get("condition_code", String.class)),
+                        r.get("stat_date", LocalDate.class),
+                        r.get("median_price", BigDecimal.class),
+                        r.get("sample_size", Integer.class),
+                        r.get("baseline_median", BigDecimal.class),
+                        r.get("last_sold_price", BigDecimal.class),
+                        r.get("last_sold_at", OffsetDateTime.class)));
     }
 
     private static MarketStat toStat(VariantMarketStatRecord r) {

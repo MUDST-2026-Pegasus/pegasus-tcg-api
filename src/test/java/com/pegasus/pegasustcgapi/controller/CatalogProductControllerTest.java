@@ -30,6 +30,7 @@ import com.pegasus.pegasustcgapi.service.CatalogProductService;
 import com.pegasus.pegasustcgapi.service.CatalogSearchService;
 import com.pegasus.pegasustcgapi.service.CatalogVariantService;
 import com.pegasus.pegasustcgapi.service.ProductBrowse;
+import com.pegasus.pegasustcgapi.service.ProductMarketService;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -67,6 +68,9 @@ class CatalogProductControllerTest {
 
     @Mock
     private CatalogSearchService search;
+
+    @Mock
+    private ProductMarketService market;
 
     @InjectMocks
     private CatalogProductController controller;

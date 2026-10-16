@@ -18,6 +18,7 @@ import com.pegasus.pegasustcgapi.repository.AdminOrderRepository.AdminOrderRow;
 import com.pegasus.pegasustcgapi.repository.AdminOrderRepository.OrderContext;
 import com.pegasus.pegasustcgapi.repository.OrderRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -44,17 +45,20 @@ public class SellerOrderDeskService {
     private final OrderRepository orderRecords;
     private final OrderLifecycleService lifecycle;
     private final SellerPort sellers;
+    private final StorageService storage;
 
     public SellerOrderDeskService(
             AdminOrderRepository orders,
             OrderRepository orderRecords,
             OrderLifecycleService lifecycle,
-            SellerPort sellers) {
+            SellerPort sellers,
+            StorageService storage) {
 
         this.orders = orders;
         this.orderRecords = orderRecords;
         this.lifecycle = lifecycle;
         this.sellers = sellers;
+        this.storage = storage;
     }
 
     /**
@@ -139,7 +143,8 @@ public class SellerOrderDeskService {
             return new Summary(
                     details.get(row.sellerOrderId()),
                     row.orderNumber(),
-                    new Buyer(row.buyerId(), row.buyerUsername(), row.buyerDisplayName()),
+                    new Buyer(row.buyerId(), row.buyerUsername(), row.buyerDisplayName(),
+                            row.buyerAvatarKey() == null ? null : storage.presignDownload(row.buyerAvatarKey())),
                     row.paidAt(),
                     shipBy(row.paidAt(), shop),
                     context.shippingAddressSnapshot(),
