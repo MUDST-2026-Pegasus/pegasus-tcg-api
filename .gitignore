@@ -38,5 +38,6 @@ out/
 
 ### Local env ###
 .env
+k8s/secret.yaml
 /graphify-out
 INSTRUCTION.md

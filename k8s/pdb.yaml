@@ -1,0 +1,16 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pegasus-backend-pdb
+  labels:
+    app: pegasus-backend
+    app.kubernetes.io/name: pegasus-tcg-api
+    app.kubernetes.io/instance: pegasus-backend
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: pegasus-tcg
+spec:
+  # ตอน drain หรืออัปเกรด Node ต้องเหลือ backend อย่างน้อย 2 จาก 3 ตัวเสมอ
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: pegasus-backend

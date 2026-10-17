@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pegasus-backend-ingress
+  labels:
+    app: pegasus-backend
+    app.kubernetes.io/name: pegasus-tcg-api
+    app.kubernetes.io/instance: pegasus-backend
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: pegasus-tcg
+  annotations:
+    # ตัด /pegasus-backend-service ออกก่อนส่งต่อ แอปจึงเห็น path เดิม เช่น /api/v1/...
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # บอกแอปว่าถูกเรียกผ่าน prefix ไหน ลิงก์ของ Swagger UI จะได้มี prefix ครบ
+    nginx.ingress.kubernetes.io/x-forwarded-prefix: /pegasus-backend-service
+spec:
+  ingressClassName: nginx
+  rules:
+    # ไม่กำหนด host จึงใช้ได้ทั้ง localhost และ localhost:16969
+    - http:
+        paths:
+          - path: /pegasus-backend-service(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: pegasus-backend-service
+                port:
+                  name: http

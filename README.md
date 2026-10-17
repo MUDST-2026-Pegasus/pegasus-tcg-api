@@ -643,6 +643,15 @@ See [GitHub Container registry documentation](https://docs.github.com/en/package
 
 This publishes the backend image only; it does not deploy it to a server.
 
+## Deploy on Kubernetes
+
+Manifests for running the API on a cluster are in `k8s/`: a three-replica
+Deployment, a ClusterIP Service, an Ingress at `/pegasus-backend-service`, a
+ConfigMap, a PodDisruptionBudget and an example Secret. Postgres and MinIO stay
+outside the cluster: start them with Docker Compose and the pods reach them
+through `host.docker.internal`. Steps and the reasoning behind the settings are
+in [k8s/README.md](k8s/README.md).
+
 ## License
 
 This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
