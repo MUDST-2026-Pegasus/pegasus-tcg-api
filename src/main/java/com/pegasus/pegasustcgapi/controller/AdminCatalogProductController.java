@@ -44,9 +44,10 @@ import org.springframework.web.bind.annotation.RestController;
  * is already catalogued, which is the whole reason two sellers' copies of one
  * card can be compared at all.
  *
- * <p>Nothing deletes a product or a variant — listings, orders and collections
- * point at them — so what is no longer offered is deactivated. Images are the
- * exception: an image is a file, and removing it removes the file too.
+ * <p>A product can be deleted only while nothing uses it; once listings, orders
+ * or collections point at its variants, what is no longer offered is
+ * deactivated instead. Variants are never deleted on their own. Images are
+ * always deletable: an image is a file, and removing it removes the file too.
  */
 @RestController
 @RequestMapping(ApiPaths.ADMIN + "/catalog")
@@ -125,6 +126,16 @@ public class AdminCatalogProductController {
             @PathVariable long productId, @Valid @RequestBody ProductRequest request) {
 
         return ApiResult.success("Product updated", products.update(productId, request.toFields()));
+    }
+
+    /**
+     * For a product catalogued twice or by mistake. Refused with PRODUCT_IN_USE
+     * once a listing, an order or a collection points at it; retire it then.
+     */
+    @DeleteMapping("/products/{productId}")
+    public ApiResult<Void> deleteProduct(@PathVariable long productId) {
+        products.delete(productId);
+        return ApiResult.success("Product deleted", null);
     }
 
     // ---------- variants ----------
