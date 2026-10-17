@@ -2,6 +2,13 @@ package com.pegasus.pegasustcgapi.repository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogCategory.CATALOG_CATEGORY;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
+import static com.pegasus.pegasustcgapi.jooq.tables.CollectionItem.COLLECTION_ITEM;
+import static com.pegasus.pegasustcgapi.jooq.tables.InventoryMovement.INVENTORY_MOVEMENT;
+import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
+import static com.pegasus.pegasustcgapi.jooq.tables.ListingUnit.LISTING_UNIT;
+import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerVariantCost.SELLER_VARIANT_COST;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.CatalogProductRecord;
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
@@ -66,6 +73,44 @@ public class CatalogProductRepository {
                 .where(CATALOG_PRODUCT.SLUG.eq(slug))
                 .fetchOptional()
                 .map(this::toProduct);
+    }
+
+    /** Held until the transaction ends, so a delete is not raced by an edit of the same row. */
+    public Optional<CatalogProduct> lockById(long id) {
+        return dsl.selectFrom(CATALOG_PRODUCT)
+                .where(CATALOG_PRODUCT.ID.eq(id))
+                .forUpdate()
+                .fetchOptional()
+                .map(this::toProduct);
+    }
+
+    /**
+     * Whether anything outside the catalogue points at one of this product's
+     * variants: a listing or its units, stock moved or costed, an order line, a
+     * collection. All of those keep their variant with ON DELETE RESTRICT.
+     *
+     * <p>Market stats and wishlist rows are left out on purpose: they cascade,
+     * because they only describe the card and mean nothing once it is gone.
+     */
+    public boolean isReferenced(long id) {
+        return dsl.fetchValue(DSL.select(DSL.field(DSL.or(
+                usesVariantOf(id, LISTING, LISTING.CATALOG_VARIANT_ID),
+                usesVariantOf(id, LISTING_UNIT, LISTING_UNIT.CATALOG_VARIANT_ID),
+                usesVariantOf(id, INVENTORY_MOVEMENT, INVENTORY_MOVEMENT.CATALOG_VARIANT_ID),
+                usesVariantOf(id, SELLER_VARIANT_COST, SELLER_VARIANT_COST.CATALOG_VARIANT_ID),
+                usesVariantOf(id, ORDER_ITEM, ORDER_ITEM.CATALOG_VARIANT_ID),
+                usesVariantOf(id, COLLECTION_ITEM, COLLECTION_ITEM.CATALOG_VARIANT_ID)))));
+    }
+
+    private static Condition usesVariantOf(long productId, Table<?> table, Field<Long> variantId) {
+        return DSL.exists(DSL.selectOne().from(table).where(variantId.in(
+                DSL.select(CATALOG_VARIANT.ID).from(CATALOG_VARIANT)
+                        .where(CATALOG_VARIANT.CATALOG_PRODUCT_ID.eq(productId)))));
+    }
+
+    /** Variants, images and effects go with it (ON DELETE CASCADE); image files do not. */
+    public boolean delete(long id) {
+        return dsl.deleteFrom(CATALOG_PRODUCT).where(CATALOG_PRODUCT.ID.eq(id)).execute() > 0;
     }
 
     public boolean slugTaken(String slug) {

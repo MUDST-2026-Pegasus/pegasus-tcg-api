@@ -344,6 +344,7 @@ GET    /catalog/products/{productId}/images
 GET    /admin/catalog/products?activeOnly=false                   ADMIN
 POST   /admin/catalog/products                                    ADMIN
 PUT    /admin/catalog/products/{productId}                        ADMIN
+DELETE /admin/catalog/products/{productId}                        ADMIN
 GET    /admin/catalog/products/{productId}/variants               ADMIN
 POST   /admin/catalog/products/{productId}/variants               ADMIN
 PUT    /admin/catalog/products/{productId}/variants/{variantId}   ADMIN
@@ -433,7 +434,7 @@ Cancellation or an approved return creates an `APPROVED` refund obligation. For 
 - Successful responses use the common `ApiResult` envelope with `success`, `message`, and `data`.
 - List endpoints that paginate use zero-based `page` and a `size` default of `20`.
 - Error responses include a stable code in `data.code`; use the code rather than matching the human-readable message.
-- Catalogued products and variants are deactivated with `active: false`; they are not deleted because other records may reference them.
+- Catalogued products and variants are deactivated with `active: false`. A product can be deleted only while no listing, stock record, order or collection references its variants (otherwise `409 PRODUCT_IN_USE`); variants are never deleted on their own.
 
 ## Project layout
 

@@ -2,18 +2,27 @@ package com.pegasus.pegasustcgapi.service;
 
 import com.pegasus.pegasustcgapi.common.Slugs;
 import com.pegasus.pegasustcgapi.exception.ApiException;
+import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.CardSet;
 import com.pegasus.pegasustcgapi.model.CatalogCategory;
+import com.pegasus.pegasustcgapi.model.CatalogImage;
 import com.pegasus.pegasustcgapi.model.CatalogProduct;
+import com.pegasus.pegasustcgapi.repository.CatalogImageRepository;
 import com.pegasus.pegasustcgapi.repository.CatalogProductRepository;
 import com.pegasus.pegasustcgapi.repository.CatalogProductRepository.ProductFields;
+import com.pegasus.pegasustcgapi.storage.StorageService;
+import java.util.List;
 import java.util.Map;
+import org.jooq.exception.IntegrityConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * The card as a concept, owned by the platform [RQ-3].
@@ -39,17 +48,23 @@ public class CatalogProductService {
     private final GameService games;
     private final CatalogTaxonomyService taxonomy;
     private final ProductAttributeValidator attributeValidator;
+    private final CatalogImageRepository images;
+    private final StorageService storage;
 
     public CatalogProductService(
             CatalogProductRepository products,
             GameService games,
             CatalogTaxonomyService taxonomy,
-            ProductAttributeValidator attributeValidator) {
+            ProductAttributeValidator attributeValidator,
+            CatalogImageRepository images,
+            StorageService storage) {
 
         this.products = products;
         this.games = games;
         this.taxonomy = taxonomy;
         this.attributeValidator = attributeValidator;
+        this.images = images;
+        this.storage = storage;
     }
 
     public CatalogProduct require(long productId) {
@@ -125,6 +140,55 @@ public class CatalogProductService {
 
         products.update(productId, withDerived(requested, existing.slug(), attributes));
         return require(productId);
+    }
+
+    /**
+     * Removes a product nobody has used yet — one catalogued twice or by mistake.
+     * Its variants, images and abilities go with it.
+     *
+     * <p>Once a listing, an order or a collection points at one of its variants
+     * the product is history and is refused with PRODUCT_IN_USE; retiring it is
+     * what is left. A listing taken out between the check and the delete trips
+     * the foreign key instead, and gets the same answer.
+     *
+     * <p>Image files are removed only after the rows are committed, so a rollback
+     * never leaves a product whose pictures are gone. A file that will not delete
+     * is logged and left behind: an orphaned object costs storage, nothing more.
+     */
+    @Transactional
+    public void delete(long productId) {
+        products.lockById(productId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        if (products.isReferenced(productId)) {
+            throw new ConflictException(ErrorCode.PRODUCT_IN_USE);
+        }
+
+        List<String> imageKeys = images.findByProductId(productId).stream()
+                .map(CatalogImage::imageKey)
+                .toList();
+        try {
+            products.delete(productId);
+        } catch (DataIntegrityViolationException | IntegrityConstraintViolationException raced) {
+            throw new ConflictException(ErrorCode.PRODUCT_IN_USE);
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                imageKeys.forEach(CatalogProductService.this::deleteFile);
+            }
+        });
+        log.info("Deleted product {} and {} image(s)", productId, imageKeys.size());
+    }
+
+    private void deleteFile(String imageKey) {
+        try {
+            storage.delete(imageKey);
+        } catch (RuntimeException e) {
+            log.warn("Could not delete image {} of a deleted product; the object is orphaned",
+                    imageKey, e);
+        }
     }
 
     /**

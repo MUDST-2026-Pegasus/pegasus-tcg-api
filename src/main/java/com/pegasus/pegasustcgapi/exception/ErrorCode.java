@@ -60,6 +60,7 @@ public enum ErrorCode {
     CATEGORY_CODE_ALREADY_USED(HttpStatus.CONFLICT, "Another category already uses this code"),
     CARD_SET_CODE_ALREADY_USED(HttpStatus.CONFLICT, "This game already has a set with that code"),
     CARD_SET_IN_USE(HttpStatus.CONFLICT, "Catalogue products still belong to this set"),
+    PRODUCT_IN_USE(HttpStatus.CONFLICT, "Listings, orders or collections still use this product"),
     SKU_ALREADY_USED(HttpStatus.CONFLICT, "Another variant already uses this SKU"),
     VARIANT_ALREADY_EXISTS(HttpStatus.CONFLICT, "This product already has a variant with that identity"),
     VARIANT_INACTIVE(HttpStatus.CONFLICT, "This card printing is no longer offered in the catalogue"),
