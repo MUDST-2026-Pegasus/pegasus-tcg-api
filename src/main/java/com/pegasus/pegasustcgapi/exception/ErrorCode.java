@@ -102,6 +102,7 @@ public enum ErrorCode {
     PROMO_CODE_TAKEN(HttpStatus.CONFLICT, "Another promotion already uses this code"),
     PROMO_IN_USE(HttpStatus.CONFLICT, "This discount code has been used on an order and cannot be deleted"),
     PROMO_CHANGED(HttpStatus.CONFLICT, "Discounts changed since the total was shown; review the order again"),
+    PROMO_PAUSED(HttpStatus.CONFLICT, "This discount code is paused"),
     PROMO_USED_UP(HttpStatus.CONFLICT, "This discount code has no uses left"),
     PROMO_CLAIM_FULL(HttpStatus.CONFLICT, "All of this discount code has been handed out"),
 
@@ -118,7 +119,6 @@ public enum ErrorCode {
     PROMO_INVALID(HttpStatus.BAD_REQUEST, "Discount code settings are invalid"),
     PROMO_NOT_STARTED(HttpStatus.BAD_REQUEST, "This discount code is not active yet"),
     PROMO_EXPIRED(HttpStatus.BAD_REQUEST, "This discount code has expired"),
-    PROMO_PAUSED(HttpStatus.BAD_REQUEST, "This discount code is paused"),
     PROMO_USER_LIMIT_REACHED(HttpStatus.BAD_REQUEST, "You have already used this discount code as many times as allowed"),
     PROMO_MIN_SPEND_NOT_MET(HttpStatus.BAD_REQUEST, "The order does not reach this code's minimum spend"),
     PROMO_NOT_APPLICABLE(HttpStatus.BAD_REQUEST, "Nothing in the order qualifies for this discount code"),

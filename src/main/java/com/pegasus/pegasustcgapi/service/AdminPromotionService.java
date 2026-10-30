@@ -32,7 +32,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -43,10 +42,8 @@ import org.springframework.transaction.annotation.Transactional;
  * The admin side of discount codes [TCG-567]: Pegasus codes end to end, and
  * pausing a shop's code when something is wrong with it.
  *
- * <p>Once a code has been on an order, only its name, description, a later end
- * date, a higher usage limit and the claim section may change; anything else is
- * {@code PROMO_IN_USE}. Once someone has claimed it, {@code claim_required} is
- * fixed and {@code claim_limit} can only go up.
+ * <p>What may change on a code that has been used or claimed is
+ * {@link PromotionEditRules}, shared with the shop's own API.
  *
  * <p>Every change is written to the {@code pegasus.audit.promotion} log. There is
  * no audit table or seller notification channel yet, so {@code notifySeller} is
@@ -130,12 +127,7 @@ public class AdminPromotionService {
         Promotion current = lockPlatform(id);
         NewPromotion next = draft(request, current, current.createdBy());
         validate(next, current);
-        if (current.usedCount() > 0 || promotions.hasRedemptions(id)) {
-            requireOnlyEditableAfterUse(current, next);
-        }
-        if (current.claimedCount() > 0) {
-            requireClaimRulesAfterClaims(current, next);
-        }
+        PromotionEditRules.check(current, next, promotions.hasRedemptions(id));
         if (!next.code().equals(current.code()) && promotions.codeExists(next.code())) {
             throw new ConflictException(ErrorCode.PROMO_CODE_TAKEN);
         }
@@ -294,44 +286,6 @@ public class AdminPromotionService {
         if (p.usageLimitTotal() != null && p.usageLimitTotal() < used) {
             invalid("The usage limit cannot be below the " + used + " uses already taken");
         }
-    }
-
-    private static void requireOnlyEditableAfterUse(Promotion c, NewPromotion n) {
-        boolean locked = !c.code().equals(n.code())
-                || c.discountType() != n.discountType()
-                || !sameAmount(c.discountValue(), n.discountValue())
-                || !sameAmount(c.maxDiscount(), n.maxDiscount())
-                || !sameAmount(c.minSpend(), n.minSpend())
-                || c.scopeType() != n.scopeType()
-                || !Set.copyOf(c.scopeIds()).equals(Set.copyOf(n.scopeIds()))
-                || c.visibility() != n.visibility()
-                || c.newBuyerOnly() != n.newBuyerOnly()
-                || c.usageLimitPerUser() != n.usageLimitPerUser()
-                || c.claimRequired() != n.claimRequired()
-                || !c.startsAt().isEqual(n.startsAt())
-                || n.endsAt().isBefore(c.endsAt())
-                || !notLower(c.usageLimitTotal(), n.usageLimitTotal());
-        if (locked) {
-            throw new ConflictException(ErrorCode.PROMO_IN_USE, "This code has been used on an order: only its "
-                    + "name, description, a later end date, a higher usage limit and the claim settings can change");
-        }
-    }
-
-    private static void requireClaimRulesAfterClaims(Promotion c, NewPromotion n) {
-        if (c.claimRequired() != n.claimRequired() || !notLower(c.claimLimit(), n.claimLimit())) {
-            throw new ConflictException(ErrorCode.PROMO_IN_USE, "People have claimed this code: "
-                    + "\"must claim before use\" is fixed and the claim limit can only go up");
-        }
-    }
-
-    /** Null is unlimited, so it is never lower; nothing finite beats it. */
-    private static boolean notLower(Integer before, Integer after) {
-        if (after == null) return true;
-        return before != null && after >= before;
-    }
-
-    private static boolean sameAmount(BigDecimal a, BigDecimal b) {
-        return a == null ? b == null : b != null && a.compareTo(b) == 0;
     }
 
     private Promotion lock(long id) {
