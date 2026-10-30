@@ -564,9 +564,10 @@ those branches. Both workflows can also be started from the Actions tab.
   Docker Compose with dedicated credentials from repository secrets; a JWT key is generated per run.
   Flyway migrations and jOOQ generation run through the existing Gradle task
   dependencies. Any service startup, build, or test failure fails the job.
-  The run's **Job Summary** shows BE test counts, failures, and JaCoCo coverage.
-  Pull requests also get updated **BE Tests** and **BE Coverage** comments, including
-  coverage for changed files. Open the **BE Tests** check for failing test names.
+  The run's **Job Summary** shows BE test counts by class or Cucumber feature,
+  failing test names, and JaCoCo coverage. Pull requests get updated **BE Tests**
+  and **BE Coverage** comments; the latter includes coverage for changed Java files
+  when the PR changes any. Open the **BE Tests** check for full failure details.
   HTML, JUnit XML, and JaCoCo reports are retained as the `test-reports` artifact
   for 14 days, including when tests fail. Fork PRs show the Job Summary without
   attempting to write comments or checks.
