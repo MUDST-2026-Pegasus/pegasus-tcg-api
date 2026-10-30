@@ -28,6 +28,11 @@ pegasus:
     jwt-issuer: pegasus-tcg-api
     access-token-ttl: 15m
     refresh-token-ttl: 30d
+    refresh-cookie:
+      name: pegasus_rt
+      secure: ${AUTH_REFRESH_COOKIE_SECURE:true}
+      same-site: Lax
+      domain: ${AUTH_REFRESH_COOKIE_DOMAIN:}
     password-reset-ttl: 1h
     max-failed-logins: 5
     lockout-duration: 15m

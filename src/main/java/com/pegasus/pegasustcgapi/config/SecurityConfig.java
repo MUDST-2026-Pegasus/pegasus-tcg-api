@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.config;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.pegasus.pegasustcgapi.security.AuthClaims;
 import com.pegasus.pegasustcgapi.security.SecurityErrorHandler;
+import com.pegasus.pegasustcgapi.security.RefreshOriginFilter;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -32,6 +33,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -102,12 +104,14 @@ public class SecurityConfig {
             HttpSecurity http,
             JwtDecoder jwtDecoder,
             JwtAuthenticationConverter jwtAuthenticationConverter,
-            SecurityErrorHandler securityErrorHandler) throws Exception {
+            SecurityErrorHandler securityErrorHandler,
+            CorsProperties corsProperties) throws Exception {
 
         return http
-                // Nothing is authenticated by a cookie, so there is no CSRF surface.
+                // Only refresh and logout use a cookie; RefreshOriginFilter guards those endpoints.
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
+                .addFilterBefore(new RefreshOriginFilter(corsProperties), UsernamePasswordAuthenticationFilter.class)
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable())
                 .logout(logout -> logout.disable())
@@ -200,8 +204,10 @@ public class SecurityConfig {
         config.setExposedHeaders(List.of(
                 "X-Cart-Session",
                 "Idempotency-Key"));
-        // Tokens travel in the Authorization header, never in a cookie.
-        config.setAllowCredentials(false);
+        if (properties.allowedOrigins().contains("*")) {
+            throw new IllegalStateException("Credentialed CORS requires explicit allowed origins");
+        }
+        config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
