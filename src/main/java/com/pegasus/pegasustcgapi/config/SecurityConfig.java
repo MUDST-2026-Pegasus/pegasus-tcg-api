@@ -65,6 +65,8 @@ public class SecurityConfig {
         ApiPaths.AUTH + "/logout",
         ApiPaths.AUTH + "/password/forgot",
         ApiPaths.AUTH + "/password/reset",
+        // What a cart would cost with codes; a guest sees it before signing in.
+        ApiPaths.CHECKOUT + "/promo-preview",
     };
 
     /**
@@ -84,6 +86,8 @@ public class SecurityConfig {
         ApiPaths.PROFILES + "/*",
         ApiPaths.PROFILES + "/*/listings",
         ApiPaths.PROFILES + "/*/reviews",
+        // The code picker on the cart page, open to guests like the cart itself.
+        ApiPaths.CHECKOUT + "/promotions",
     };
 
     /** Public Swagger UI and OpenAPI documentation resources. */

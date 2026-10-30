@@ -1,10 +1,13 @@
 package com.pegasus.pegasustcgapi.repository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogCategory.CATALOG_CATEGORY;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Game.GAME;
 import static com.pegasus.pegasustcgapi.jooq.tables.Promotion.PROMOTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.PromotionClaim.PROMOTION_CLAIM;
 import static com.pegasus.pegasustcgapi.jooq.tables.PromotionRedemption.PROMOTION_REDEMPTION;
+import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.PromotionRecord;
 import com.pegasus.pegasustcgapi.model.Promotion;
@@ -15,7 +18,9 @@ import com.pegasus.pegasustcgapi.model.Promotion.Visibility;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Collection;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -145,6 +150,47 @@ public class PromotionRepository {
             case CATEGORY -> dsl.fetchCount(CATALOG_CATEGORY,
                     CATALOG_CATEGORY.ID.cast(SQLDataType.BIGINT).in(ids)) == distinct;
         };
+    }
+
+    /** The game and category a card counts under for a GAME or CATEGORY code. */
+    public record VariantScope(long gameId, long categoryId) {
+    }
+
+    public Map<Long, VariantScope> scopeOfVariants(Collection<Long> variantIds) {
+        return dsl.select(CATALOG_VARIANT.ID, CATALOG_PRODUCT.GAME_ID, CATALOG_PRODUCT.CATEGORY_ID)
+                .from(CATALOG_VARIANT)
+                .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                .where(CATALOG_VARIANT.ID.in(variantIds))
+                .fetchMap(r -> r.value1(), r -> new VariantScope(r.value2(), r.value3()));
+    }
+
+    /** Whether the buyer has ever paid for an order; a new-buyer code is for those who have not. */
+    public boolean hasPaidOrder(long buyerId) {
+        return dsl.fetchExists(SALES_ORDER, SALES_ORDER.BUYER_ID.eq(buyerId).and(SALES_ORDER.PAID_AT.isNotNull()));
+    }
+
+    /** Live PUBLIC codes: Pegasus's and those of the given shops, for the code picker. */
+    public List<Promotion> findPublicLive(Collection<Long> sellerProfileIds, OffsetDateTime now) {
+        return dsl.selectFrom(PROMOTION)
+                .where(PROMOTION.VISIBILITY.eq(Visibility.PUBLIC.name()))
+                .and(PROMOTION.OWNER_TYPE.eq(OwnerType.PLATFORM.name())
+                        .or(PROMOTION.SELLER_PROFILE_ID.in(sellerProfileIds)))
+                .and(PROMOTION.STARTS_AT.le(now))
+                .and(PROMOTION.ENDS_AT.gt(now))
+                .and(PROMOTION.PAUSED_AT.isNull())
+                .orderBy(PROMOTION.ENDS_AT.asc(), PROMOTION.ID.asc())
+                .fetch(PromotionRepository::toPromotion);
+    }
+
+    /** Codes this user has collected that have not ended yet, whatever their visibility. */
+    public List<Promotion> findClaimedLive(long userId, OffsetDateTime now) {
+        return dsl.select(PROMOTION.fields())
+                .from(PROMOTION)
+                .join(PROMOTION_CLAIM).on(PROMOTION_CLAIM.PROMOTION_ID.eq(PROMOTION.ID))
+                .where(PROMOTION_CLAIM.USER_ID.eq(userId))
+                .and(PROMOTION.ENDS_AT.gt(now))
+                .orderBy(PROMOTION.ENDS_AT.asc(), PROMOTION.ID.asc())
+                .fetch(r -> toPromotion(r.into(PROMOTION)));
     }
 
     /** One past the last featured code, so a newly featured code goes to the end of the strip. */

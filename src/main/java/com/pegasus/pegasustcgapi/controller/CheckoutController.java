@@ -4,8 +4,10 @@ import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.ShippingQuoteRequest;
 import com.pegasus.pegasustcgapi.dto.ShippingQuoteResponse;
+import com.pegasus.pegasustcgapi.dto.CheckoutPromotionViews;
 import com.pegasus.pegasustcgapi.dto.CheckoutRequest;
 import com.pegasus.pegasustcgapi.dto.CheckoutResponse;
+import com.pegasus.pegasustcgapi.dto.PromoPreviewRequest;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.CheckoutService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,12 +18,15 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -73,5 +78,33 @@ public class CheckoutController {
             @Valid @RequestBody(required = false) ShippingQuoteRequest request,
             AuthPrincipal principal) {
         return ApiResult.success(checkoutService.shippingQuotes(principal, request));
+    }
+
+    @Operation(summary = "Preview discount codes on selected cart items",
+            description = "Per-shop totals and each code's outcome (APPLIED or an error code, with shortfall for "
+                    + "min spend). Reserves nothing; works for guests via X-Cart-Session. Without "
+                    + "shippingOptionBySeller each shop's default delivery is used, shippingEstimated is true, "
+                    + "totals leave shipping out and a FREE_SHIPPING code reports pendingShipping. "
+                    + "autoPick=true ignores the codes sent and returns bestPick from collected and public codes.")
+    @PostMapping("/promo-preview")
+    public ApiResult<CheckoutPromotionViews.PromoPreview> promoPreview(
+            @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
+            @Valid @RequestBody(required = false) PromoPreviewRequest request,
+            Optional<AuthPrincipal> principal) {
+        return ApiResult.success(checkoutService.promoPreview(principal.orElse(null), sessionKey, request));
+    }
+
+    @Operation(summary = "Discount codes for selected cart items",
+            description = "Collected codes (CLAIMED), public codes still to collect (CLAIMABLE, with "
+                    + "remainingClaims) and other public codes for Pegasus and the shops in the cart (PUBLIC), "
+                    + "each with applicable, estimatedDiscount and the reason it cannot apply. Guests get no "
+                    + "CLAIMED group.")
+    @GetMapping("/promotions")
+    public ApiResult<List<CheckoutPromotionViews.AvailablePromotion>> promotions(
+            @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
+            @RequestParam(required = false) List<Long> cartItemIds,
+            Optional<AuthPrincipal> principal) {
+        return ApiResult.success(checkoutService.availablePromotions(principal.orElse(null), sessionKey,
+                cartItemIds));
     }
 }
