@@ -96,6 +96,17 @@ public class PromotionRepository {
                 .map(PromotionRepository::toPromotion);
     }
 
+    /** Like {@link #lockById}, but only a code of this shop; another's is never locked. */
+    public Optional<Promotion> lockShopCode(long id, long sellerProfileId) {
+        return dsl.selectFrom(PROMOTION)
+                .where(PROMOTION.ID.eq(id))
+                .and(PROMOTION.OWNER_TYPE.eq(OwnerType.SELLER.name()))
+                .and(PROMOTION.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .forUpdate()
+                .fetchOptional()
+                .map(PromotionRepository::toPromotion);
+    }
+
     /** Whether any order ever held this code, even one that released it again. */
     public boolean hasRedemptions(long id) {
         return dsl.fetchExists(PROMOTION_REDEMPTION, PROMOTION_REDEMPTION.PROMOTION_ID.eq(id));
