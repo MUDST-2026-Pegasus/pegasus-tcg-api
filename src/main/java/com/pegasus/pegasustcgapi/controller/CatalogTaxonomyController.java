@@ -2,8 +2,8 @@ package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import com.pegasus.pegasustcgapi.dto.CardSetResponse;
 import com.pegasus.pegasustcgapi.dto.CategoryResponse;
-import com.pegasus.pegasustcgapi.model.CardSet;
 import com.pegasus.pegasustcgapi.model.Game;
 import com.pegasus.pegasustcgapi.model.GameAttribute;
 import com.pegasus.pegasustcgapi.service.CatalogTaxonomyService;
@@ -68,8 +68,10 @@ public class CatalogTaxonomyController {
     }
 
     @GetMapping(ApiPaths.CARD_SETS)
-    public ApiResult<List<CardSet>> cardSets(@RequestParam short gameId) {
-        return ApiResult.success(taxonomy.cardSets(gameId));
+    public ApiResult<List<CardSetResponse>> cardSets(@RequestParam short gameId) {
+        return ApiResult.success(taxonomy.cardSets(gameId).stream()
+                .map(cardSet -> CardSetResponse.of(cardSet, storage.readUrl(cardSet.logoUrl())))
+                .toList());
     }
 
     /** The logo column takes a pasted URL or an uploaded key; either way the browser gets a URL. */
