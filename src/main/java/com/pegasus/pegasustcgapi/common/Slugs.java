@@ -26,10 +26,9 @@ public final class Slugs {
         String folded = Normalizer.normalize(text, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}", "")
                 .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", "-")
-                .replaceAll("(^-+)|(-+$)", "");
+                .replaceAll("[^a-z0-9]+", "-");
 
-        return fit(folded, maxLength);
+        return fit(trimHyphens(folded), maxLength);
     }
 
     /**
@@ -63,6 +62,23 @@ public final class Slugs {
             }
         }
         throw new IllegalStateException("Could not find a free slug for " + base);
+    }
+
+    /**
+     * Drops hyphens at either end. A loop rather than {@code (^-+)|(-+$)}: that
+     * pattern retries {@code -+$} from every hyphen in a run, quadratic on a long
+     * one. Runs are collapsed before this today, but the loop does not rely on it.
+     */
+    private static String trimHyphens(String slug) {
+        int start = 0;
+        int end = slug.length();
+        while (start < end && slug.charAt(start) == '-') {
+            start++;
+        }
+        while (end > start && slug.charAt(end - 1) == '-') {
+            end--;
+        }
+        return slug.substring(start, end);
     }
 
     /** Cuts on a word boundary where there is one, so a shortened slug does not end mid-word. */

@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service;
 
+import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.ForbiddenException;
@@ -158,8 +159,8 @@ public class SellerOnboardingService implements SellerPort {
 
     // ---------- admin review ----------
 
-    public List<SellerVerification> queue(VerificationStatus status, int page, int size) {
-        return verifications.findByStatus(status, size, page * size);
+    public List<SellerVerification> queue(VerificationStatus status, Paging paging) {
+        return verifications.findByStatus(status, paging.size(), paging.offset());
     }
 
     public long queueSize(VerificationStatus status) {
