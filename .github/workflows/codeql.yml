@@ -7,7 +7,7 @@ on:
       CI_DB_PASSWORD:
         required: true
   schedule:
-    - cron: "0 3 * * 1"
+    - cron: "0 3 * * 1,4"
 
 jobs:
   analyze:
