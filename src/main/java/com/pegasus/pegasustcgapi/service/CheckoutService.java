@@ -1,7 +1,9 @@
 package com.pegasus.pegasustcgapi.service;
 
 import com.pegasus.pegasustcgapi.common.CartSessionKey;
+import com.pegasus.pegasustcgapi.dto.CheckoutPromotionViews;
 import com.pegasus.pegasustcgapi.dto.CheckoutRequest;
+import com.pegasus.pegasustcgapi.dto.PromoPreviewRequest;
 import com.pegasus.pegasustcgapi.dto.ShippingQuoteRequest;
 import com.pegasus.pegasustcgapi.dto.ShippingQuoteResponse;
 import com.pegasus.pegasustcgapi.dto.ShippingQuoteOptionResponse;
@@ -594,18 +596,22 @@ public class CheckoutService {
         if (allItems.isEmpty()) {
             throw new ConflictException(ErrorCode.CART_EMPTY);
         }
-        List<CartItem> items;
-        if (cartItemIds != null && !cartItemIds.isEmpty()) {
-            Set<Long> allowedIds = new HashSet<>(cartItemIds);
-            items = allItems.stream().filter(item -> allowedIds.contains(item.id())).toList();
-            if (items.isEmpty()) {
-                throw new ConflictException(ErrorCode.CART_EMPTY);
-            }
-        } else {
-            items = allItems;
-        }
+        return new CartSelection(cart, allItems, selectItems(allItems, cartItemIds));
+    }
 
-        return new CartSelection(cart, allItems, items);
+    private static List<CartItem> selectItems(List<CartItem> allItems, List<Long> cartItemIds) {
+        if (allItems.isEmpty()) {
+            throw new ConflictException(ErrorCode.CART_EMPTY);
+        }
+        if (cartItemIds == null || cartItemIds.isEmpty()) {
+            return allItems;
+        }
+        Set<Long> allowedIds = new HashSet<>(cartItemIds);
+        List<CartItem> items = allItems.stream().filter(item -> allowedIds.contains(item.id())).toList();
+        if (items.isEmpty()) {
+            throw new ConflictException(ErrorCode.CART_EMPTY);
+        }
+        return items;
     }
 
     private Map<Long, ListingOffer> validatedOffers(AuthPrincipal principal, List<CartItem> items) {
@@ -613,8 +619,9 @@ public class CheckoutService {
         List<Long> listingIds = items.stream().map(CartItem::listingId).distinct().toList();
         Map<Long, ListingOffer> offers = pricingPort.offers(listingIds);
 
-        Optional<SellerProfile> buyerSellerProfile = sellerProfileRepository.findByUserId(principal.userId());
-        Long buyerSellerProfileId = buyerSellerProfile.map(SellerProfile::id).orElse(null);
+        // A guest previewing codes owns no shop.
+        Long buyerSellerProfileId = principal == null ? null
+                : sellerProfileRepository.findByUserId(principal.userId()).map(SellerProfile::id).orElse(null);
 
         List<PriceChange> priceChanges = new ArrayList<>();
         for (CartItem item : items) {
@@ -661,6 +668,86 @@ public class CheckoutService {
         }
         if (address == null) throw new BadRequestException(ErrorCode.SHIPPING_ADDRESS_REQUIRED);
         return address;
+    }
+
+    /**
+     * What the selected cart lines cost with these codes [TCG-569]. Reserves nothing
+     * and works for a guest (by cart session) too. Without shipping choices each
+     * shop's default delivery is used and the totals leave shipping out.
+     */
+    @Transactional(readOnly = true)
+    public CheckoutPromotionViews.PromoPreview promoPreview(AuthPrincipal principal, String guestSessionKey,
+            PromoPreviewRequest request) {
+        PromoPreviewRequest r = request == null ? new PromoPreviewRequest(null, null, null, null, null) : request;
+        PricedCart cart = pricedCart(principal, guestSessionKey, r.cartItemIds(), r.shippingOptionBySeller());
+        Long buyerId = principal == null ? null : principal.userId();
+        CheckoutPromotionService promotions = requirePromotions();
+        PromotionCalculator.Basket basket = basket(cart.items(), cart.offers(), cart.shippingBySeller());
+        if (r.autoPickOrFalse()) {
+            PromotionCalculator.Pick pick = promotions.bestPick(buyerId, basket, cart.sellerNames().keySet());
+            String platform = pick.promotions().stream()
+                    .filter(p -> p.ownerType() == Promotion.OwnerType.PLATFORM)
+                    .map(Promotion::code).findFirst().orElse(null);
+            Map<Long, String> shops = new LinkedHashMap<>();
+            pick.promotions().stream().filter(p -> p.ownerType() == Promotion.OwnerType.SELLER)
+                    .forEach(p -> shops.put(p.sellerProfileId(), p.code()));
+            return promotions.preview(promotions.evaluate(buyerId, basket, pick), cart.sellerNames(),
+                    cart.shippingEstimated(), new CheckoutPromotionViews.BestPick(platform, shops));
+        }
+        return promotions.preview(promotions.evaluate(buyerId, basket, r.platformCode(), r.sellerCodes()),
+                cart.sellerNames(), cart.shippingEstimated(), null);
+    }
+
+    /**
+     * The code picker for the selected cart lines: codes the buyer collected, public
+     * codes still to collect, and other public codes for Pegasus and these shops,
+     * each tried on the basket alone with each shop's default delivery.
+     */
+    @Transactional(readOnly = true)
+    public List<CheckoutPromotionViews.AvailablePromotion> availablePromotions(AuthPrincipal principal,
+            String guestSessionKey, List<Long> cartItemIds) {
+        PricedCart cart = pricedCart(principal, guestSessionKey, cartItemIds, null);
+        return requirePromotions().available(principal == null ? null : principal.userId(),
+                basket(cart.items(), cart.offers(), cart.shippingBySeller()),
+                cart.sellerNames().keySet(), cart.sellerNames());
+    }
+
+    /** Selected lines, priced, with a fee per shop. */
+    private record PricedCart(List<CartItem> items, Map<Long, ListingOffer> offers,
+            Map<Long, BigDecimal> shippingBySeller, Map<Long, String> sellerNames, boolean shippingEstimated) {}
+
+    private PricedCart pricedCart(AuthPrincipal principal, String guestSessionKey, List<Long> cartItemIds,
+            Map<Long, Long> shippingOptionBySeller) {
+        List<CartItem> items;
+        if (principal != null) {
+            items = selectCartItems(principal.userId(), cartItemIds).items();
+        } else {
+            String session = CartSessionKey.normalize(guestSessionKey);
+            Cart cart = session == null ? null : cartRepository.findBySessionKey(session).orElse(null);
+            if (cart == null) throw new ConflictException(ErrorCode.CART_EMPTY);
+            items = selectItems(cartRepository.findItemsByCartId(cart.id()), cartItemIds);
+        }
+        Map<Long, ListingOffer> offers = validatedOffers(principal, items);
+        boolean estimated = shippingOptionBySeller == null || shippingOptionBySeller.isEmpty();
+        Map<Long, BigDecimal> shipping = new LinkedHashMap<>();
+        Map<Long, String> names = new LinkedHashMap<>();
+        groupBySeller(items, offers).forEach((sellerId, sellerItems) -> {
+            names.put(sellerId, offers.get(sellerItems.getFirst().listingId()).sellerName());
+            int count = sellerItems.stream().mapToInt(CartItem::quantity).sum();
+            BigDecimal subtotal = sellerItems.stream().map(CheckoutService::lineTotal)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal fee;
+            if (estimated) {
+                // The cart has not picked delivery yet; a shop with none set up still previews.
+                fee = shippingOptionService.listActive(sellerId).stream().findFirst()
+                        .map(option -> option.feeFor(count, subtotal)).orElse(BigDecimal.ZERO);
+            } else {
+                fee = shippingOptionService.resolveForCheckout(sellerId, shippingOptionBySeller.get(sellerId))
+                        .feeFor(count, subtotal);
+            }
+            shipping.put(sellerId, fee);
+        });
+        return new PricedCart(items, offers, shipping, names, estimated);
     }
 
     @Transactional(readOnly = true)
