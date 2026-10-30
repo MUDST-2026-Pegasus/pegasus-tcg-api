@@ -19,6 +19,10 @@ jobs:
     name: Test / Build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
     env:
       DB_URL: jdbc:postgresql://localhost:5432/pegasus_tcg
       DB_USERNAME: postgres
@@ -52,6 +56,26 @@ jobs:
       - name: Test and build
         run: ./gradlew build --no-daemon
 
+      - name: Publish BE test results
+        if: always() && hashFiles('build/test-results/test/*.xml') != ''
+        uses: EnricoMi/publish-unit-test-result-action/linux@v2.24.0
+        with:
+          files: build/test-results/test/*.xml
+          check_name: BE Tests
+          comment_mode: ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && 'always' || 'off' }}
+          check_run: ${{ github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork }}
+
+      - name: Publish JaCoCo coverage
+        if: always() && hashFiles('build/reports/jacoco/test/jacocoTestReport.xml') != ''
+        uses: madrapps/jacoco-report@v1.8.0
+        with:
+          paths: build/reports/jacoco/test/jacocoTestReport.xml
+          title: BE Coverage
+          comment-type: ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && 'both' || 'summary' }}
+          update-comment: true
+          min-coverage-overall: 0
+          min-coverage-changed-files: 0
+
       - name: Upload application JAR
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         uses: actions/upload-artifact@v7
@@ -69,6 +93,7 @@ jobs:
           path: |
             build/reports/tests/test/
             build/test-results/test/
+            build/reports/jacoco/
           if-no-files-found: ignore
           retention-days: 14
 
