@@ -46,6 +46,15 @@ def main() -> int:
         f"**{totals['passed']:,} passed** · **{totals['failed']:,} failed** · "
         f"**{totals['skipped']:,} skipped** JUnit test cases across **{len(suites):,} classes/features**.\n"
     )
+    coverage_xml = "build/reports/jacoco/test/jacocoTestReport.xml"
+    if glob.glob(coverage_xml):
+        report = ET.parse(coverage_xml).getroot()
+        line = next((counter for counter in report.findall("counter") if counter.get("type") == "LINE"), None)
+        if line is not None:
+            covered = int(line.get("covered", "0"))
+            missed = int(line.get("missed", "0"))
+            if covered + missed:
+                print(f"**Overall line coverage:** {covered / (covered + missed):.1%}.\n")
     if failures:
         print("### Failed tests\n")
         for suite, name, message in failures[:20]:
