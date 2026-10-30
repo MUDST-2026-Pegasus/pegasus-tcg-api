@@ -564,8 +564,13 @@ those branches. Both workflows can also be started from the Actions tab.
   Docker Compose with dedicated credentials from repository secrets; a JWT key is generated per run.
   Flyway migrations and jOOQ generation run through the existing Gradle task
   dependencies. Any service startup, build, or test failure fails the job.
-  HTML and JUnit test reports are retained as the `test-reports` artifact for 14 days,
-  including when tests fail.
+  The run's **Job Summary** shows BE test counts by class or Cucumber feature,
+  failing test names, and JaCoCo coverage. Pull requests get updated **BE Tests**
+  and **BE Coverage** comments; the latter includes coverage for changed Java files
+  when the PR changes any. Open the **BE Tests** check for full failure details.
+  HTML, JUnit XML, and JaCoCo reports are retained as the `test-reports` artifact
+  for 14 days, including when tests fail. Fork PRs show the Job Summary without
+  attempting to write comments or checks.
 - **CI / Secret Leak Scan** uses [Gitleaks](https://github.com/gitleaks/gitleaks)
   v8.30.1 to scan all fetched Git history, including commits in pull requests.
   Findings fail the job (exit code 1). The Actions log shows redacted findings
