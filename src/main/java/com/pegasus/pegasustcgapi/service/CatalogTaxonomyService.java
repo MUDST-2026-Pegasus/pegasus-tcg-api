@@ -110,6 +110,7 @@ public class CatalogTaxonomyService {
     @Transactional
     public CardSet createCardSet(short gameId, CardSetFields requested) {
         games.require(gameId);
+        requireLogoUsable(requested.logoUrl(), null);
 
         String code = normaliseCode(requested.code());
         if (cardSets.codeTaken(gameId, code, null)) {
@@ -123,6 +124,7 @@ public class CatalogTaxonomyService {
     @Transactional
     public CardSet updateCardSet(int cardSetId, CardSetFields requested) {
         CardSet existing = requireCardSet(cardSetId);
+        requireLogoUsable(requested.logoUrl(), existing.logoUrl());
 
         String code = normaliseCode(requested.code());
         if (cardSets.codeTaken(existing.gameId(), code, cardSetId)) {
@@ -204,6 +206,18 @@ public class CatalogTaxonomyService {
             return;
         }
         storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, key);
+    }
+
+    /**
+     * A set logo is a pasted URL or an uploaded key; a key has to pass
+     * {@link #requireImageUsable} because it is signed for every visitor too.
+     */
+    private void requireLogoUsable(String logo, String current) {
+        String value = blankToNull(logo);
+        if (value != null && (value.startsWith("http://") || value.startsWith("https://"))) {
+            return;
+        }
+        requireImageUsable(value, current);
     }
 
     /** Keeps the existing slug on update: it is in URLs, so it is set once. */

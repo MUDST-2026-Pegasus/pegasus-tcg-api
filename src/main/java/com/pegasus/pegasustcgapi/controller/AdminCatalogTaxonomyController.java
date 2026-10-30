@@ -2,7 +2,9 @@ package com.pegasus.pegasustcgapi.controller;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import com.pegasus.pegasustcgapi.dto.AdminGameResponse;
 import com.pegasus.pegasustcgapi.dto.CardSetRequest;
+import com.pegasus.pegasustcgapi.dto.CardSetResponse;
 import com.pegasus.pegasustcgapi.dto.CategoryRequest;
 import com.pegasus.pegasustcgapi.dto.GameAttributeRequest;
 import com.pegasus.pegasustcgapi.dto.GameRequest;
@@ -13,6 +15,7 @@ import com.pegasus.pegasustcgapi.model.GameAttribute;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.CatalogTaxonomyService;
 import com.pegasus.pegasustcgapi.service.GameService;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -36,6 +39,9 @@ import org.springframework.web.bind.annotation.RestController;
  * them with ON DELETE RESTRICT, so what is no longer offered is deactivated and
  * the products filed under it keep resolving. An attribute can go because no row
  * references one, and a card set can go once no product is filed under it.
+ *
+ * <p>Logos come back twice: the stored value to send back on update, and a URL
+ * the browser can open, so an uploaded key shows as a picture here too.
  */
 @RestController
 @RequestMapping(ApiPaths.ADMIN)
@@ -44,35 +50,39 @@ public class AdminCatalogTaxonomyController {
 
     private final GameService games;
     private final CatalogTaxonomyService taxonomy;
+    private final StorageService storage;
 
-    public AdminCatalogTaxonomyController(GameService games, CatalogTaxonomyService taxonomy) {
+    public AdminCatalogTaxonomyController(
+            GameService games, CatalogTaxonomyService taxonomy, StorageService storage) {
+
         this.games = games;
         this.taxonomy = taxonomy;
+        this.storage = storage;
     }
 
     // ---------- games ----------
 
     /** Unlike the public list, this one shows retired games too. */
     @GetMapping("/games")
-    public ApiResult<List<Game>> games(
+    public ApiResult<List<AdminGameResponse>> games(
             @RequestParam(defaultValue = "true") boolean includeInactive) {
-        return ApiResult.success(games.list(includeInactive));
+        return ApiResult.success(games.list(includeInactive).stream().map(this::response).toList());
     }
 
     @PostMapping("/games")
-    public ResponseEntity<ApiResult<Game>> createGame(
+    public ResponseEntity<ApiResult<AdminGameResponse>> createGame(
             @Valid @RequestBody GameRequest request, AuthPrincipal principal) {
 
         Game created = games.create(request.toFields(), principal.userId());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResult.success("Game added", created));
+                .body(ApiResult.success("Game added", response(created)));
     }
 
     @PutMapping("/games/{gameId}")
-    public ApiResult<Game> updateGame(
+    public ApiResult<AdminGameResponse> updateGame(
             @PathVariable short gameId, @Valid @RequestBody GameRequest request) {
 
-        return ApiResult.success("Game updated", games.update(gameId, request.toFields()));
+        return ApiResult.success("Game updated", response(games.update(gameId, request.toFields())));
     }
 
     // ---------- game attributes ----------
@@ -141,20 +151,20 @@ public class AdminCatalogTaxonomyController {
     // ---------- card sets ----------
 
     @PostMapping("/games/{gameId}/card-sets")
-    public ResponseEntity<ApiResult<CardSet>> createCardSet(
+    public ResponseEntity<ApiResult<CardSetResponse>> createCardSet(
             @PathVariable short gameId, @Valid @RequestBody CardSetRequest request) {
 
         CardSet created = taxonomy.createCardSet(gameId, request.toFields());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResult.success("Card set added", created));
+                .body(ApiResult.success("Card set added", response(created)));
     }
 
     @PutMapping("/card-sets/{cardSetId}")
-    public ApiResult<CardSet> updateCardSet(
+    public ApiResult<CardSetResponse> updateCardSet(
             @PathVariable int cardSetId, @Valid @RequestBody CardSetRequest request) {
 
         return ApiResult.success("Card set updated",
-                taxonomy.updateCardSet(cardSetId, request.toFields()));
+                response(taxonomy.updateCardSet(cardSetId, request.toFields())));
     }
 
     /** A set that still has products, retired ones included, is refused with CARD_SET_IN_USE. */
@@ -162,5 +172,13 @@ public class AdminCatalogTaxonomyController {
     public ApiResult<Void> deleteCardSet(@PathVariable int cardSetId) {
         taxonomy.deleteCardSet(cardSetId);
         return ApiResult.success("Card set deleted", null);
+    }
+
+    private AdminGameResponse response(Game game) {
+        return AdminGameResponse.of(game, storage.readUrl(game.logoUrl()));
+    }
+
+    private CardSetResponse response(CardSet cardSet) {
+        return CardSetResponse.of(cardSet, storage.readUrl(cardSet.logoUrl()));
     }
 }

@@ -12,6 +12,8 @@ import com.pegasus.pegasustcgapi.repository.GameAttributeRepository;
 import com.pegasus.pegasustcgapi.repository.GameAttributeRepository.AttributeFields;
 import com.pegasus.pegasustcgapi.repository.GameRepository;
 import com.pegasus.pegasustcgapi.repository.GameRepository.GameFields;
+import com.pegasus.pegasustcgapi.storage.StorageService;
+import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.util.List;
 import java.util.Locale;
 import org.slf4j.Logger;
@@ -36,10 +38,12 @@ public class GameService {
 
     private final GameRepository games;
     private final GameAttributeRepository attributes;
+    private final StorageService storage;
 
-    public GameService(GameRepository games, GameAttributeRepository attributes) {
+    public GameService(GameRepository games, GameAttributeRepository attributes, StorageService storage) {
         this.games = games;
         this.attributes = attributes;
+        this.storage = storage;
     }
 
     // ---------- games ----------
@@ -66,6 +70,8 @@ public class GameService {
      */
     @Transactional
     public Game create(GameFields requested, Long createdBy) {
+        requireLogoUsable(requested.logoUrl(), null);
+
         String code = normaliseCode(requested.code());
         if (games.codeTaken(code, null)) {
             throw new ConflictException(ErrorCode.GAME_CODE_ALREADY_USED);
@@ -82,7 +88,8 @@ public class GameService {
 
     @Transactional
     public Game update(short gameId, GameFields requested) {
-        require(gameId);
+        Game existing = require(gameId);
+        requireLogoUsable(requested.logoUrl(), existing.logoUrl());
 
         String code = normaliseCode(requested.code());
         if (games.codeTaken(code, gameId)) {
@@ -94,6 +101,25 @@ public class GameService {
                 requested.displayOrder(), requested.active()));
 
         return require(gameId);
+    }
+
+    /**
+     * The logo is a pasted URL or an uploaded key. A key goes out signed on the
+     * public pages, so it has to be a finished CATALOG_IMAGE upload — the same rule
+     * as category pictures.
+     *
+     * @param current the logo already on the game; sending it back needs no new upload
+     */
+    private void requireLogoUsable(String logo, String current) {
+        String value = blankToNull(logo);
+        if (value == null || value.equals(current) || isUrl(value)) {
+            return;
+        }
+        storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, value);
+    }
+
+    private static boolean isUrl(String value) {
+        return value.startsWith("http://") || value.startsWith("https://");
     }
 
     // ---------- attributes ----------

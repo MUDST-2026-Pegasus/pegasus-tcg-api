@@ -22,6 +22,8 @@ import com.pegasus.pegasustcgapi.repository.GameAttributeRepository;
 import com.pegasus.pegasustcgapi.repository.GameAttributeRepository.AttributeFields;
 import com.pegasus.pegasustcgapi.repository.GameRepository;
 import com.pegasus.pegasustcgapi.repository.GameRepository.GameFields;
+import com.pegasus.pegasustcgapi.storage.StorageService;
+import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -44,16 +46,50 @@ class GameServiceTest {
     @Mock
     private GameAttributeRepository attributes;
 
+    @Mock
+    private StorageService storage;
+
     private GameService service;
 
     @BeforeEach
     void setUp() {
-        service = new GameService(games, attributes);
+        service = new GameService(games, attributes, storage);
     }
 
     private static Game pokemon() {
         return new Game(POKEMON, "POKEMON", "Pokemon TCG", "โปเกมอนการ์ด", "pokemon-tcg",
                 null, (short) 1, true, 9L, OffsetDateTime.now());
+    }
+
+    private static GameFields withLogo(String logo) {
+        return new GameFields("POKEMON", "Pokemon TCG", null, null, logo, (short) 1, true);
+    }
+
+    @Test
+    @DisplayName("an uploaded logo has to be a finished catalogue upload, so a private file cannot go public")
+    void uploadedLogoMustBeACatalogUpload() {
+        String bankBook = "verifications/2026/09/bank-book.jpg";
+        given(storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, bankBook))
+                .willThrow(new ApiException(ErrorCode.VALIDATION_FAILED, "The key must come from a CATALOG_IMAGE upload"));
+
+        assertThatThrownBy(() -> service.create(withLogo(bankBook), 9L))
+                .isInstanceOf(ApiException.class);
+
+        verify(games, never()).insert(any(), any());
+    }
+
+    @Test
+    @DisplayName("a pasted logo URL, or the logo the game already has, needs no upload")
+    void pastedOrUnchangedLogoIsNotChecked() {
+        Game seeded = new Game(POKEMON, "POKEMON", "Pokemon TCG", null, "pokemon-tcg",
+                "seed/games/pokemon.png", (short) 1, true, 9L, OffsetDateTime.now());
+        given(games.findById(POKEMON)).willReturn(Optional.of(seeded));
+        given(games.codeTaken("POKEMON", POKEMON)).willReturn(false);
+
+        service.update(POKEMON, withLogo("seed/games/pokemon.png"));
+        service.update(POKEMON, withLogo("https://example.com/pokemon.png"));
+
+        verify(storage, never()).requireUploadedFor(any(), anyString());
     }
 
     private static AttributeFields hp() {

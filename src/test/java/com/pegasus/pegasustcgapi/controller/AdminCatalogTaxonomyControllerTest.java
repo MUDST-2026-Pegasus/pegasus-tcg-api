@@ -23,6 +23,7 @@ import com.pegasus.pegasustcgapi.security.AuthClaims;
 import com.pegasus.pegasustcgapi.security.AuthPrincipalArgumentResolver;
 import com.pegasus.pegasustcgapi.service.CatalogTaxonomyService;
 import com.pegasus.pegasustcgapi.service.GameService;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -46,12 +47,13 @@ class AdminCatalogTaxonomyControllerTest {
 
     @Mock GameService games;
     @Mock CatalogTaxonomyService taxonomy;
+    @Mock StorageService storage;
 
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.standaloneSetup(new AdminCatalogTaxonomyController(games, taxonomy))
+        mvc = MockMvcBuilders.standaloneSetup(new AdminCatalogTaxonomyController(games, taxonomy, storage))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthPrincipalArgumentResolver())
                 .build();
@@ -77,6 +79,19 @@ class AdminCatalogTaxonomyControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].active").value(false));
         verify(games).list(true);
+    }
+
+    @Test
+    void uploadedLogoComesBackRawAndReadable() throws Exception {
+        String key = "catalog/2026/10/pokemon.png";
+        when(games.list(true)).thenReturn(List.of(new Game((short) 2, "POKEMON", "Pokemon", null,
+                "pokemon", key, (short) 0, true, 41L, null)));
+        when(storage.readUrl(key)).thenReturn("https://storage.example/signed");
+
+        mvc.perform(get(ADMIN + "/games"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].logoUrl").value(key))
+                .andExpect(jsonPath("$.data[0].logoImageUrl").value("https://storage.example/signed"));
     }
 
     @Test
