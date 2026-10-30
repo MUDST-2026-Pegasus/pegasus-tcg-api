@@ -47,6 +47,11 @@ pegasus:
     # account, so something has to clear them out.
     guest-purge-cron: ${CART_GUEST_PURGE_CRON:0 30 3 * * *}
 
+  promo:
+    # Tries a minute per client address and per account on the endpoints that say
+    # whether a typed discount code exists (promo-preview, claim-by-code, terms).
+    rate-limit-per-minute: ${PROMO_RATE_LIMIT_PER_MINUTE:30}
+
   order:
     # Escrow auto-release sweep: completes sub-orders the buyer never confirmed.
     auto-release-cron: ${ORDER_AUTO_RELEASE_CRON:0 */5 * * * *}

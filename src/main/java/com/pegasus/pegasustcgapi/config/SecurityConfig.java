@@ -3,13 +3,16 @@ package com.pegasus.pegasustcgapi.config;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.pegasus.pegasustcgapi.security.AuthClaims;
 import com.pegasus.pegasustcgapi.security.SecurityErrorHandler;
+import com.pegasus.pegasustcgapi.security.PromoRateLimitFilter;
 import com.pegasus.pegasustcgapi.security.RefreshOriginFilter;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.util.Base64;
 import java.util.List;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -32,6 +35,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.filter.CorsFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -113,13 +117,18 @@ public class SecurityConfig {
             JwtDecoder jwtDecoder,
             JwtAuthenticationConverter jwtAuthenticationConverter,
             SecurityErrorHandler securityErrorHandler,
-            CorsProperties corsProperties) throws Exception {
+            CorsProperties corsProperties,
+            Clock clock,
+            @Value("${pegasus.promo.rate-limit-per-minute}") int promoRateLimit) throws Exception {
 
         return http
                 // Only refresh and logout use a cookie; RefreshOriginFilter guards those endpoints.
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 .addFilterBefore(new RefreshOriginFilter(corsProperties, securityErrorHandler), CorsFilter.class)
+                // After the bearer token is read, so a signed-in caller is also counted per account.
+                .addFilterAfter(new PromoRateLimitFilter(promoRateLimit, clock, securityErrorHandler),
+                        BearerTokenAuthenticationFilter.class)
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable())
                 .logout(logout -> logout.disable())
