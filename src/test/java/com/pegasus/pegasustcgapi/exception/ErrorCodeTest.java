@@ -72,7 +72,6 @@ class ErrorCodeTest {
         assertThat(ErrorCode.PROMO_INVALID.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ErrorCode.PROMO_NOT_STARTED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ErrorCode.PROMO_EXPIRED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(ErrorCode.PROMO_PAUSED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ErrorCode.PROMO_USER_LIMIT_REACHED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ErrorCode.PROMO_MIN_SPEND_NOT_MET.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ErrorCode.PROMO_NOT_APPLICABLE.status()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -82,6 +81,7 @@ class ErrorCodeTest {
         assertThat(ErrorCode.PROMO_NOT_CLAIMED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
 
         // 409 — shared state moved underneath the request
+        assertThat(ErrorCode.PROMO_PAUSED.status()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(ErrorCode.PROMO_USED_UP.status()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(ErrorCode.PROMO_CLAIM_FULL.status()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(ErrorCode.PROMO_CHANGED.status()).isEqualTo(HttpStatus.CONFLICT);
