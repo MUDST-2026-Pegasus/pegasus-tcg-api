@@ -134,7 +134,7 @@ public class PromotionRepository {
                 .execute() > 0;
     }
 
-    static String normalize(String code) {
+    private static String normalize(String code) {
         return code.strip().toUpperCase(Locale.ROOT);
     }
 
