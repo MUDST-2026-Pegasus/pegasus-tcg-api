@@ -69,6 +69,7 @@ class ErrorCodeTest {
         assertThat(ErrorCode.PROMO_NOT_FOUND.status()).isEqualTo(HttpStatus.NOT_FOUND);
 
         // 400 — the code is fine as data but cannot go on this order
+        assertThat(ErrorCode.PROMO_INVALID.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ErrorCode.PROMO_NOT_STARTED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ErrorCode.PROMO_EXPIRED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ErrorCode.PROMO_PAUSED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
