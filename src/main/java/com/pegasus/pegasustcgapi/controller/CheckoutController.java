@@ -18,6 +18,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -89,8 +90,8 @@ public class CheckoutController {
     public ApiResult<CheckoutPromotionViews.PromoPreview> promoPreview(
             @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
             @Valid @RequestBody(required = false) PromoPreviewRequest request,
-            AuthPrincipal principal) {
-        return ApiResult.success(checkoutService.promoPreview(principal, sessionKey, request));
+            Optional<AuthPrincipal> principal) {
+        return ApiResult.success(checkoutService.promoPreview(principal.orElse(null), sessionKey, request));
     }
 
     @Operation(summary = "Discount codes for selected cart items",
@@ -102,7 +103,8 @@ public class CheckoutController {
     public ApiResult<List<CheckoutPromotionViews.AvailablePromotion>> promotions(
             @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,
             @RequestParam(required = false) List<Long> cartItemIds,
-            AuthPrincipal principal) {
-        return ApiResult.success(checkoutService.availablePromotions(principal, sessionKey, cartItemIds));
+            Optional<AuthPrincipal> principal) {
+        return ApiResult.success(checkoutService.availablePromotions(principal.orElse(null), sessionKey,
+                cartItemIds));
     }
 }
