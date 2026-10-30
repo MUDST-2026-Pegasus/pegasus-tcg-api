@@ -70,6 +70,7 @@ jobs:
         uses: madrapps/jacoco-report@v1.8.0
         with:
           paths: build/reports/jacoco/test/jacocoTestReport.xml
+          token: ${{ github.token }}
           title: BE Coverage
           comment-type: ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && 'both' || 'summary' }}
           update-comment: true
