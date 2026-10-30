@@ -32,6 +32,10 @@ public final class ApiPaths {
     /** The signed-in buyer's orders. */
     public static final String ORDERS = API_V1 + "/orders";
     public static final String PAYMENTS = API_V1 + "/payments";
+    /** Discount codes a buyer can see or collect: the home strip, a code's terms, claiming one. */
+    public static final String PROMOTIONS = API_V1 + "/promotions";
+    /** The signed-in buyer's collected codes ("My coupons"). */
+    public static final String ME_PROMOTIONS = API_V1 + "/me/promotions";
     /** The signed-in seller's own orders. */
     public static final String SELLERS_ME_ORDERS = SELLERS_ME + "/orders";
 

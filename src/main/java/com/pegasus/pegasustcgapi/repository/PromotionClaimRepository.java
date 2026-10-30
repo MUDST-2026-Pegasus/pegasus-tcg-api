@@ -3,7 +3,9 @@ package com.pegasus.pegasustcgapi.repository;
 import static com.pegasus.pegasustcgapi.jooq.tables.PromotionClaim.PROMOTION_CLAIM;
 
 import com.pegasus.pegasustcgapi.model.PromotionClaimSource;
+import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.Set;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -31,6 +33,18 @@ public class PromotionClaimRepository {
                 .onConflict(PROMOTION_CLAIM.PROMOTION_ID, PROMOTION_CLAIM.USER_ID)
                 .doNothing()
                 .execute() > 0;
+    }
+
+    /** One collected code in a user's wallet. */
+    public record Claim(long id, long promotionId, PromotionClaimSource source, OffsetDateTime claimedAt) {
+    }
+
+    public Optional<Claim> find(long promotionId, long userId) {
+        return dsl.selectFrom(PROMOTION_CLAIM)
+                .where(PROMOTION_CLAIM.PROMOTION_ID.eq(promotionId))
+                .and(PROMOTION_CLAIM.USER_ID.eq(userId))
+                .fetchOptional(r -> new Claim(r.getId(), r.getPromotionId(),
+                        PromotionClaimSource.valueOf(r.getSource()), r.getClaimedAt()));
     }
 
     public boolean isClaimed(long promotionId, long userId) {

@@ -15,6 +15,7 @@ import com.pegasus.pegasustcgapi.model.Promotion.DiscountType;
 import com.pegasus.pegasustcgapi.model.Promotion.OwnerType;
 import com.pegasus.pegasustcgapi.model.Promotion.ScopeType;
 import com.pegasus.pegasustcgapi.model.Promotion.Visibility;
+import com.pegasus.pegasustcgapi.model.PromotionStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -22,6 +23,7 @@ import java.util.Collection;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.jooq.impl.SQLDataType;
@@ -191,6 +193,75 @@ public class PromotionRepository {
                 .and(PROMOTION.ENDS_AT.gt(now))
                 .orderBy(PROMOTION.ENDS_AT.asc(), PROMOTION.ID.asc())
                 .fetch(r -> toPromotion(r.into(PROMOTION)));
+    }
+
+    /** A code this user has collected, and when. */
+    public record ClaimedPromotion(Promotion promotion, OffsetDateTime claimedAt) {
+    }
+
+    /** Every code this user has collected, ended or not, newest claim first. */
+    public List<ClaimedPromotion> findClaimedBy(long userId) {
+        return dsl.select(PROMOTION.fields())
+                .select(PROMOTION_CLAIM.CLAIMED_AT)
+                .from(PROMOTION)
+                .join(PROMOTION_CLAIM).on(PROMOTION_CLAIM.PROMOTION_ID.eq(PROMOTION.ID))
+                .where(PROMOTION_CLAIM.USER_ID.eq(userId))
+                .orderBy(PROMOTION_CLAIM.CLAIMED_AT.desc(), PROMOTION.ID.desc())
+                .fetch(r -> new ClaimedPromotion(toPromotion(r.into(PROMOTION)), r.get(PROMOTION_CLAIM.CLAIMED_AT)));
+    }
+
+    public List<Promotion> findByIds(Collection<Long> ids) {
+        if (ids.isEmpty()) return List.of();
+        return dsl.selectFrom(PROMOTION)
+                .where(PROMOTION.ID.in(ids))
+                .fetch(PromotionRepository::toPromotion);
+    }
+
+    /** The home-page strip: live Pegasus codes ticked for it, in the admin's order. */
+    public List<Promotion> findFeaturedLive(OffsetDateTime now, int limit) {
+        return dsl.selectFrom(PROMOTION)
+                .where(PROMOTION.FEATURED_ON_HOME.isTrue())
+                .and(PROMOTION.OWNER_TYPE.eq(OwnerType.PLATFORM.name()))
+                .and(live(now))
+                .orderBy(PROMOTION.HOME_SORT.asc().nullsLast(), PROMOTION.ID.asc())
+                .limit(limit)
+                .fetch(PromotionRepository::toPromotion);
+    }
+
+    /** A store page's strip: the shop's live PUBLIC codes that can be collected. */
+    public List<Promotion> findShopClaimableLive(long sellerProfileId, OffsetDateTime now) {
+        return dsl.selectFrom(PROMOTION)
+                .where(PROMOTION.OWNER_TYPE.eq(OwnerType.SELLER.name()))
+                .and(PROMOTION.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .and(PROMOTION.VISIBILITY.eq(Visibility.PUBLIC.name()))
+                .and(PROMOTION.CLAIMABLE.isTrue())
+                .and(live(now))
+                .orderBy(PROMOTION.ENDS_AT.asc(), PROMOTION.ID.asc())
+                .fetch(PromotionRepository::toPromotion);
+    }
+
+    /** Names of a GAME or CATEGORY code's targets, for its terms; ALL has none. */
+    public Map<Long, String> scopeNames(ScopeType scope, List<Long> ids) {
+        if (ids.isEmpty()) return Map.of();
+        return switch (scope) {
+            case ALL -> Map.of();
+            case GAME -> dsl.select(GAME.ID.cast(SQLDataType.BIGINT), GAME.NAME)
+                    .from(GAME)
+                    .where(GAME.ID.cast(SQLDataType.BIGINT).in(ids))
+                    .fetchMap(r -> r.value1(), r -> r.value2());
+            case CATEGORY -> dsl.select(CATALOG_CATEGORY.ID.cast(SQLDataType.BIGINT), CATALOG_CATEGORY.NAME)
+                    .from(CATALOG_CATEGORY)
+                    .where(CATALOG_CATEGORY.ID.cast(SQLDataType.BIGINT).in(ids))
+                    .fetchMap(r -> r.value1(), r -> r.value2());
+        };
+    }
+
+    /** Same test as {@link PromotionStatus#ACTIVE}, in SQL. */
+    private static Condition live(OffsetDateTime now) {
+        return PROMOTION.STARTS_AT.le(now)
+                .and(PROMOTION.ENDS_AT.gt(now))
+                .and(PROMOTION.PAUSED_AT.isNull())
+                .and(PROMOTION.USAGE_LIMIT_TOTAL.isNull().or(PROMOTION.USED_COUNT.lt(PROMOTION.USAGE_LIMIT_TOTAL)));
     }
 
     /** One past the last featured code, so a newly featured code goes to the end of the strip. */

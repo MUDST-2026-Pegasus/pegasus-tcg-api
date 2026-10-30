@@ -11,6 +11,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /** Reads and writes {@code seller_profile}, the 1:1 selling-side extension of an account. */
@@ -39,6 +40,20 @@ public class SellerProfileRepository {
                 .where(SELLER_PROFILE.ID.in(ids))
                 .and(USER_ACCOUNT.AVATAR_URL.isNotNull())
                 .fetchMap(SELLER_PROFILE.ID, USER_ACCOUNT.AVATAR_URL);
+    }
+
+    /** How a shop is linked to from a coupon: its name and the username of its store page. */
+    public record Storefront(long sellerProfileId, String name, String username) {
+    }
+
+    public Map<Long, Storefront> storefronts(Collection<Long> ids) {
+        if (ids.isEmpty()) return Map.of();
+        return dsl.select(SELLER_PROFILE.ID, DSL.coalesce(USER_ACCOUNT.DISPLAY_NAME, USER_ACCOUNT.USERNAME),
+                        USER_ACCOUNT.USERNAME)
+                .from(SELLER_PROFILE)
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .where(SELLER_PROFILE.ID.in(ids))
+                .fetchMap(SELLER_PROFILE.ID, r -> new Storefront(r.value1(), r.value2(), r.value3()));
     }
 
     public Optional<SellerProfile> findById(long id) {

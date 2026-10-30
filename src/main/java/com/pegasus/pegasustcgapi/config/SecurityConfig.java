@@ -86,6 +86,10 @@ public class SecurityConfig {
         ApiPaths.PROFILES + "/*",
         ApiPaths.PROFILES + "/*/listings",
         ApiPaths.PROFILES + "/*/reviews",
+        // Codes on the home page and a store page, and a code's terms; claiming needs sign-in.
+        ApiPaths.PROFILES + "/*/promotions",
+        ApiPaths.PROMOTIONS + "/featured",
+        ApiPaths.PROMOTIONS + "/*/terms",
         // The code picker on the cart page, open to guests like the cart itself.
         ApiPaths.CHECKOUT + "/promotions",
     };

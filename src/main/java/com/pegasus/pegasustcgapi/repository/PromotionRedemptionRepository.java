@@ -2,8 +2,10 @@ package com.pegasus.pegasustcgapi.repository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.Promotion.PROMOTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.PromotionRedemption.PROMOTION_REDEMPTION;
+import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
 import org.jooq.DSLContext;
@@ -97,5 +99,23 @@ public class PromotionRedemptionRepository {
                 .orderBy(PROMOTION_REDEMPTION.ID.asc())
                 .fetch(r -> new Applied(r.value1(), r.value2(), r.value3(), r.value4(), r.value5(), r.value6(),
                         r.value7()));
+    }
+
+    /** A code this buyer holds or has spent on an order, for "My coupons". */
+    public record BuyerUse(long promotionId, long salesOrderId, String orderNumber, BigDecimal amount,
+            String status, OffsetDateTime at) {
+    }
+
+    /** Every use this buyer holds or has spent, newest first; released ones are left out. */
+    public List<BuyerUse> heldBy(long buyerId) {
+        return dsl.select(PROMOTION_REDEMPTION.PROMOTION_ID, PROMOTION_REDEMPTION.SALES_ORDER_ID,
+                        SALES_ORDER.ORDER_NUMBER, PROMOTION_REDEMPTION.AMOUNT, PROMOTION_REDEMPTION.STATUS,
+                        PROMOTION_REDEMPTION.UPDATED_AT)
+                .from(PROMOTION_REDEMPTION)
+                .join(SALES_ORDER).on(SALES_ORDER.ID.eq(PROMOTION_REDEMPTION.SALES_ORDER_ID))
+                .where(PROMOTION_REDEMPTION.BUYER_ID.eq(buyerId))
+                .and(PROMOTION_REDEMPTION.STATUS.ne("RELEASED"))
+                .orderBy(PROMOTION_REDEMPTION.UPDATED_AT.desc(), PROMOTION_REDEMPTION.ID.desc())
+                .fetch(r -> new BuyerUse(r.value1(), r.value2(), r.value3(), r.value4(), r.value5(), r.value6()));
     }
 }
