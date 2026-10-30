@@ -22,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class WalletLedgerService {
 
+    static final String PROMO_SUBSIDY = "PROMO_SUBSIDY";
+
     public enum Bucket { AVAILABLE, PENDING }
     public enum Direction { DEBIT, CREDIT }
 
@@ -47,7 +49,10 @@ public class WalletLedgerService {
         Balance next = bucket == Bucket.AVAILABLE
                 ? new Balance(walletId, current.available().add(change), current.pending())
                 : new Balance(walletId, current.available(), current.pending().add(change));
-        if (next.available().signum() < 0 || next.pending().signum() < 0) {
+        // Pegasus paying a shop back for a Pegasus code may run its own balance below zero
+        // [TCG-570]; nothing else may overdraw anything.
+        boolean subsidy = PROMO_SUBSIDY.equals(type) && walletId == platformWalletId();
+        if ((next.available().signum() < 0 && !subsidy) || next.pending().signum() < 0) {
             throw new ConflictException(ErrorCode.INSUFFICIENT_BALANCE);
         }
         wallets.update(next);
