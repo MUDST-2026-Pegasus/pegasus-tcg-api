@@ -74,7 +74,8 @@ public class AdminPromotionRepository {
     public Map<PromotionStatus, Long> statusCounts(OwnerType owner, String q, OffsetDateTime now) {
         Map<PromotionStatus, Long> counts = new EnumMap<>(PromotionStatus.class);
         for (PromotionStatus s : PromotionStatus.values()) counts.put(s, 0L);
-        Field<String> status = status(now).as("status");
+        // Not "status": seller_profile has that column, and GROUP BY would read it first.
+        Field<String> status = status(now).as("promotion_status");
         withOwner(dsl.select(status, DSL.count()))
                 .where(filters(owner, q))
                 .groupBy(status)
@@ -97,13 +98,16 @@ public class AdminPromotionRepository {
                 .fetchSingle(0, Long.class);
     }
 
-    /** Codes held or spent on an order created in [from, to); released ones do not count. */
+    /**
+     * Codes held or spent on an order created in [from, to); released ones do not count.
+     * A null {@code to} counts up to the latest row, which is how the current window is read.
+     */
     public long countRedemptions(OffsetDateTime from, OffsetDateTime to) {
         return dsl.selectCount()
                 .from(PROMOTION_REDEMPTION)
                 .where(PROMOTION_REDEMPTION.STATUS.ne("RELEASED"))
                 .and(PROMOTION_REDEMPTION.CREATED_AT.ge(from))
-                .and(PROMOTION_REDEMPTION.CREATED_AT.lt(to))
+                .and(to == null ? DSL.noCondition() : PROMOTION_REDEMPTION.CREATED_AT.lt(to))
                 .fetchSingle(0, Long.class);
     }
 
@@ -111,7 +115,7 @@ public class AdminPromotionRepository {
         return dsl.selectCount()
                 .from(PROMOTION_CLAIM)
                 .where(PROMOTION_CLAIM.CLAIMED_AT.ge(from))
-                .and(PROMOTION_CLAIM.CLAIMED_AT.lt(to))
+                .and(to == null ? DSL.noCondition() : PROMOTION_CLAIM.CLAIMED_AT.lt(to))
                 .fetchSingle(0, Long.class);
     }
 
@@ -123,7 +127,7 @@ public class AdminPromotionRepository {
                 .where(PROMOTION.OWNER_TYPE.eq(OwnerType.PLATFORM.name()))
                 .and(PROMOTION_REDEMPTION.STATUS.eq("CONSUMED"))
                 .and(PROMOTION_REDEMPTION.CREATED_AT.ge(from))
-                .and(PROMOTION_REDEMPTION.CREATED_AT.lt(to))
+                .and(to == null ? DSL.noCondition() : PROMOTION_REDEMPTION.CREATED_AT.lt(to))
                 .fetchSingle(0, BigDecimal.class);
     }
 
@@ -136,7 +140,7 @@ public class AdminPromotionRepository {
                         .where(PROMOTION_REDEMPTION.SALES_ORDER_ID.eq(SALES_ORDER.ID))
                         .and(PROMOTION_REDEMPTION.STATUS.eq("CONSUMED"))
                         .and(PROMOTION_REDEMPTION.CREATED_AT.ge(from))
-                        .and(PROMOTION_REDEMPTION.CREATED_AT.lt(to))))
+                        .and(to == null ? DSL.noCondition() : PROMOTION_REDEMPTION.CREATED_AT.lt(to))))
                 .fetchSingle(0, BigDecimal.class);
     }
 

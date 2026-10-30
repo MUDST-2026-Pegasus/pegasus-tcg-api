@@ -23,6 +23,8 @@ import java.util.List;
  * @param discountValue percent for PERCENT, baht for FIXED; ignored for FREE_SHIPPING
  * @param scopeIds      game ids for GAME, category ids for CATEGORY, empty for ALL
  * @param homeSort      position on the home page; null puts a newly featured code last
+ *
+ * <p>Flags left out read as false.
  */
 public record AdminPromotionRequest(
         @NotBlank @Pattern(regexp = "^\\s*[A-Za-z0-9]{4,20}\\s*$") String code,
@@ -35,14 +37,30 @@ public record AdminPromotionRequest(
         ScopeType scopeType,
         List<Long> scopeIds,
         Visibility visibility,
-        boolean newBuyerOnly,
+        Boolean newBuyerOnly,
         @Min(1) Integer usageLimitTotal,
         @Min(1) Integer usageLimitPerUser,
         @NotNull OffsetDateTime startsAt,
         @NotNull OffsetDateTime endsAt,
-        boolean claimable,
-        boolean claimRequired,
+        Boolean claimable,
+        Boolean claimRequired,
         @Min(1) Integer claimLimit,
-        boolean featuredOnHome,
+        Boolean featuredOnHome,
         @Min(0) Integer homeSort) {
+
+    public boolean newBuyerOnlyOrFalse() {
+        return Boolean.TRUE.equals(newBuyerOnly);
+    }
+
+    public boolean claimableOrFalse() {
+        return Boolean.TRUE.equals(claimable);
+    }
+
+    public boolean claimRequiredOrFalse() {
+        return Boolean.TRUE.equals(claimRequired);
+    }
+
+    public boolean featuredOnHomeOrFalse() {
+        return Boolean.TRUE.equals(featuredOnHome);
+    }
 }

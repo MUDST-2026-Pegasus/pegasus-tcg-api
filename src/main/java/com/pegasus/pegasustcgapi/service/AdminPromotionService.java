@@ -86,7 +86,9 @@ public class AdminPromotionService {
     public Summary summary() {
         OffsetDateTime now = now();
         OffsetDateTime from = now.minus(WINDOW);
-        long redemptions = views.countRedemptions(from, now);
+        // The current window is open-ended so a row stamped by the database a moment
+        // after this clock read still counts.
+        long redemptions = views.countRedemptions(from, null);
         long before = views.countRedemptions(from.minus(WINDOW), from);
         BigDecimal change = before == 0 ? null
                 : BigDecimal.valueOf(redemptions - before).multiply(BigDecimal.valueOf(100))
@@ -96,9 +98,9 @@ public class AdminPromotionService {
                 views.countActive(OwnerType.SELLER, now),
                 redemptions,
                 change,
-                views.countClaims(from, now),
-                views.platformDiscountCost(from, now),
-                views.salesWithCodes(from, now));
+                views.countClaims(from, null),
+                views.platformDiscountCost(from, null),
+                views.salesWithCodes(from, null));
     }
 
     public PageResponse<Redemption> redemptions(long id, int page, int size) {
@@ -171,7 +173,7 @@ public class AdminPromotionService {
         }
         if (current.pausedAt() == null) {
             promotions.pause(id, adminId, reason, now());
-            audit("pause", id, current.code(), adminId, notifyNote(current, request.notifySeller())
+            audit("pause", id, current.code(), adminId, notifyNote(current, request.notifySellerOrFalse())
                     + (reason == null ? "" : " reason=\"" + reason + "\""));
         }
         return get(id);
@@ -182,7 +184,7 @@ public class AdminPromotionService {
         Promotion current = lock(id);
         if (current.pausedAt() != null) {
             promotions.resume(id);
-            audit("resume", id, current.code(), adminId, notifyNote(current, request.notifySeller()));
+            audit("resume", id, current.code(), adminId, notifyNote(current, request.notifySellerOrFalse()));
         }
         return get(id);
     }
@@ -226,7 +228,7 @@ public class AdminPromotionService {
         ScopeType scope = r.scopeType() == null ? ScopeType.ALL : r.scopeType();
         List<Long> scopeIds = r.scopeIds() == null ? List.of() : r.scopeIds().stream().distinct().toList();
         Integer homeSort = null;
-        if (r.featuredOnHome()) {
+        if (r.featuredOnHomeOrFalse()) {
             if (r.homeSort() != null) homeSort = r.homeSort();
             else if (current != null && current.featuredOnHome()) homeSort = current.homeSort();
             else homeSort = promotions.nextHomeSort();
@@ -244,13 +246,13 @@ public class AdminPromotionService {
                 scope,
                 scopeIds,
                 r.visibility() == null ? Visibility.PUBLIC : r.visibility(),
-                r.newBuyerOnly(),
+                r.newBuyerOnlyOrFalse(),
                 r.usageLimitTotal(),
                 r.usageLimitPerUser() == null ? 1 : r.usageLimitPerUser(),
-                r.claimable(),
-                r.claimRequired(),
+                r.claimableOrFalse(),
+                r.claimRequiredOrFalse(),
                 r.claimLimit(),
-                r.featuredOnHome(),
+                r.featuredOnHomeOrFalse(),
                 homeSort,
                 r.startsAt(),
                 r.endsAt(),
