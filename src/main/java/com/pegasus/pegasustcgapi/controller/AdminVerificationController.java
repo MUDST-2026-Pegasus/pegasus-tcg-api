@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.controller;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
+import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.dto.RejectVerificationRequest;
 import com.pegasus.pegasustcgapi.dto.VerificationResponse;
 import com.pegasus.pegasustcgapi.model.VerificationStatus;
@@ -56,10 +57,11 @@ public class AdminVerificationController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        List<VerificationResponse> items = mapper.toResponses(onboarding.queue(status, page, size));
+        Paging paging = Paging.of(page, size);
+        List<VerificationResponse> items = mapper.toResponses(onboarding.queue(status, paging));
 
         return ApiResult.success(
-                PageResponse.of(items, page, size, onboarding.queueSize(status)));
+                PageResponse.of(items, paging.page(), paging.size(), onboarding.queueSize(status)));
     }
 
     /** Claims the request, so a second admin opening the queue sees it is taken. */
