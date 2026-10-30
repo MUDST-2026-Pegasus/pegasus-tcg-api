@@ -85,6 +85,10 @@ public class ApiClient {
                 .PUT(BodyPublishers.ofString(JSON.writeValueAsString(body))));
     }
 
+    public Response delete(String path, String bearer) {
+        return send(request(path, bearer, Map.of()).DELETE());
+    }
+
     public Response patch(String path, String bearer, Object body) {
         return send(request(path, bearer, Map.of())
                 .header("Content-Type", "application/json")
