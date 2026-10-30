@@ -305,6 +305,33 @@ class CatalogTaxonomyServiceTest {
     }
 
     @Test
+    @DisplayName("an uploaded set logo has to be a finished catalogue upload")
+    void newSetLogoMustBeACatalogUpload() {
+        String slip = "payment-slips/2026/09/slip.jpg";
+        given(storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, slip))
+                .willThrow(new ApiException(ErrorCode.VALIDATION_FAILED, "The key must come from a CATALOG_IMAGE upload"));
+
+        assertThatThrownBy(() -> service.createCardSet(POKEMON,
+                new CardSetFields("SV8A", "Terastal Festival", null, null, null, slip)))
+                .isInstanceOf(ApiException.class);
+
+        verify(cardSets, never()).insert(anyShort(), any());
+    }
+
+    @Test
+    @DisplayName("a pasted set logo URL needs no upload")
+    void pastedSetLogoIsNotChecked() {
+        given(cardSets.codeTaken(POKEMON, "SV8A", null)).willReturn(false);
+        given(cardSets.insert(eq(POKEMON), any())).willReturn(301);
+        given(cardSets.findById(301)).willReturn(Optional.of(terastal()));
+
+        service.createCardSet(POKEMON, new CardSetFields("SV8A", "Terastal Festival", null,
+                null, null, "https://example.com/sv8a.png"));
+
+        verifyNoInteractions(storage);
+    }
+
+    @Test
     @DisplayName("a category cannot go under one that is itself a child: two levels at most")
     void grandchildIsRefused() {
         given(categories.findById(204)).willReturn(Optional.of(new CatalogCategory(204, null, 203,
