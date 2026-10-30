@@ -378,14 +378,64 @@ class AuthServiceTest {
                     .willReturn(Optional.of(liveToken()));
             given(users.findById(USER_ID)).willReturn(Optional.of(anActiveUser().withId(USER_ID).build()));
             given(roles.rolesOf(USER_ID)).willReturn(Set.of(RoleCode.BUYER));
-            givenIssuedTokens();
+            given(authTokens.markUsed(7L)).willReturn(true);
+            given(jwtService.issue(any()))
+                    .willReturn(new JwtService.AccessToken(ACCESS_TOKEN, ACCESS_TTL.toSeconds()));
+            given(authTokens.rotate(USER_ID, "refresh-in", REFRESH_TTL, familyId, CLIENT))
+                    .willReturn(new IssuedToken(8L, REFRESH_TOKEN, NOW_AT.plus(REFRESH_TTL)));
 
             AuthResponse response = service.refresh("refresh-in", CLIENT);
 
             verify(authTokens).markUsed(7L);
-            verify(authTokens).issue(USER_ID, TokenPurpose.REFRESH, REFRESH_TTL, familyId, CLIENT);
+            verify(authTokens).rotate(USER_ID, "refresh-in", REFRESH_TTL, familyId, CLIENT);
             verify(authTokens, never()).revokeFamilyDetached(any());
             assertThat(response.tokens().refreshToken()).isEqualTo(REFRESH_TOKEN);
+        }
+
+        @Test
+        void returnsSameRefreshSuccessorForReplayWithinTenSeconds() {
+            StoredToken previous = tokenWith(NOW_AT.minusSeconds(5), null);
+            IssuedToken replacement = new IssuedToken(8L, REFRESH_TOKEN, NOW_AT.plus(REFRESH_TTL));
+            given(authTokens.find("refresh-in", TokenPurpose.REFRESH)).willReturn(Optional.of(previous));
+            given(authTokens.replacement("refresh-in", previous, NOW)).willReturn(Optional.of(replacement));
+            given(users.findById(USER_ID)).willReturn(Optional.of(anActiveUser().withId(USER_ID).build()));
+            given(roles.rolesOf(USER_ID)).willReturn(Set.of(RoleCode.BUYER));
+            given(jwtService.issue(any()))
+                    .willReturn(new JwtService.AccessToken(ACCESS_TOKEN, ACCESS_TTL.toSeconds()));
+
+            AuthResponse response = service.refresh("refresh-in", CLIENT);
+
+            assertThat(response.tokens().refreshToken()).isEqualTo(REFRESH_TOKEN);
+            verify(authTokens, never()).revokeFamilyDetached(any());
+        }
+
+        @Test
+        void aRecentReplayWithoutRecoverableSuccessorDoesNotRevokeTheFamily() {
+            StoredToken previous = tokenWith(NOW_AT.minusSeconds(5), null);
+            given(authTokens.find("refresh-in", TokenPurpose.REFRESH)).willReturn(Optional.of(previous));
+            given(authTokens.replacement("refresh-in", previous, NOW)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.refresh("refresh-in", CLIENT))
+                    .isInstanceOf(UnauthorizedException.class);
+            verify(authTokens, never()).revokeFamilyDetached(any());
+        }
+
+        @Test
+        void concurrentRotationThatLostTheConditionalUpdateUsesGrace() {
+            StoredToken live = liveToken();
+            StoredToken spent = tokenWith(NOW_AT.minusSeconds(1), null);
+            IssuedToken replacement = new IssuedToken(8L, REFRESH_TOKEN, NOW_AT.plus(REFRESH_TTL));
+            given(authTokens.find("refresh-in", TokenPurpose.REFRESH))
+                    .willReturn(Optional.of(live), Optional.of(spent));
+            given(users.findById(USER_ID)).willReturn(Optional.of(anActiveUser().withId(USER_ID).build()));
+            given(authTokens.markUsed(7L)).willReturn(false);
+            given(authTokens.replacement("refresh-in", spent, NOW)).willReturn(Optional.of(replacement));
+            given(roles.rolesOf(USER_ID)).willReturn(Set.of(RoleCode.BUYER));
+            given(jwtService.issue(any()))
+                    .willReturn(new JwtService.AccessToken(ACCESS_TOKEN, ACCESS_TTL.toSeconds()));
+
+            assertThat(service.refresh("refresh-in", CLIENT).tokens().refreshToken()).isEqualTo(REFRESH_TOKEN);
+            verify(authTokens, never()).revokeFamilyDetached(any());
         }
 
         @Test

@@ -26,11 +26,9 @@ import org.springframework.stereotype.Component;
 public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDeniedHandler {
 
     private final ObjectMapper objectMapper;
-    private final RefreshCookie refreshCookie;
 
-    public SecurityErrorHandler(ObjectMapper objectMapper, RefreshCookie refreshCookie) {
+    public SecurityErrorHandler(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        this.refreshCookie = refreshCookie;
     }
 
     /** No credentials, or credentials that did not verify. */
@@ -51,10 +49,6 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
 
     private void write(HttpServletRequest request, HttpServletResponse response, ErrorCode code)
             throws IOException {
-
-        if (request.getRequestURI().equals("/api/v1/auth/logout-all")) {
-            refreshCookie.clear(response);
-        }
 
         ApiError detail = new ApiError(
                 code.name(), request.getRequestURI(), OffsetDateTime.now(), List.of());

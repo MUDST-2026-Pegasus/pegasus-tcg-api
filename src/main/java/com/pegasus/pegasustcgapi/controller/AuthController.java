@@ -72,7 +72,7 @@ public class AuthController {
         return ApiResult.success("Signed in", response);
     }
 
-    /** Exchanges a refresh token for a new pair. The old refresh token stops working. */
+    /** Rotates a refresh token, allowing a short retry if the first response was lost. */
     @Operation(summary = "Refresh access token", description = "Rotates the HttpOnly refresh cookie and returns a new access token. Requires an allowed Origin and JSON content type.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Token pair refreshed"),
@@ -85,7 +85,7 @@ public class AuthController {
             String token = refreshCookie.read(http);
             if (token == null || token.isBlank()) throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
             AuthResponse response = authService.refresh(token, ClientInfo.from(http));
-            refreshCookie.set(servletResponse, response.tokens().refreshToken());
+            refreshCookie.set(servletResponse, response.tokens().refreshToken(), response.tokens().refreshExpiresIn());
             return ApiResult.success("Token refreshed", response);
         } catch (UnauthorizedException exception) {
             refreshCookie.clear(servletResponse);

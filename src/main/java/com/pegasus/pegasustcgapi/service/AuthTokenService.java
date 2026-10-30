@@ -18,6 +18,9 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
+import javax.crypto.Mac;
+import javax.crypto.SecretKey;
+import java.security.InvalidKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,11 +41,13 @@ public class AuthTokenService {
 
     private final AuthTokenRepository tokens;
     private final Clock clock;
+    private final SecretKey signingKey;
     private final SecureRandom random = new SecureRandom();
 
-    public AuthTokenService(AuthTokenRepository tokens, Clock clock) {
+    public AuthTokenService(AuthTokenRepository tokens, Clock clock, SecretKey jwtSigningKey) {
         this.tokens = tokens;
         this.clock = clock;
+        this.signingKey = jwtSigningKey;
     }
 
     /**
@@ -51,14 +56,42 @@ public class AuthTokenService {
      */
     public IssuedToken issue(
             long userId, TokenPurpose purpose, Duration ttl, UUID familyId, ClientInfo client) {
+        return insert(userId, purpose, ttl, familyId, client, randomToken());
+    }
 
-        String value = randomToken();
+    /** A refresh successor can be reconstructed for a short retry after a lost response. */
+    public IssuedToken rotate(long userId, String previousRaw, Duration ttl, UUID familyId, ClientInfo client) {
+        return insert(userId, TokenPurpose.REFRESH, ttl, familyId, client, successorValue(previousRaw));
+    }
+
+    public Optional<IssuedToken> replacement(String previousRaw, StoredToken previous, java.time.Instant now) {
+        String value = successorValue(previousRaw);
+        return find(value, TokenPurpose.REFRESH)
+                .filter(next -> next.userId() == previous.userId()
+                        && next.familyId().equals(previous.familyId()) && next.usableAt(now))
+                .map(next -> new IssuedToken(next.id(), value, next.expiresAt()));
+    }
+
+    private IssuedToken insert(
+            long userId, TokenPurpose purpose, Duration ttl, UUID familyId, ClientInfo client, String value) {
         OffsetDateTime expiresAt = OffsetDateTime.now(clock).plus(ttl);
 
         long id = tokens.insert(
                 userId, purpose, hash(value), familyId, expiresAt, client.userAgent(), client.ip());
 
         return new IssuedToken(id, value, expiresAt);
+    }
+
+    private String successorValue(String previousRaw) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(signingKey);
+            byte[] material = mac.doFinal(("pegasus-refresh-rotation-v1:" + previousRaw)
+                    .getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(material);
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+            throw new IllegalStateException("HmacSHA256 is required for refresh rotation", e);
+        }
     }
 
     public Optional<StoredToken> find(String rawToken, TokenPurpose purpose) {
@@ -84,8 +117,8 @@ public class AuthTokenService {
         return token;
     }
 
-    public void markUsed(long tokenId) {
-        tokens.markUsed(tokenId, OffsetDateTime.now(clock));
+    public boolean markUsed(long tokenId) {
+        return tokens.markUsed(tokenId, OffsetDateTime.now(clock));
     }
 
     public void revokeFamily(UUID familyId) {

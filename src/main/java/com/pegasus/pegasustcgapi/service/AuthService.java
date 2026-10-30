@@ -38,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+    private static final java.time.Duration REFRESH_RETRY_GRACE = java.time.Duration.ofSeconds(10);
 
     private final UserRepository users;
     private final RoleService roles;
@@ -128,23 +129,14 @@ public class AuthService {
         return new AuthResponse(UserResponse.from(current), startSession(current, client));
     }
 
-    /**
-     * Rotates the presented refresh token. A token that was already spent or
-     * revoked is treated as theft: the family is killed, which signs out the
-     * device that legitimately holds the current token as well.
-     */
+    /** Rotates the refresh token; a recently spent token may recover its successor after a lost response. */
     @Transactional
     public AuthResponse refresh(String refreshToken, ClientInfo client) {
         StoredToken token = authTokens.find(refreshToken, TokenPurpose.REFRESH)
                 .orElseThrow(() -> new UnauthorizedException(ErrorCode.INVALID_TOKEN));
 
         Instant now = clock.instant();
-        if (token.spent() || token.revoked()) {
-            log.warn("Refresh token replay for user {}; revoking session family {}",
-                    token.userId(), token.familyId());
-            authTokens.revokeFamilyDetached(token.familyId());
-            throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
-        }
+        if (token.spent() || token.revoked()) return retryOrReject(refreshToken, token, client, now);
         if (token.expired(now)) {
             throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
         }
@@ -156,12 +148,44 @@ public class AuthService {
             throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
         }
 
-        authTokens.markUsed(token.id());
+        if (!authTokens.markUsed(token.id())) {
+            StoredToken latest = authTokens.find(refreshToken, TokenPurpose.REFRESH).orElse(token);
+            return retryOrReject(refreshToken, latest, client, clock.instant());
+        }
 
         AuthUser current = user.withRoles(roles.rolesOf(user.id()));
-        return new AuthResponse(
-                UserResponse.from(current),
-                issueTokenPair(current, token.familyId(), client));
+        IssuedToken replacement = authTokens.rotate(
+                current.id(), refreshToken, properties.refreshTokenTtl(), token.familyId(), client);
+        return refreshedResponse(current, replacement);
+    }
+
+    private AuthResponse retryOrReject(String raw, StoredToken previous, ClientInfo client, Instant now) {
+        if (previous.spent() && !previous.revoked()
+                && !previous.usedAt().toInstant().plus(REFRESH_RETRY_GRACE).isBefore(now)) {
+            var replacement = authTokens.replacement(raw, previous, now);
+            if (replacement.isPresent()) {
+                AuthUser user = users.findById(previous.userId()).orElse(null);
+                if (user == null || user.status() != UserStatus.ACTIVE) {
+                    authTokens.revokeFamilyDetached(previous.familyId());
+                    throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
+                }
+                return refreshedResponse(user.withRoles(roles.rolesOf(user.id())), replacement.get());
+            }
+            // A rotation still in flight or already superseded is not evidence of theft.
+            throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
+        }
+        log.warn("Refresh token replay for user {}; revoking session family {}",
+                previous.userId(), previous.familyId());
+        authTokens.revokeFamilyDetached(previous.familyId());
+        throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
+    }
+
+    private AuthResponse refreshedResponse(AuthUser user, IssuedToken refresh) {
+        JwtService.AccessToken access = jwtService.issue(user);
+        long remainingMillis = java.time.Duration.between(clock.instant(), refresh.expiresAt().toInstant()).toMillis();
+        long refreshSeconds = Math.max(0, (remainingMillis + 999) / 1000);
+        return new AuthResponse(UserResponse.from(user), TokenResponse.bearer(
+                access.value(), access.expiresInSeconds(), refresh.value(), refreshSeconds));
     }
 
     /**

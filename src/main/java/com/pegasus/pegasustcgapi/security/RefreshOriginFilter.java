@@ -8,14 +8,17 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /** Cookie-authenticated requests must come from an explicitly allowed browser origin. */
 public class RefreshOriginFilter extends OncePerRequestFilter {
     private final CorsProperties cors;
+    private final SecurityErrorHandler errorHandler;
 
-    public RefreshOriginFilter(CorsProperties cors) {
+    public RefreshOriginFilter(CorsProperties cors, SecurityErrorHandler errorHandler) {
         this.cors = cors;
+        this.errorHandler = errorHandler;
     }
 
     @Override
@@ -33,7 +36,7 @@ public class RefreshOriginFilter extends OncePerRequestFilter {
                 json = false;
             }
             if (origin == null || !cors.allowedOrigins().contains(origin) || !json) {
-                response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                errorHandler.handle(request, response, new AccessDeniedException("Invalid refresh origin or content type"));
                 return;
             }
         }

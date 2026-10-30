@@ -42,6 +42,10 @@ public class RefreshCookie {
         write(response, value, maxAge);
     }
 
+    public void set(HttpServletResponse response, String value, long remainingSeconds) {
+        write(response, value, remainingSeconds);
+    }
+
     public void clear(HttpServletResponse response) {
         write(response, "", 0);
     }
