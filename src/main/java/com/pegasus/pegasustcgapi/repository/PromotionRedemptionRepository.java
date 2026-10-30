@@ -1,8 +1,10 @@
 package com.pegasus.pegasustcgapi.repository;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.Promotion.PROMOTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.PromotionRedemption.PROMOTION_REDEMPTION;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -76,5 +78,24 @@ public class PromotionRedemptionRepository {
                 .and(PROMOTION_REDEMPTION.STATUS.eq(RESERVED))
                 .returningResult(PROMOTION_REDEMPTION.PROMOTION_ID)
                 .fetch(PROMOTION_REDEMPTION.PROMOTION_ID);
+    }
+
+    /** A code still on an order (not released), for the order's pages. */
+    public record Applied(long salesOrderId, Long sellerOrderId, String code, String ownerType,
+            Long sellerProfileId, BigDecimal amount, String status) {
+    }
+
+    public List<Applied> appliedFor(Collection<Long> salesOrderIds) {
+        if (salesOrderIds.isEmpty()) return List.of();
+        return dsl.select(PROMOTION_REDEMPTION.SALES_ORDER_ID, PROMOTION_REDEMPTION.SELLER_ORDER_ID, PROMOTION.CODE,
+                        PROMOTION.OWNER_TYPE, PROMOTION.SELLER_PROFILE_ID, PROMOTION_REDEMPTION.AMOUNT,
+                        PROMOTION_REDEMPTION.STATUS)
+                .from(PROMOTION_REDEMPTION)
+                .join(PROMOTION).on(PROMOTION.ID.eq(PROMOTION_REDEMPTION.PROMOTION_ID))
+                .where(PROMOTION_REDEMPTION.SALES_ORDER_ID.in(salesOrderIds))
+                .and(PROMOTION_REDEMPTION.STATUS.ne("RELEASED"))
+                .orderBy(PROMOTION_REDEMPTION.ID.asc())
+                .fetch(r -> new Applied(r.value1(), r.value2(), r.value3(), r.value4(), r.value5(), r.value6(),
+                        r.value7()));
     }
 }

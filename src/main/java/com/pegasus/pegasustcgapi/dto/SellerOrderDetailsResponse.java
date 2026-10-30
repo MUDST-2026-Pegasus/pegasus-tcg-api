@@ -30,8 +30,50 @@ public record SellerOrderDetailsResponse(
         List<OrderItemDetailsResponse> items,
         List<ShipmentResponse> shipments,
         List<OrderStatusHistoryResponse> statusHistory,
-        String sellerName
+        String sellerName,
+        /** What the shop's own code took off; the shop pays it. */
+        BigDecimal sellerDiscount,
+        /** What a Pegasus code took off this part; Pegasus pays it back at release. */
+        BigDecimal platformDiscount,
+        /** What Pegasus will add to the shop's earnings at release, before any return. */
+        BigDecimal platformSubsidy,
+        /** Items less the shop's own discount: what commission is charged on. */
+        BigDecimal commissionBase,
+        List<AppliedPromotion> promotions,
+        /** Cancelling now gives the codes back: true while the order is unpaid and holds a code. */
+        boolean promotionsRestoredOnCancel
 ) {
+    public SellerOrderDetailsResponse(
+            long id,
+            long salesOrderId,
+            long sellerProfileId,
+            String sellerOrderNumber,
+            String status,
+            BigDecimal itemsSubtotal,
+            BigDecimal shippingFee,
+            BigDecimal discountAmount,
+            BigDecimal grandTotal,
+            BigDecimal commissionAmount,
+            BigDecimal sellerNetAmount,
+            OffsetDateTime acceptedAt,
+            OffsetDateTime shippedAt,
+            OffsetDateTime deliveredAt,
+            OffsetDateTime autoCompleteAt,
+            OffsetDateTime completedAt,
+            OffsetDateTime cancelledAt,
+            String cancelReason,
+            OffsetDateTime createdAt,
+            List<OrderItemDetailsResponse> items,
+            List<ShipmentResponse> shipments,
+            List<OrderStatusHistoryResponse> statusHistory,
+            String sellerName) {
+        this(id, salesOrderId, sellerProfileId, sellerOrderNumber, status,
+                itemsSubtotal, shippingFee, discountAmount, grandTotal, commissionAmount, sellerNetAmount,
+                acceptedAt, shippedAt, deliveredAt, autoCompleteAt, completedAt, cancelledAt, cancelReason,
+                createdAt, items, shipments, statusHistory, sellerName, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, itemsSubtotal, List.of(), false);
+    }
+
     public SellerOrderDetailsResponse(
             long id,
             long salesOrderId,
