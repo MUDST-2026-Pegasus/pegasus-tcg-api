@@ -115,6 +115,7 @@ public enum ErrorCode {
     PAYMENT_METHOD_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "Payment method is not supported"),
     PAYOUT_BELOW_MINIMUM(HttpStatus.BAD_REQUEST, "Payout amount is below the minimum"),
     CART_SESSION_INVALID(HttpStatus.BAD_REQUEST, "X-Cart-Session is not a session key this API issued"),
+    PROMO_INVALID(HttpStatus.BAD_REQUEST, "Discount code settings are invalid"),
     PROMO_NOT_STARTED(HttpStatus.BAD_REQUEST, "This discount code is not active yet"),
     PROMO_EXPIRED(HttpStatus.BAD_REQUEST, "This discount code has expired"),
     PROMO_PAUSED(HttpStatus.BAD_REQUEST, "This discount code is paused"),
