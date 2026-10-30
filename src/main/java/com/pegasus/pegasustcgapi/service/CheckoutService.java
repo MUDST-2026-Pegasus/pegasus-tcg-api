@@ -691,7 +691,7 @@ public class CheckoutService {
             Map<Long, String> shops = new LinkedHashMap<>();
             pick.promotions().stream().filter(p -> p.ownerType() == Promotion.OwnerType.SELLER)
                     .forEach(p -> shops.put(p.sellerProfileId(), p.code()));
-            return promotions.preview(promotions.evaluate(buyerId, basket, pick), cart.sellerNames(),
+            return promotions.preview(promotions.evaluate(basket, pick), cart.sellerNames(),
                     cart.shippingEstimated(), new CheckoutPromotionViews.BestPick(platform, shops));
         }
         return promotions.preview(promotions.evaluate(buyerId, basket, r.platformCode(), r.sellerCodes()),

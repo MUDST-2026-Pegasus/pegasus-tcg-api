@@ -125,8 +125,11 @@ public class CheckoutPromotionService {
         return PromotionCalculator.bestPick(basket, usable);
     }
 
-    /** Turns an autoPick into the same evaluation a typed set of codes would get. */
-    public Evaluation evaluate(Long buyerId, Basket basket, Pick pick) {
+    /**
+     * Turns an autoPick into the same evaluation a typed set of codes would get. No
+     * buyer checks here: {@link #bestPick} only picks codes this buyer may use.
+     */
+    public Evaluation evaluate(Basket basket, Pick pick) {
         List<CodeCheck> slots = pick.promotions().stream()
                 .map(p -> new CodeCheck(p.code(), p, p.sellerProfileId(), null, null, null))
                 .toList();
@@ -193,7 +196,8 @@ public class CheckoutPromotionService {
         }
         List<CodeOutcome> codes = evaluation.checks().stream().map(c -> {
             Promotion p = c.promotion();
-            boolean pending = shippingEstimated && c.applied() && p.discountType() == DiscountType.FREE_SHIPPING;
+            boolean pending = shippingEstimated && c.applied() && p != null
+                    && p.discountType() == DiscountType.FREE_SHIPPING;
             Long shop = p == null ? c.shopSlot() : p.sellerProfileId();
             return new CodeOutcome(p == null ? c.code() : p.code(), p == null ? null : p.ownerType(), shop,
                     shop == null ? null : sellerNames.get(shop), c.applied() ? "APPLIED" : c.error().name(),
