@@ -89,10 +89,12 @@ public final class PromotionCalculator {
 
     /**
      * @param sellers        in the order shops first appear in the basket
-     * @param discountByLine each line's share of the item discounts, keyed by {@link Line#id}
-     * @param codes          one per code passed in, in the same order
+     * @param discountByLine       each line's share of the item discounts, keyed by {@link Line#id}
+     * @param sellerDiscountByLine the shop-code part of {@code discountByLine}; the rest is Pegasus's
+     * @param codes                one per code passed in, in the same order
      */
-    public record Result(List<SellerTotals> sellers, Map<Long, BigDecimal> discountByLine, List<CodeResult> codes) {
+    public record Result(List<SellerTotals> sellers, Map<Long, BigDecimal> discountByLine,
+            Map<Long, BigDecimal> sellerDiscountByLine, List<CodeResult> codes) {
 
         public BigDecimal discountTotal() {
             return sellers.stream().map(SellerTotals::discountAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -143,11 +145,15 @@ public final class PromotionCalculator {
         }
 
         Map<Long, BigDecimal> lineDiscount = new LinkedHashMap<>();
+        Map<Long, BigDecimal> sellerLineDiscount = new LinkedHashMap<>();
         Map<Long, BigDecimal> sellerDiscount = new LinkedHashMap<>();
         Map<Long, BigDecimal> platformItems = new LinkedHashMap<>();
         Map<Long, BigDecimal> platformShipping = new LinkedHashMap<>();
         linesBySeller.forEach((seller, lines) -> {
-            lines.forEach(l -> lineDiscount.put(l.id(), BigDecimal.ZERO));
+            lines.forEach(l -> {
+                lineDiscount.put(l.id(), BigDecimal.ZERO);
+                sellerLineDiscount.put(l.id(), BigDecimal.ZERO);
+            });
             sellerDiscount.put(seller, BigDecimal.ZERO);
             platformItems.put(seller, BigDecimal.ZERO);
             platformShipping.put(seller, BigDecimal.ZERO);
@@ -161,7 +167,10 @@ public final class PromotionCalculator {
             lines.forEach(l -> weights.put(l.id(), l.lineTotal()));
             results[i] = applyToItems(p, weights, d -> {
                 sellerDiscount.put(seller, d);
-                split(d, weights).forEach((line, share) -> lineDiscount.merge(line, share, BigDecimal::add));
+                split(d, weights).forEach((line, share) -> {
+                    lineDiscount.merge(line, share, BigDecimal::add);
+                    sellerLineDiscount.put(line, share);
+                });
             });
         });
 
@@ -200,7 +209,8 @@ public final class PromotionCalculator {
             sellers.add(new SellerTotals(seller, subtotal, shipping, own, pegasus, platformShipping.get(seller),
                     subtotal.add(shipping).subtract(own).subtract(pegasus), subtotal.subtract(own)));
         });
-        return new Result(List.copyOf(sellers), Collections.unmodifiableMap(lineDiscount), List.of(results));
+        return new Result(List.copyOf(sellers), Collections.unmodifiableMap(lineDiscount),
+                Collections.unmodifiableMap(sellerLineDiscount), List.of(results));
     }
 
     /**

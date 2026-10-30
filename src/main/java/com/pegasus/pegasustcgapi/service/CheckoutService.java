@@ -490,6 +490,8 @@ public class CheckoutService {
                                 sellerItem.unitPriceAtAdd(),
                                 lineTotal,
                                 allocated,
+                                promotion.result().sellerDiscountByLine()
+                                        .getOrDefault(sellerItem.id(), BigDecimal.ZERO),
                                 unitCost,
                                 details.productName(),
                                 details.variantLabel(),
