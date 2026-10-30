@@ -20,6 +20,7 @@ import com.pegasus.pegasustcgapi.model.Promotion.OwnerType;
 import com.pegasus.pegasustcgapi.model.Promotion.Visibility;
 import com.pegasus.pegasustcgapi.model.PromotionClaimSource;
 import com.pegasus.pegasustcgapi.model.PromotionStatus;
+import com.pegasus.pegasustcgapi.model.SellerProfile;
 import com.pegasus.pegasustcgapi.model.UserStatus;
 import com.pegasus.pegasustcgapi.repository.PromotionClaimRepository;
 import com.pegasus.pegasustcgapi.repository.PromotionRedemptionRepository;
@@ -83,12 +84,13 @@ public class BuyerPromotionService {
         return strip(promotions.findFeaturedLive(now(), FEATURED_LIMIT), userId);
     }
 
-    /** A store page's collectable codes; a profile that never became a shop has none. */
+    /** A store page's collectable codes; a profile that is not a VERIFIED shop has none. */
     public List<ClaimableCode> storeCodes(String username, Long userId) {
         AuthUser owner = users.findByUsername(username.trim().toLowerCase(Locale.ROOT))
                 .filter(user -> user.status() == UserStatus.ACTIVE)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.USER_NOT_FOUND));
         return sellerProfiles.findByUserId(owner.id())
+                .filter(SellerProfile::canPublish)
                 .map(shop -> strip(promotions.findShopClaimableLive(shop.id(), now()), userId))
                 .orElse(List.of());
     }
