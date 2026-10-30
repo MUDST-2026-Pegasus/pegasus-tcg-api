@@ -47,6 +47,14 @@ class SlugsTest {
     }
 
     @Test
+    @DisplayName("hyphens at either end are dropped, a long run of them stays fast")
+    void trimsEdgeHyphens() {
+        assertThat(Slugs.slugify("--Pikachu ex!!", WIDTH)).isEqualTo("pikachu-ex");
+        assertThat(Slugs.slugify("-".repeat(50_000) + "a", WIDTH)).isEqualTo("a");
+        assertThat(Slugs.slugify("-".repeat(50_000), WIDTH)).isEmpty();
+    }
+
+    @Test
     @DisplayName("a very long name is cut on a word boundary")
     void truncatesOnWordBoundary() {
         String slug = Slugs.slugify(("word ".repeat(40)).trim(), WIDTH);
