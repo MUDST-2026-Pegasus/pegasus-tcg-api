@@ -62,7 +62,11 @@ public record SellerReturnRequestResponse(
         OffsetDateTime closedAt,
 
         @Schema(description = "Items requested for return")
-        List<SellerReturnItem> items
+        List<SellerReturnItem> items,
+
+        @Schema(description = "Suggested refund: the returned cards at what the buyer paid, "
+                + "their price less the discount codes they carried", example = "334.65")
+        BigDecimal refundEstimate
 ) {
     @Schema(description = "Sanitized buyer profile containing only public identifiers")
     public record BuyerSummary(

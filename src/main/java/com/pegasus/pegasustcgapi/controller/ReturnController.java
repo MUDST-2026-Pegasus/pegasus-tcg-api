@@ -113,8 +113,12 @@ public class ReturnController {
     public record Ship(@NotBlank String trackingNumber) {
     }
 
+    /**
+     * @param refundAmount left out, a FULL_REFUND is the order part's total and a
+     *                     PARTIAL_REFUND is the returned cards at what the buyer paid
+     */
     public record Approve(@NotBlank String resolution,
-            @NotNull @DecimalMin("0.01") @Digits(integer = 12, fraction = 2) BigDecimal refundAmount,
+            @DecimalMin("0.01") @Digits(integer = 12, fraction = 2) BigDecimal refundAmount,
             @NotNull Boolean requireShipBack) {
     }
 
