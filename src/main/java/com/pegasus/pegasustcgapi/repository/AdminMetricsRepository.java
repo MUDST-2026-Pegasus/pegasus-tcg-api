@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.repository;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Game.GAME;
+import static com.pegasus.pegasustcgapi.jooq.tables.LedgerEntry.LEDGER_ENTRY;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
@@ -128,6 +129,31 @@ public class AdminMetricsRepository {
                 .orderBy(amount.desc(), SELLER_PROFILE.ID.asc())
                 .limit(limit)
                 .fetch(r -> new SellerSales(r.value1(), r.value2(), r.value3(), r.value4()));
+    }
+
+    // ---------- promotions ----------
+
+    /** Pegasus's cost of its own codes: the subsidies it paid shops at release [TCG-570]. */
+    public BigDecimal promotionCostBetween(OffsetDateTime from, OffsetDateTime to) {
+        return dsl.select(sum(LEDGER_ENTRY.AMOUNT))
+                .from(LEDGER_ENTRY)
+                .where(subsidy(from, to))
+                .fetchSingle(r -> r.value1());
+    }
+
+    public Map<LocalDate, BigDecimal> weeklyPromotionCost(OffsetDateTime from, OffsetDateTime to, ZoneId zone) {
+        Field<LocalDateTime> week = trunc("week", LEDGER_ENTRY.CREATED_AT, zone);
+        return dsl.select(week, sum(LEDGER_ENTRY.AMOUNT))
+                .from(LEDGER_ENTRY)
+                .where(subsidy(from, to))
+                .groupBy(week)
+                .fetchMap(r -> r.value1().toLocalDate(), r -> r.value2());
+    }
+
+    private static Condition subsidy(OffsetDateTime from, OffsetDateTime to) {
+        return LEDGER_ENTRY.ENTRY_TYPE.eq("PROMO_SUBSIDY")
+                .and(LEDGER_ENTRY.CREATED_AT.ge(from))
+                .and(LEDGER_ENTRY.CREATED_AT.lt(to));
     }
 
     // ---------- commission ----------
