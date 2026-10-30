@@ -23,6 +23,8 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,7 +52,8 @@ class AuthTokenServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AuthTokenService(tokens, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new AuthTokenService(tokens, Clock.fixed(NOW, ZoneOffset.UTC),
+                new SecretKeySpec("unit-test-hmac-key-at-least-32-bytes".getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
     }
 
     @Test
@@ -90,6 +93,21 @@ class AuthTokenServiceTest {
         String second = service.issue(USER_ID, TokenPurpose.REFRESH, Duration.ofDays(1), FAMILY_ID, CLIENT).value();
 
         assertThat(first).isNotEqualTo(second).matches("[A-Za-z0-9_-]+").hasSize(43);
+    }
+
+    @Test
+    void rotationCanReconstructTheSameSuccessorWithoutStoringPlaintext() {
+        given(tokens.insert(anyLong(), any(), any(), any(), any(), any(), any())).willReturn(TOKEN_ID);
+        IssuedToken issued = service.rotate(USER_ID, "old-token", Duration.ofDays(30), FAMILY_ID, CLIENT);
+        ArgumentCaptor<String> hash = ArgumentCaptor.forClass(String.class);
+        verify(tokens).insert(eq(USER_ID), eq(TokenPurpose.REFRESH), hash.capture(), eq(FAMILY_ID),
+                eq(NOW_AT.plusDays(30)), eq(CLIENT.userAgent()), eq(CLIENT.ip()));
+        assertThat(hash.getValue()).isEqualTo(AuthTokenService.hash(issued.value())).isNotEqualTo(issued.value());
+
+        StoredToken stored = new StoredToken(TOKEN_ID, USER_ID, TokenPurpose.REFRESH, FAMILY_ID,
+                NOW_AT.plusDays(30), null, null);
+        given(tokens.findByHash(hash.getValue(), TokenPurpose.REFRESH)).willReturn(Optional.of(stored));
+        assertThat(service.replacement("old-token", stored, NOW)).contains(issued);
     }
 
     @Test

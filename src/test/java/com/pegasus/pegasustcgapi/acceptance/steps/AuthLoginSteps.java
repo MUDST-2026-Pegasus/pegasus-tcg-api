@@ -75,7 +75,7 @@ public class AuthLoginSteps {
     @Then("The system returns a valid JWT access token and refresh token")
     public void responseReturnsTokens() {
         assertThat(lastResponse.data().path("tokens").path("accessToken").asText()).isNotBlank();
-        assertThat(lastResponse.data().path("tokens").path("refreshToken").asText()).isNotBlank();
+        assertThat(lastResponse.refreshToken()).isNotBlank();
     }
 
     @Given("A registered user exists with email {string} and password {string}")
@@ -209,7 +209,7 @@ public class AuthLoginSteps {
         // Device 2
         Response resp2 = client.post("/api/v1/auth/login", null, loginBody, Map.of("User-Agent", "Device2-Mobile"));
         assertThat(resp2.status()).isEqualTo(200);
-        secondDeviceRefreshToken = resp2.data().path("tokens").path("refreshToken").asText();
+        secondDeviceRefreshToken = resp2.refreshToken();
     }
 
     @When("The user calls logout-all from the primary device")

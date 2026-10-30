@@ -13,7 +13,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import tools.jackson.databind.ObjectMapper;
 import com.pegasus.pegasustcgapi.dto.AuthResponse;
 import com.pegasus.pegasustcgapi.dto.LoginRequest;
-import com.pegasus.pegasustcgapi.dto.RefreshRequest;
 import com.pegasus.pegasustcgapi.dto.RegisterRequest;
 import com.pegasus.pegasustcgapi.dto.TokenResponse;
 import com.pegasus.pegasustcgapi.dto.UserResponse;
@@ -28,6 +27,7 @@ import com.pegasus.pegasustcgapi.security.AuthClaims;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.security.AuthPrincipalArgumentResolver;
 import com.pegasus.pegasustcgapi.security.ClientInfo;
+import com.pegasus.pegasustcgapi.security.RefreshCookie;
 import com.pegasus.pegasustcgapi.service.AuthService;
 import org.springframework.security.oauth2.jwt.Jwt;
 import java.util.Set;
@@ -61,6 +61,9 @@ class AuthControllerTest {
 
     @Mock
     private AuthService authService;
+
+    @Mock
+    private RefreshCookie refreshCookie;
 
     @InjectMocks
     private AuthController authController;
@@ -111,7 +114,7 @@ class AuthControllerTest {
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.data.tokens.accessToken").value("access.jwt.token"))
-                    .andExpect(jsonPath("$.data.tokens.refreshToken").value("refresh.jwt.token"))
+                    .andExpect(jsonPath("$.data.tokens.refreshToken").doesNotExist())
                     .andExpect(jsonPath("$.data.tokens.expiresIn").value(900));
         }
 
@@ -180,7 +183,7 @@ class AuthControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.data.tokens.accessToken").value("access.jwt.token"))
-                    .andExpect(jsonPath("$.data.tokens.refreshToken").value("refresh.jwt.token"));
+                    .andExpect(jsonPath("$.data.tokens.refreshToken").doesNotExist());
         }
 
         @Test
@@ -236,7 +239,7 @@ class AuthControllerTest {
         @Test
         @DisplayName("Positive: Refresh returns 200 OK and rotated token pair")
         void refreshSuccessReturns200() throws Exception {
-            RefreshRequest request = new RefreshRequest("valid-refresh-token");
+            given(refreshCookie.read(any())).willReturn("valid-refresh-token");
             AuthResponse response = sampleAuthResponse(30L, "refresh@example.com", "refresher");
 
             given(authService.refresh(eq("valid-refresh-token"), any(ClientInfo.class)))
@@ -244,40 +247,39 @@ class AuthControllerTest {
 
             mockMvc.perform(post(BASE_URL + "/refresh")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
+                            .content("{}"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.data.tokens.accessToken").value("access.jwt.token"))
-                    .andExpect(jsonPath("$.data.tokens.refreshToken").value("refresh.jwt.token"));
+                    .andExpect(jsonPath("$.data.tokens.refreshToken").doesNotExist());
         }
 
         @Test
         @DisplayName("Negative: Refresh returns 401 Unauthorized when token is invalid or expired")
         void refreshWithInvalidTokenReturns401() throws Exception {
-            RefreshRequest request = new RefreshRequest("expired-token");
+            given(refreshCookie.read(any())).willReturn("expired-token");
 
             given(authService.refresh(eq("expired-token"), any(ClientInfo.class)))
                     .willThrow(new UnauthorizedException(ErrorCode.INVALID_TOKEN));
 
             mockMvc.perform(post(BASE_URL + "/refresh")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
+                            .content("{}"))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.success").value(false))
                     .andExpect(jsonPath("$.data.code").value(ErrorCode.INVALID_TOKEN.name()));
         }
 
         @Test
-        @DisplayName("Negative: Refresh returns 400 Bad Request when token string is blank")
-        void refreshWithBlankTokenReturns400() throws Exception {
-            RefreshRequest request = new RefreshRequest("");
+        @DisplayName("Negative: Refresh returns 401 when cookie is missing")
+        void refreshWithBlankTokenReturns401() throws Exception {
 
             mockMvc.perform(post(BASE_URL + "/refresh")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isBadRequest())
+                            .content("{}"))
+                    .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.success").value(false))
-                    .andExpect(jsonPath("$.data.code").value(ErrorCode.VALIDATION_FAILED.name()));
+                    .andExpect(jsonPath("$.data.code").value(ErrorCode.INVALID_TOKEN.name()));
         }
     }
 
@@ -288,11 +290,11 @@ class AuthControllerTest {
         @Test
         @DisplayName("Positive: Logout revokes session and returns 200 OK")
         void logoutReturns200() throws Exception {
-            RefreshRequest request = new RefreshRequest("session-refresh-token");
+            given(refreshCookie.read(any())).willReturn("session-refresh-token");
 
             mockMvc.perform(post(BASE_URL + "/logout")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
+                            .content("{}"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true));
 
