@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +37,8 @@ import java.util.Set;
 public final class PromotionCalculator {
 
     private static final BigDecimal HUNDRED = new BigDecimal("100");
+    private static final Comparator<Promotion> SOONEST_ENDING =
+            Comparator.comparing(Promotion::endsAt).thenComparing(Promotion::code);
 
     private PromotionCalculator() {
     }
@@ -98,6 +101,10 @@ public final class PromotionCalculator {
         public BigDecimal grandTotal() {
             return sellers.stream().map(SellerTotals::grandTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
         }
+    }
+
+    /** The codes {@link #bestPick} chose, and the basket worked out with them. */
+    public record Pick(List<Promotion> promotions, Result result) {
     }
 
     /**
@@ -194,6 +201,59 @@ public final class PromotionCalculator {
                     subtotal.add(shipping).subtract(own).subtract(pegasus), subtotal.subtract(own)));
         });
         return new Result(List.copyOf(sellers), Collections.unmodifiableMap(lineDiscount), List.of(results));
+    }
+
+    /**
+     * Picks the codes that save the buyer the most: for each shop the code with the
+     * biggest discount on that shop, then the Pegasus code that adds the most on
+     * top of those. Ties go to the code that ends first. Candidates that cannot
+     * apply are left out.
+     *
+     * <p>Shops are settled before the Pegasus code. That is exact for percent codes
+     * (a bigger shop discount always saves more overall) but not when a bigger shop
+     * discount pushes a fixed Pegasus code under its minimum spend; the cart still
+     * lets the buyer change the pick.
+     */
+    public static Pick bestPick(Basket basket, List<Promotion> candidates) {
+        Map<Long, Promotion> unique = new LinkedHashMap<>();
+        candidates.forEach(p -> unique.putIfAbsent(p.id(), p));
+
+        Map<Long, Promotion> bestBySeller = new LinkedHashMap<>();
+        Map<Long, BigDecimal> bestSaving = new LinkedHashMap<>();
+        for (Promotion p : unique.values()) {
+            if (p.ownerType() != OwnerType.SELLER) continue;
+            CodeResult r = calculate(basket, List.of(p)).codes().getFirst();
+            if (!r.applied()) continue;
+            Promotion current = bestBySeller.get(p.sellerProfileId());
+            if (current == null || isBetter(r.discount(), p, bestSaving.get(p.sellerProfileId()), current)) {
+                bestBySeller.put(p.sellerProfileId(), p);
+                bestSaving.put(p.sellerProfileId(), r.discount());
+            }
+        }
+
+        List<Promotion> shopCodes = List.copyOf(bestBySeller.values());
+        Promotion bestPlatform = null;
+        Result best = calculate(basket, shopCodes);
+        for (Promotion p : unique.values()) {
+            if (p.ownerType() != OwnerType.PLATFORM) continue;
+            List<Promotion> withIt = new ArrayList<>(shopCodes);
+            withIt.add(p);
+            Result r = calculate(basket, withIt);
+            if (!r.codes().getLast().applied()) continue;
+            if (bestPlatform == null || isBetter(r.discountTotal(), p, best.discountTotal(), bestPlatform)) {
+                bestPlatform = p;
+                best = r;
+            }
+        }
+
+        List<Promotion> picked = new ArrayList<>(shopCodes);
+        if (bestPlatform != null) picked.add(bestPlatform);
+        return new Pick(List.copyOf(picked), best);
+    }
+
+    private static boolean isBetter(BigDecimal saving, Promotion p, BigDecimal bestSaving, Promotion best) {
+        int bySaving = saving.compareTo(bestSaving);
+        return bySaving > 0 || (bySaving == 0 && SOONEST_ENDING.compare(p, best) < 0);
     }
 
     private interface Apply {

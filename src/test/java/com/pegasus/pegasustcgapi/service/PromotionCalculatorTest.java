@@ -8,6 +8,7 @@ import com.pegasus.pegasustcgapi.model.Promotion;
 import com.pegasus.pegasustcgapi.service.PromotionCalculator.Basket;
 import com.pegasus.pegasustcgapi.service.PromotionCalculator.CodeResult;
 import com.pegasus.pegasustcgapi.service.PromotionCalculator.Line;
+import com.pegasus.pegasustcgapi.service.PromotionCalculator.Pick;
 import com.pegasus.pegasustcgapi.service.PromotionCalculator.Result;
 import com.pegasus.pegasustcgapi.service.PromotionCalculator.SellerTotals;
 import com.pegasus.pegasustcgapi.support.PromotionFixture;
@@ -266,6 +267,53 @@ class PromotionCalculatorTest {
             assertThat(byCodes).isEqualByComparingTo(r.discountTotal());
             assertThat(r.discountTotal().scale()).isLessThanOrEqualTo(2);
         }
+    }
+
+    // ---------- bestPick ----------
+
+    @Test
+    void bestPickOnTheCartInFigmaC1ChoosesPegasus10AndMinmin50() {
+        List<Promotion> wallet = List.of(
+                PromotionFixture.platform("PEG100").fixed("100").build(),
+                PromotionFixture.platform("FREESHIP").freeShipping("60").build(),
+                PEGASUS10,
+                PromotionFixture.seller("MINMIN5", MINMIN).percent("5", null).build(),
+                MINMIN50,
+                PromotionFixture.seller("CV300", CARDVAULT).fixed("300").minSpend("3000").build());
+
+        Pick pick = PromotionCalculator.bestPick(PRM_O1, wallet);
+
+        assertThat(pick.promotions()).extracting(Promotion::code).containsExactly("MINMIN50", "PEGASUS10");
+        assertThat(pick.result().discountTotal()).isEqualByComparingTo("250.00");
+        assertThat(pick.result().codes()).allSatisfy(c -> assertThat(c.applied()).isTrue());
+    }
+
+    @Test
+    void bestPickBreaksTiesWithTheCodeThatEndsFirst() {
+        Promotion later = PromotionFixture.platform("LATER100").fixed("100")
+                .window(PromotionFixture.NOW.minusDays(1), PromotionFixture.NOW.plusDays(20)).build();
+        Promotion sooner = PromotionFixture.platform("SOONER100").fixed("100")
+                .window(PromotionFixture.NOW.minusDays(1), PromotionFixture.NOW.plusDays(2)).build();
+        Promotion shopLater = PromotionFixture.seller("MMLATER", MINMIN).fixed("50")
+                .window(PromotionFixture.NOW.minusDays(1), PromotionFixture.NOW.plusDays(9)).build();
+        Promotion shopSooner = PromotionFixture.seller("MMSOONER", MINMIN).fixed("50")
+                .window(PromotionFixture.NOW.minusDays(1), PromotionFixture.NOW.plusDays(3)).build();
+
+        Pick pick = PromotionCalculator.bestPick(PRM_O1, List.of(later, shopLater, sooner, shopSooner));
+
+        assertThat(pick.promotions()).extracting(Promotion::code).containsExactly("MMSOONER", "SOONER100");
+    }
+
+    @Test
+    void bestPickLeavesOutCodesThatCannotApply() {
+        Promotion tooBig = PromotionFixture.platform("BIG").fixed("300").minSpend("5000").build();
+        Promotion stranger = PromotionFixture.seller("OTHER50", 33).fixed("50").build();
+
+        Pick pick = PromotionCalculator.bestPick(PRM_O1, List.of(tooBig, stranger, tooBig));
+
+        assertThat(pick.promotions()).isEmpty();
+        assertThat(pick.result().discountTotal()).isZero();
+        assertThat(pick.result().grandTotal()).isEqualByComparingTo("3275.00");
     }
 
     /** Σ of each shop's line discounts equals its item discount (everything but free shipping). */
