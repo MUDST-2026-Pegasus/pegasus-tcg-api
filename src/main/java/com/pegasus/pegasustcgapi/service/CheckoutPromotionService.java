@@ -10,6 +10,7 @@ import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.model.Promotion;
 import com.pegasus.pegasustcgapi.model.Promotion.DiscountType;
 import com.pegasus.pegasustcgapi.model.Promotion.OwnerType;
+import com.pegasus.pegasustcgapi.model.Promotion.Visibility;
 import com.pegasus.pegasustcgapi.model.PromotionStatus;
 import com.pegasus.pegasustcgapi.repository.PromotionClaimRepository;
 import com.pegasus.pegasustcgapi.repository.PromotionRedemptionRepository;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 /**
@@ -110,8 +112,13 @@ public class CheckoutPromotionService {
             slots.add(resolve(platformCode, null, buyerId));
         }
         if (sellerCodes != null) {
+            Set<Long> shops = basket.lines().stream().map(Line::sellerProfileId)
+                    .collect(Collectors.toSet());
             sellerCodes.forEach((shop, code) -> {
-                if (code != null && !code.isBlank()) slots.add(resolve(code, shop, buyerId));
+                if (code == null || code.isBlank()) return;
+                // A slot for a shop not in the basket is not looked up, so it cannot probe codes.
+                slots.add(shops.contains(shop) ? resolve(code, shop, buyerId)
+                        : new CodeCheck(code.strip(), null, shop, ErrorCode.PROMO_WRONG_SELLER, null, null));
             });
         }
         return calculate(basket, slots);
@@ -212,13 +219,18 @@ public class CheckoutPromotionService {
      * checkout's transaction. Returns the code that ran out between the check and
      * now, if any; the caller then rolls the whole order back.
      *
+     * <p>The buyer's own limits are checked again here under a lock on the buyer:
+     * the first check ran unlocked, so two checkouts at once could both have passed it.
+     *
      * @param sellerOrderIdBySeller each shop's part of the order, for shop codes
      */
     public Optional<Promotion> reserve(long buyerId, long salesOrderId, Map<Long, Long> sellerOrderIdBySeller,
             Evaluation evaluation) {
+        if (evaluation.checks().stream().anyMatch(CodeCheck::applied)) redemptions.lockBuyer(buyerId);
         for (CodeCheck c : evaluation.checks()) {
             if (!c.applied()) continue;
             Promotion p = c.promotion();
+            if (buyerLimit(p, buyerId, salesOrderId) != null) return Optional.of(p);
             if (!promotions.takeUse(p.id())) return Optional.of(p);
             Long sellerOrderId = p.ownerType() == OwnerType.SELLER
                     ? sellerOrderIdBySeller.get(p.sellerProfileId()) : null;
@@ -277,6 +289,10 @@ public class CheckoutPromotionService {
         boolean rightSlot = shopSlot == null
                 ? p.ownerType() == OwnerType.PLATFORM
                 : p.ownerType() == OwnerType.SELLER && shopSlot.equals(p.sellerProfileId());
+        // A PRIVATE code in the wrong slot reads as unknown: saying whose it is would give it away.
+        if (!rightSlot && p.visibility() == Visibility.PRIVATE) {
+            return new CodeCheck(code, null, shopSlot, ErrorCode.PROMO_NOT_FOUND, null, null);
+        }
         ErrorCode error = rightSlot ? eligibility(p, buyerId) : ErrorCode.PROMO_WRONG_SELLER;
         return new CodeCheck(p.code(), p, shopSlot, error, null, null);
     }
@@ -294,10 +310,18 @@ public class CheckoutPromotionService {
         if (p.claimRequired() && (buyerId == null || !claims.isClaimed(p.id(), buyerId))) {
             return ErrorCode.PROMO_NOT_CLAIMED;
         }
-        if (buyerId != null && redemptions.countHeld(p.id(), buyerId) >= p.usageLimitPerUser()) {
+        return buyerId == null ? null : buyerLimit(p, buyerId, null);
+    }
+
+    /**
+     * The buyer's own use limit, and the first-order rule. A buyer whose first order
+     * is still unpaid with a first-order code on it does not get a second one.
+     */
+    private ErrorCode buyerLimit(Promotion p, long buyerId, Long salesOrderId) {
+        if (redemptions.countHeld(p.id(), buyerId) >= p.usageLimitPerUser()) {
             return ErrorCode.PROMO_USER_LIMIT_REACHED;
         }
-        if (buyerId != null && p.newBuyerOnly() && promotions.hasPaidOrder(buyerId)) {
+        if (p.newBuyerOnly() && (promotions.hasPaidOrder(buyerId) || redemptions.holdsNewBuyerCode(buyerId, salesOrderId))) {
             return ErrorCode.PROMO_NEW_BUYER_ONLY;
         }
         return null;
