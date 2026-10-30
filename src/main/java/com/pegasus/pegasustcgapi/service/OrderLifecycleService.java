@@ -75,6 +75,7 @@ public class OrderLifecycleService {
     private final CollectionPort collectionPort;
     private final Clock clock;
     private final StorageService storageService;
+    private CheckoutPromotionService checkoutPromotions;
 
     @Autowired
     public OrderLifecycleService(
@@ -718,6 +719,39 @@ public class OrderLifecycleService {
         }
 
         orderRepository.updateSalesOrderStatus(salesOrderId, newStatus, paidAt, completedAt, cancelledAt);
+        settlePromotions(salesOrderId, newStatus, paidAt, children);
+    }
+
+    /**
+     * Discount code uses follow the money [TCG-569]: spent once the order is paid, given
+     * back when it is called off unpaid. A shop that drops out before payment gives its
+     * own code back at once. Cancelling after payment gives nothing back.
+     */
+    private void settlePromotions(long salesOrderId, String newStatus, OffsetDateTime paidAt,
+            List<SellerOrderRecord> children) {
+        if (checkoutPromotions == null) {
+            return;
+        }
+        if (paidAt != null) {
+            checkoutPromotions.consume(salesOrderId);
+            return;
+        }
+        if ("CANCELLED".equals(newStatus)) {
+            checkoutPromotions.release(salesOrderId);
+            return;
+        }
+        children.stream()
+                .filter(child -> SellerOrderStatus.of(child.getStatus()) == SellerOrderStatus.CANCELLED)
+                .forEach(child -> checkoutPromotions.releaseSellerOrder(child.getId()));
+    }
+
+    /**
+     * Optional so the constructors the unit tests use stay as they are; Spring always
+     * supplies it.
+     */
+    @Autowired(required = false)
+    void setCheckoutPromotions(CheckoutPromotionService checkoutPromotions) {
+        this.checkoutPromotions = checkoutPromotions;
     }
 
     /** True when every sub-order that is not cancelled or refunded is still waiting for payment. */
