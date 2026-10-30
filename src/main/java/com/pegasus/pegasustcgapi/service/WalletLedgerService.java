@@ -47,7 +47,11 @@ public class WalletLedgerService {
         Balance next = bucket == Bucket.AVAILABLE
                 ? new Balance(walletId, current.available().add(change), current.pending())
                 : new Balance(walletId, current.available(), current.pending().add(change));
-        if (next.available().signum() < 0 || next.pending().signum() < 0) {
+        // Pegasus's available balance may sit below zero once promotions have cost more
+        // than commission earned [TCG-570]; from there it must still take the escrow
+        // moves that pass through it. Shops' wallets and anything pending never overdraw.
+        boolean platform = walletId == platformWalletId();
+        if ((next.available().signum() < 0 && !platform) || next.pending().signum() < 0) {
             throw new ConflictException(ErrorCode.INSUFFICIENT_BALANCE);
         }
         wallets.update(next);

@@ -344,13 +344,14 @@ public class OrderRepository {
             String gameNameSnapshot,
             String imageKeySnapshot) {
         return insertOrderItem(sellerOrderId, listingId, catalogVariantId, quantity, unitPrice, lineTotal,
-                BigDecimal.ZERO, unitCostSnapshot, productNameSnapshot, variantLabelSnapshot, conditionSnapshot,
-                gameNameSnapshot, imageKeySnapshot);
+                BigDecimal.ZERO, BigDecimal.ZERO, unitCostSnapshot, productNameSnapshot, variantLabelSnapshot,
+                conditionSnapshot, gameNameSnapshot, imageKeySnapshot);
     }
 
     /**
-     * @param discountAllocated this line's share of the order part's item discounts,
-     *                          so a partial return refunds what the buyer paid for it
+     * @param discountAllocated       this line's share of the order part's item discounts,
+     *                                so a partial return refunds what the buyer paid for it
+     * @param sellerDiscountAllocated the shop-code part of it; the rest is Pegasus's
      */
     public OrderItemRecord insertOrderItem(
             long sellerOrderId,
@@ -360,6 +361,7 @@ public class OrderRepository {
             BigDecimal unitPrice,
             BigDecimal lineTotal,
             BigDecimal discountAllocated,
+            BigDecimal sellerDiscountAllocated,
             BigDecimal unitCostSnapshot,
             String productNameSnapshot,
             String variantLabelSnapshot,
@@ -375,6 +377,7 @@ public class OrderRepository {
                 .set(ORDER_ITEM.UNIT_PRICE, unitPrice)
                 .set(ORDER_ITEM.LINE_TOTAL, lineTotal)
                 .set(ORDER_ITEM.DISCOUNT_ALLOCATED, discountAllocated)
+                .set(ORDER_ITEM.SELLER_DISCOUNT_ALLOCATED, sellerDiscountAllocated)
                 .set(ORDER_ITEM.UNIT_COST_SNAPSHOT, unitCostSnapshot != null ? unitCostSnapshot : BigDecimal.ZERO)
                 .set(ORDER_ITEM.PRODUCT_NAME_SNAPSHOT, productNameSnapshot)
                 .set(ORDER_ITEM.VARIANT_LABEL_SNAPSHOT, variantLabelSnapshot)

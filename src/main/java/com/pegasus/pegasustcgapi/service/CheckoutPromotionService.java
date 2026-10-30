@@ -242,6 +242,14 @@ public class CheckoutPromotionService {
         redemptions.releaseForSellerOrder(sellerOrderId).forEach(promotions::releaseUse);
     }
 
+    /** Codes still on these orders, by sales order, oldest first. */
+    public Map<Long, List<PromotionRedemptionRepository.Applied>> appliedBySalesOrder(Collection<Long> salesOrderIds) {
+        Map<Long, List<PromotionRedemptionRepository.Applied>> out = new LinkedHashMap<>();
+        redemptions.appliedFor(salesOrderIds)
+                .forEach(a -> out.computeIfAbsent(a.salesOrderId(), id -> new ArrayList<>()).add(a));
+        return out;
+    }
+
     /** Runs the calculator on the codes that passed, and folds its answers back into the slots. */
     private Evaluation calculate(Basket basket, List<CodeCheck> slots) {
         List<Promotion> passing = slots.stream().filter(CodeCheck::applied).map(CodeCheck::promotion).toList();

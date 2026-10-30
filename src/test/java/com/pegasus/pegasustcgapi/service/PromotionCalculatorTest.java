@@ -73,6 +73,9 @@ class PromotionCalculatorTest {
         assertThat(GENGAR.lineTotal().subtract(r.discountByLine().get(GENGAR.id()))).isEqualByComparingTo("334.65");
         assertThat(r.discountByLine().get(PIKACHU.id())).isEqualByComparingTo("53.71");
         assertThat(r.discountByLine().get(LUFFY.id())).isEqualByComparingTo("150.94");
+        // Of Gengar's 45.35, the shop's own code is 22.89 and Pegasus's is 22.46.
+        assertThat(r.sellerDiscountByLine().get(GENGAR.id())).isEqualByComparingTo("22.89");
+        assertThat(r.sellerDiscountByLine().get(LUFFY.id())).isZero();
         assertLinesAddUpToSellerDiscounts(r, PRM_O1.lines());
     }
 
@@ -324,6 +327,13 @@ class PromotionCalculatorTest {
                     .map(l -> r.discountByLine().get(l.id()))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             assertThat(onLines).isEqualByComparingTo(s.discountAmount().subtract(s.platformShippingDiscount()));
+            BigDecimal shopOnLines = lines.stream()
+                    .filter(l -> l.sellerProfileId() == s.sellerProfileId())
+                    .map(l -> r.sellerDiscountByLine().get(l.id()))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            assertThat(shopOnLines).isEqualByComparingTo(s.sellerDiscount());
+            lines.stream().filter(l -> l.sellerProfileId() == s.sellerProfileId()).forEach(l -> assertThat(
+                    r.sellerDiscountByLine().get(l.id())).isLessThanOrEqualTo(r.discountByLine().get(l.id())));
         }
     }
 

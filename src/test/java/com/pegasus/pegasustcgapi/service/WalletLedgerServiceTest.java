@@ -62,6 +62,23 @@ class WalletLedgerServiceTest {
     }
 
     @Test
+    void pegasusMayRunAvailableBelowZeroForPromotionsButNeverPending() {
+        when(wallets.platformId()).thenReturn(1L);
+        when(wallets.lock(1L)).thenReturn(
+                new Balance(1L, new BigDecimal("39.00"), new BigDecimal("775.94")),
+                new Balance(1L, new BigDecimal("-10.06"), new BigDecimal("775.94")));
+
+        service.post(1L, Bucket.AVAILABLE, "PROMO_SUBSIDY", Direction.DEBIT,
+                new BigDecimal("49.06"), "SELLER_ORDER", 5L);
+        verify(ledger).insert(1L, "PROMO_SUBSIDY", "DEBIT", new BigDecimal("49.06"),
+                new BigDecimal("765.88"), "SELLER_ORDER", 5L);
+
+        assertThatThrownBy(() -> service.post(1L, Bucket.PENDING, "REFUND_OUT", Direction.DEBIT,
+                new BigDecimal("775.95"), "REFUND", 6L))
+                .isInstanceOf(ConflictException.class);
+    }
+
+    @Test
     void rejectsZeroAndFractionsOfSatang() {
         assertThatThrownBy(() -> service.post(1L, Bucket.AVAILABLE, "PAYMENT_IN",
                 Direction.CREDIT, BigDecimal.ZERO, "PAYMENT", 9L))
