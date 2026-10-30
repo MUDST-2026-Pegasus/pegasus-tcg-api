@@ -468,6 +468,9 @@ public class CheckoutService {
                 BigDecimal allocated = promotion == null ? BigDecimal.ZERO
                         : promotion.result().discountByLine().getOrDefault(sellerItem.id(), BigDecimal.ZERO);
 
+                BigDecimal lineDiscount = promotion != null
+                        ? promotion.result().sellerDiscountByLine().getOrDefault(sellerItem.id(), BigDecimal.ZERO)
+                        : BigDecimal.ZERO;
                 OrderItemRecord orderItem = allocated.signum() == 0
                         ? orderRepository.insertOrderItem(
                                 sellerOrder.getId(),
@@ -490,8 +493,7 @@ public class CheckoutService {
                                 sellerItem.unitPriceAtAdd(),
                                 lineTotal,
                                 allocated,
-                                promotion.result().sellerDiscountByLine()
-                                        .getOrDefault(sellerItem.id(), BigDecimal.ZERO),
+                                lineDiscount,
                                 unitCost,
                                 details.productName(),
                                 details.variantLabel(),
