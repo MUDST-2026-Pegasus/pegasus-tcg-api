@@ -32,6 +32,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -703,7 +704,9 @@ public class OrderLifecycleService {
             if ("CANCELLED".equals(newStatus) && cancelledAt == null) {
                 cancelledAt = now;
             }
-        } else if (statuses.equals(Set.of(SellerOrderStatus.PENDING_PAYMENT))) {
+        } else if (stillUnpaid(statuses)) {
+            // A shop that cancelled before payment drops out; the buyer still owes
+            // for the rest. Calling this PAID would block the payment and the timeout.
             newStatus = "PENDING_PAYMENT";
         } else {
             // Somewhere between paid and delivered: the buyer has paid, and the parent
@@ -715,6 +718,13 @@ public class OrderLifecycleService {
         }
 
         orderRepository.updateSalesOrderStatus(salesOrderId, newStatus, paidAt, completedAt, cancelledAt);
+    }
+
+    /** True when every sub-order that is not cancelled or refunded is still waiting for payment. */
+    private static boolean stillUnpaid(Set<SellerOrderStatus> statuses) {
+        Set<SellerOrderStatus> live = EnumSet.copyOf(statuses);
+        live.removeAll(EnumSet.of(SellerOrderStatus.CANCELLED, SellerOrderStatus.REFUNDED));
+        return live.equals(EnumSet.of(SellerOrderStatus.PENDING_PAYMENT));
     }
 
     // ==========================================

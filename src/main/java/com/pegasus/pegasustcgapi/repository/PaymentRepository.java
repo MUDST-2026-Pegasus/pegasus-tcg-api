@@ -52,13 +52,20 @@ public class PaymentRepository {
                 .and(PAYMENT.STATUS.eq("SUCCEEDED")).fetchOptional();
     }
 
-    public void cancelPendingWhenNoUnpaidSuborders(long orderId, boolean expired) {
-        if (unpaidTotal(orderId).signum() == 0) {
-            dsl.update(PAYMENT).set(PAYMENT.STATUS, expired ? "EXPIRED" : "CANCELLED")
-                    .where(PAYMENT.SALES_ORDER_ID.eq(orderId))
-                    .and(PAYMENT.STATUS.eq("PENDING"))
-                    .execute();
-        }
+    /**
+     * Closes a PENDING payment whose amount no longer matches what the buyer still
+     * owes, e.g. after one shop cancels before payment. The next POST /payments then
+     * starts a new payment for the right amount; left open, the old one would be
+     * handed back by {@link #activeForOrder} and fail the slip with
+     * PAYMENT_AMOUNT_MISMATCH. With nothing left to pay, every PENDING payment closes.
+     */
+    public void cancelStalePendingPayment(long orderId, boolean expired) {
+        BigDecimal stillOwed = unpaidTotal(orderId);
+        dsl.update(PAYMENT).set(PAYMENT.STATUS, expired ? "EXPIRED" : "CANCELLED")
+                .where(PAYMENT.SALES_ORDER_ID.eq(orderId))
+                .and(PAYMENT.STATUS.eq("PENDING"))
+                .and(PAYMENT.AMOUNT.ne(stillOwed))
+                .execute();
     }
 
     public PaymentRecord insert(long orderId, String method, BigDecimal amount, String key) {
