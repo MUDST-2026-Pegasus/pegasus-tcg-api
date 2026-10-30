@@ -167,6 +167,10 @@ public class PromotionRepository {
         }
     }
 
+    public int countFeatured() {
+        return dsl.fetchCount(PROMOTION, PROMOTION.FEATURED_ON_HOME.isTrue());
+    }
+
     /** Ids of the codes on the home-page strip, in display order. */
     public List<Long> findHomeOrder() {
         return dsl.select(PROMOTION.ID)

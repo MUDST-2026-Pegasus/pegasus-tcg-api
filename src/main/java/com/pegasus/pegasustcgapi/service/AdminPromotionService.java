@@ -282,6 +282,10 @@ public class AdminPromotionService {
         if (p.featuredOnHome() && (!p.claimable() || p.visibility() != Visibility.PUBLIC)) {
             invalid("Only public, claimable codes can be featured on the home page");
         }
+        boolean newlyFeatured = p.featuredOnHome() && (current == null || !current.featuredOnHome());
+        if (newlyFeatured && promotions.countFeatured() >= HOME_STRIP_MAX) {
+            invalid("The home page already shows " + HOME_STRIP_MAX + " codes; take one off first");
+        }
         int claimed = current == null ? 0 : current.claimedCount();
         if (p.claimLimit() != null && p.claimLimit() < claimed) {
             invalid("The claim limit cannot be below the " + claimed + " codes already claimed");

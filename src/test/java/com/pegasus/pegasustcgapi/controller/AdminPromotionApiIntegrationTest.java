@@ -247,6 +247,12 @@ class AdminPromotionApiIntegrationTest extends PostgresIntegrationTest {
         for (int i = 0; i < 9; i++) nine.add(create(featurable(code("NINE" + i), false)));
         assertThat(api.put(PATH + "/home-order", admin, Map.of("promotionIds", nine)).status()).isEqualTo(400);
 
+        // The form cannot grow the strip past 8 either.
+        api.put(PATH + "/home-order", admin, Map.of("promotionIds", nine.subList(0, 8)));
+        Map<String, Object> ninth = featurable(code("NINTH"), true);
+        assertThat(api.post(PATH, admin, ninth).errorCode()).isEqualTo("PROMO_INVALID");
+        api.put(PATH + "/home-order", admin, Map.of("promotionIds", List.of(c, a)));
+
         long shop = shopCode(code("HOMESHOP"));
         assertThat(api.put(PATH + "/home-order", admin, Map.of("promotionIds", List.of(a, shop))).errorCode())
                 .isEqualTo("PROMO_INVALID");
