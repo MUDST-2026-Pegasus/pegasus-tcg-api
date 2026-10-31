@@ -27,6 +27,7 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -167,7 +168,9 @@ public class AdminPromotionService {
     @Transactional
     public AdminPromotion end(long id, long adminId) {
         Promotion current = lockPlatform(id);
-        OffsetDateTime now = now();
+        // timestamptz keeps microseconds and rounds to the nearest one; truncating keeps
+        // the stored end at or before this read, so the code reads as ended right away.
+        OffsetDateTime now = now().truncatedTo(ChronoUnit.MICROS);
         if (!current.endsAt().isAfter(now)) return get(id);
         if (!current.startsAt().isBefore(now)) {
             invalid("This code has not started; delete or pause it instead");
