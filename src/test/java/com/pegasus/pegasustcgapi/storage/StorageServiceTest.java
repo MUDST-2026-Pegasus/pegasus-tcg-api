@@ -34,10 +34,14 @@ class StorageServiceTest {
 
     @BeforeEach
     void setUp() {
+        service = serviceWithPublicRead(false);
+    }
+
+    private StorageService serviceWithPublicRead(boolean publicRead) {
         StorageProperties properties = new StorageProperties("http://localhost:9000",
-                "http://localhost:9000", "access", "secret", "pegasus",
-                Duration.ofMinutes(5), Duration.ofMinutes(15));
-        service = new StorageService(client, client, properties);
+                "https://s3.example.com/", "access", "secret", "pegasus",
+                Duration.ofMinutes(5), Duration.ofMinutes(15), publicRead);
+        return new StorageService(client, client, properties);
     }
 
     /** What MinIO reports for the object under {@link #KEY}. */
@@ -140,5 +144,27 @@ class StorageServiceTest {
                 .willReturn("http://localhost:9000/pegasus/seed/games/pokemon.png?X-Amz-Signature=abc");
 
         assertThat(service.readUrl("seed/games/pokemon.png")).contains("seed/games/pokemon.png");
+    }
+
+    @Test
+    @DisplayName("with a public-read bucket, a public key goes out unsigned so the browser and CDN can cache it")
+    void publicKeyIsPlainWhenBucketIsPublic() {
+        StorageService publicRead = serviceWithPublicRead(true);
+
+        assertThat(publicRead.readUrl("seed/products/op11 box.jpg"))
+                .isEqualTo("https://s3.example.com/pegasus/seed/products/op11%20box.jpg");
+        assertThat(publicRead.presignDownload(KEY)).isEqualTo("https://s3.example.com/pegasus/" + KEY);
+
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    @DisplayName("with a public-read bucket, a private key is still signed")
+    void privateKeyIsStillSignedWhenBucketIsPublic() throws Exception {
+        given(client.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
+                .willReturn("https://s3.example.com/pegasus/payments/2026/09/slip.png?X-Amz-Signature=abc");
+
+        assertThat(serviceWithPublicRead(true).presignDownload("payments/2026/09/slip.png"))
+                .contains("X-Amz-Signature");
     }
 }

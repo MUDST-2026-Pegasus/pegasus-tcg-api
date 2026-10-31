@@ -10,14 +10,19 @@ import io.minio.RemoveObjectArgs;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 /**
  * The one place that talks to object storage. Everything else — catalogue images,
@@ -75,8 +80,18 @@ public class StorageService {
         return properties.uploadUrlTtl().toSeconds();
     }
 
-    /** A short-lived read URL, so the bucket itself can stay private. */
+    /**
+     * A short-lived read URL, so the bucket itself can stay private.
+     *
+     * <p>The exception is a key under a public prefix when the bucket is set to let
+     * anyone read those ({@code pegasus.storage.public-read}). It goes out as a plain
+     * URL that is the same on every call, so the browser and the CDN can cache it;
+     * a signed one changes each time and is always a cache miss.
+     */
     public String presignDownload(String objectKey) {
+        if (properties.publicRead() && isPublic(objectKey)) {
+            return publicUrl(objectKey);
+        }
         return presign(Method.GET, objectKey, properties.downloadUrlTtl());
     }
 
@@ -96,7 +111,7 @@ public class StorageService {
         if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("/")) {
             return value;
         }
-        if (PUBLIC_PREFIXES.stream().noneMatch(value::startsWith)) {
+        if (!isPublic(value)) {
             log.warn("Not signing {} for a public page: it is outside {}", value, PUBLIC_PREFIXES);
             return null;
         }
@@ -179,6 +194,19 @@ public class StorageService {
         } catch (Exception e) {
             throw storageFailure("delete", objectKey, e);
         }
+    }
+
+    private static boolean isPublic(String objectKey) {
+        return PUBLIC_PREFIXES.stream().anyMatch(objectKey::startsWith);
+    }
+
+    /** {@code <public endpoint>/<bucket>/<key>}, each part of the key escaped on its own. */
+    private String publicUrl(String objectKey) {
+        String path = Arrays.stream(objectKey.split("/", -1))
+                .map(part -> URLEncoder.encode(part, StandardCharsets.UTF_8).replace("+", "%20"))
+                .collect(Collectors.joining("/"));
+        return StringUtils.trimTrailingCharacter(properties.publicEndpoint(), '/')
+                + "/" + properties.bucket() + "/" + path;
     }
 
     private String presign(Method method, String objectKey, Duration ttl) {

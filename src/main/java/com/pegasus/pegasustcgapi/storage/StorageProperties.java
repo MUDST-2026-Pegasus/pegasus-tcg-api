@@ -16,6 +16,8 @@ import org.springframework.validation.annotation.Validated;
  *                        would hand the browser a URL it cannot resolve.
  * @param uploadUrlTtl    how long a presigned PUT stays valid.
  * @param downloadUrlTtl  how long a presigned GET stays valid.
+ * @param publicRead      true when the bucket lets anyone read the public prefixes,
+ *                        so their keys can go out unsigned and be cached.
  */
 @Validated
 @ConfigurationProperties("pegasus.storage")
@@ -27,7 +29,8 @@ public record StorageProperties(
         @NotBlank String secretKey,
         @NotBlank String bucket,
         @NotNull Duration uploadUrlTtl,
-        @NotNull Duration downloadUrlTtl) {
+        @NotNull Duration downloadUrlTtl,
+        boolean publicRead) {
 
     /** True when the app and the browser reach MinIO by the same name. */
     public boolean sharesEndpoint() {

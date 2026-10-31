@@ -85,6 +85,11 @@ pegasus:
     # Long enough to pick a file and upload it, short enough that a leaked link is worthless.
     upload-url-ttl: 5m
     download-url-ttl: 15m
+    # When the bucket lets anyone read catalog/ and seed/, those keys go out as plain
+    # URLs instead of signed ones. A signed URL changes on every call, so neither the
+    # browser nor the CDN in front of MinIO can cache it. Turn this on only after the
+    # bucket policy is in place, or every catalogue picture answers 403.
+    public-read: ${MINIO_PUBLIC_READ:false}
 
 springdoc:
   api-docs:
