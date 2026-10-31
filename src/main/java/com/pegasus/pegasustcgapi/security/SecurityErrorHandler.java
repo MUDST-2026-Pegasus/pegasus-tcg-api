@@ -47,7 +47,8 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
         write(request, response, ErrorCode.ACCESS_DENIED);
     }
 
-    private void write(HttpServletRequest request, HttpServletResponse response, ErrorCode code)
+    /** Any other rejection made in a filter, in the same envelope. */
+    public void write(HttpServletRequest request, HttpServletResponse response, ErrorCode code)
             throws IOException {
 
         ApiError detail = new ApiError(

@@ -155,15 +155,21 @@ public class AdminPromotionService {
     /**
      * Pausing twice keeps the first pause and its reason. A shop's code needs a
      * reason, because the shop is shown it.
+     *
+     * <p>A shop's own pause is the exception: the shop could lift it again, so
+     * Pegasus's pause replaces it. The shop never gives a reason, Pegasus always
+     * does, which is how the two are told apart.
      */
     @Transactional
     public AdminPromotion pause(long id, PromotionActionRequests.Pause request, long adminId) {
         Promotion current = lock(id);
-        String reason = request.reason() == null || request.reason().isBlank() ? null : request.reason().strip();
+        String reason = cleanReason(request.reason());
         if (current.ownerType() == OwnerType.SELLER && reason == null) {
             throw new BadRequestException(ErrorCode.PROMO_INVALID, "A reason is required to pause a shop's code");
         }
-        if (current.pausedAt() == null) {
+        boolean pausedByShop = current.ownerType() == OwnerType.SELLER
+                && current.pausedAt() != null && current.pauseReason() == null;
+        if (current.pausedAt() == null || pausedByShop) {
             promotions.pause(id, adminId, reason, now());
             audit("pause", id, current.code(), adminId, notifyNote(current, request.notifySellerOrFalse())
                     + (reason == null ? "" : " reason=\"" + reason + "\""));
@@ -304,6 +310,13 @@ public class AdminPromotionService {
     private static String notifyNote(Promotion p, boolean notifySeller) {
         return p.ownerType() == OwnerType.SELLER
                 ? "seller=" + p.sellerProfileId() + " notifySeller=" + notifySeller : "";
+    }
+
+    /** Control characters out, so a reason stays one line in the shop's view and in the audit log. */
+    private static String cleanReason(String reason) {
+        if (reason == null) return null;
+        String clean = reason.replaceAll("\\p{Cntrl}", " ").strip();
+        return clean.isEmpty() ? null : clean;
     }
 
     private static void invalid(String message) {

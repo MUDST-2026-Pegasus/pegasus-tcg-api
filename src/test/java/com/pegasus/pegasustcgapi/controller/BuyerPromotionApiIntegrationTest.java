@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.controller;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.Promotion.PROMOTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.PromotionRedemption.PROMOTION_REDEMPTION;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pegasus.pegasustcgapi.dto.CartItemRequest;
@@ -213,6 +214,11 @@ class BuyerPromotionApiIntegrationTest extends PostgresIntegrationTest {
         assertThat(after.path("remainingClaims").asInt()).isEqualTo(4);
 
         assertThat(api.get("/api/v1/u/" + data.buyer().username() + "/promotions", null).data()).isEmpty();
+
+        // A suspended shop's strip is empty.
+        dsl.update(SELLER_PROFILE).set(SELLER_PROFILE.STATUS, "SUSPENDED")
+                .where(SELLER_PROFILE.ID.eq(shop.profileId())).execute();
+        assertThat(api.get("/api/v1/u/" + username + "/promotions", null).data()).isEmpty();
     }
 
     @Test

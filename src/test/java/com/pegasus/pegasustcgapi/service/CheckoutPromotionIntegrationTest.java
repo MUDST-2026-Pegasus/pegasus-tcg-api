@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.Cart.CART;
+import static com.pegasus.pegasustcgapi.jooq.tables.CartItem.CART_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.Promotion.PROMOTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.PromotionRedemption.PROMOTION_REDEMPTION;
@@ -251,6 +253,77 @@ class CheckoutPromotionIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void oneBuyerRacingTwoCheckoutsUsesAOncePerBuyerCodeOnce() throws Exception {
+        String once = insert(platform(code("ONCERACE"), DiscountType.FIXED, "10", null, "0")).code;
+        AuthPrincipal buyer = buyerWithFigmaCart();
+        List<Long> lines = cartItemIds(buyer);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<String>> outcomes = new ArrayList<>();
+            // Two orders from the same cart, each with its own line, so stock does not decide it.
+            for (Long line : lines.subList(0, 2)) {
+                Callable<String> attempt = () -> {
+                    start.await();
+                    try {
+                        checkout.checkout(buyer, key(), null, new CheckoutRequest(null, deliveries(), null,
+                                List.of(line), once, Map.of(), null));
+                        return "PLACED";
+                    } catch (ApiException e) {
+                        return e.errorCode().name();
+                    }
+                };
+                outcomes.add(pool.submit(attempt));
+            }
+            start.countDown();
+            List<String> results = List.of(outcomes.get(0).get(), outcomes.get(1).get());
+            assertThat(results).containsOnlyOnce("PLACED");
+            assertThat(results).anyMatch(r -> r.equals("PROMO_CHANGED") || r.equals("PROMO_USER_LIMIT_REACHED"));
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(promotions.findByCode(once).orElseThrow().usedCount()).isEqualTo(1);
+    }
+
+    @Test
+    void aFirstOrderCodeIsNotGivenTwiceWhileTheFirstOrderIsUnpaid() {
+        String first = insert(platform(code("NEWBIE"), DiscountType.FIXED, "10", null, "0").newBuyerOnly()).code;
+        String other = insert(platform(code("NEWBIE2"), DiscountType.FIXED, "10", null, "0").newBuyerOnly()).code;
+        String shopFirst = insert(shop(code("SHOPNEW"), minmin, DiscountType.FIXED, "10", "0").newBuyerOnly()).code;
+        AuthPrincipal buyer = buyerWithFigmaCart();
+        List<Long> lines = cartItemIds(buyer);
+
+        // A Pegasus and a shop first-order code may share the one first order.
+        checkout.checkout(buyer, key(), null, new CheckoutRequest(null, deliveries(), null,
+                List.of(lines.get(0)), first, Map.of(minmin.profileId(), shopFirst), null));
+
+        assertThat(outcome(buyer, other, null).status()).isEqualTo("PROMO_NEW_BUYER_ONLY");
+        assertThatThrownBy(() -> checkout.checkout(buyer, key(), null, new CheckoutRequest(null, deliveries(),
+                null, List.of(lines.get(2)), other, Map.of(), null)))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.errorCode().name()).isEqualTo("PROMO_NEW_BUYER_ONLY"));
+    }
+
+    @Test
+    void aPrivateCodeInTheWrongSlotReadsAsUnknown() {
+        AuthPrincipal buyer = buyerWithFigmaCart();
+        String hidden = insert(shop(code("HIDDEN"), cardVault, DiscountType.FIXED, "10", "0").hidden()).code;
+        String shown = insert(shop(code("SHOWN"), cardVault, DiscountType.FIXED, "10", "0")).code;
+
+        CodeOutcome privateOne = outcome(buyer, null, hidden);
+        assertThat(privateOne.status()).isEqualTo("PROMO_NOT_FOUND");
+        assertThat(privateOne.ownerType()).isNull();
+        assertThat(outcome(buyer, null, shown).status()).isEqualTo("PROMO_WRONG_SELLER");
+        assertThat(outcome(buyer, hidden, null).status()).isEqualTo("PROMO_NOT_FOUND");
+
+        // A slot for a shop not in the basket is refused without looking the code up.
+        CodeOutcome stranger = checkout.promoPreview(buyer, null, new PromoPreviewRequest(null, deliveries(),
+                null, Map.of(Long.MAX_VALUE, hidden), null)).codes().getFirst();
+        assertThat(stranger.status()).isEqualTo("PROMO_WRONG_SELLER");
+        assertThat(stranger.ownerType()).isNull();
+    }
+
+    @Test
     void paymentTimeoutGivesTheUseBack() {
         AuthPrincipal buyer = buyerWithFigmaCart();
         CheckoutResponse order = checkout.checkout(buyer, key(), null, request(pegasus10,
@@ -378,6 +451,11 @@ class CheckoutPromotionIntegrationTest extends PostgresIntegrationTest {
         return buyer;
     }
 
+    private List<Long> cartItemIds(AuthPrincipal buyer) {
+        return dsl.select(CART_ITEM.ID).from(CART_ITEM).join(CART).on(CART.ID.eq(CART_ITEM.CART_ID))
+                .where(CART.USER_ID.eq(buyer.userId())).orderBy(CART_ITEM.ID).fetch(CART_ITEM.ID);
+    }
+
     private CodeOutcome outcome(AuthPrincipal buyer, String platformCode, String minminCode) {
         Map<Long, String> shops = minminCode == null ? Map.of() : Map.of(minmin.profileId(), minminCode);
         return checkout.promoPreview(buyer, null,
@@ -477,6 +555,7 @@ class CheckoutPromotionIntegrationTest extends PostgresIntegrationTest {
         Integer claimLimit;
         int claimed;
         boolean newBuyerOnly;
+        Visibility visibility = Visibility.PUBLIC;
 
         Draft(String code, OwnerType owner, Long shop, DiscountType type, String value, String max, String minSpend) {
             this.code = code;
@@ -523,6 +602,11 @@ class CheckoutPromotionIntegrationTest extends PostgresIntegrationTest {
             return this;
         }
 
+        Draft hidden() {
+            visibility = Visibility.PRIVATE;
+            return this;
+        }
+
         Draft newBuyerOnly() {
             newBuyerOnly = true;
             return this;
@@ -532,7 +616,7 @@ class CheckoutPromotionIntegrationTest extends PostgresIntegrationTest {
             return new NewPromotion(code, code, null, owner, shop, type,
                     type == DiscountType.FREE_SHIPPING ? BigDecimal.ZERO : new BigDecimal(value),
                     max == null ? null : new BigDecimal(max), new BigDecimal(minSpend), scope, scopeIds,
-                    Visibility.PUBLIC, newBuyerOnly, limit, 1, claimable, claimRequired, claimLimit, false, null,
+                    visibility, newBuyerOnly, limit, 1, claimable, claimRequired, claimLimit, false, null,
                     starts, ends, null);
         }
     }

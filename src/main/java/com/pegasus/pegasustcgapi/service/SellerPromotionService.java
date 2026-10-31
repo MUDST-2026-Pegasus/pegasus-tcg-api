@@ -38,7 +38,8 @@ import org.springframework.transaction.annotation.Transactional;
  * A shop's own discount codes [TCG-568]. The shop pays for them; they cover every
  * item it sells and are PERCENT or FIXED. Creating one needs a VERIFIED shop.
  * A code that is not the caller's — another shop's or Pegasus's — is 404, so the
- * API does not confirm it exists.
+ * API does not confirm it exists. Editing or resuming a code also needs a VERIFIED
+ * shop; a suspended one can still read, pause and delete its codes.
  *
  * <p>Editing a used or claimed code follows {@link PromotionEditRules}, as for
  * Pegasus codes. A code Pegasus paused can only be resumed by Pegasus.
@@ -116,7 +117,7 @@ public class SellerPromotionService {
 
     @Transactional
     public SellerPromotion update(long userId, long id, SellerPromotionRequest request) {
-        SellerProfile shop = sellers.requireProfile(userId);
+        SellerProfile shop = sellers.requireVerifiedSeller(userId);
         Promotion current = lockOwn(id, shop.id());
         NewPromotion next = draft(request, shop.id(), current.createdBy());
         validate(next, current);
@@ -161,7 +162,7 @@ public class SellerPromotionService {
     /** 409 {@code PROMO_PAUSED} when Pegasus paused it: only Pegasus can lift its own pause. */
     @Transactional
     public SellerPromotion resume(long userId, long id) {
-        SellerProfile shop = sellers.requireProfile(userId);
+        SellerProfile shop = sellers.requireVerifiedSeller(userId);
         Promotion current = lockOwn(id, shop.id());
         if (current.pausedAt() != null) {
             if (!Objects.equals(current.pausedBy(), userId)) {

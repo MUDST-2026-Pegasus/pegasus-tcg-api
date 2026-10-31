@@ -19,8 +19,11 @@ public record PromoPreviewRequest(
         List<@NotNull @Positive Long> cartItemIds,
         Map<Long, Long> shippingOptionBySeller,
         @Size(max = 20) String platformCode,
-        Map<Long, @Size(max = 20) String> sellerCodes,
+        @Size(max = MAX_SHOP_CODES) Map<Long, @Size(max = 20) String> sellerCodes,
         Boolean autoPick) {
+
+    /** More shops than any cart holds; a cap so one request cannot try thousands of codes. */
+    public static final int MAX_SHOP_CODES = 50;
 
     public boolean autoPickOrFalse() {
         return Boolean.TRUE.equals(autoPick);

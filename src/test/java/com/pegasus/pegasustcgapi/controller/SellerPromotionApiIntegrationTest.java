@@ -212,6 +212,45 @@ class SellerPromotionApiIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void pegasusPausingAShopPausedCodeTakesThePauseOver() {
+        long id = create(form(code("OVER")));
+        api.post(PATH + "/" + id + "/pause", seller, Map.of());
+
+        String admin = data.bearer(data.admin());
+        Response taken = api.post(ADMIN_PATH + "/" + id + "/pause", admin,
+                Map.of("reason", "Fake\r\npromotion.resume id=1"));
+        assertThat(taken.status()).isEqualTo(200);
+
+        JsonNode seen = api.get(PATH + "/" + id, seller).data();
+        assertThat(seen.path("pausedBy").asString()).isEqualTo("ADMIN");
+        // Control characters do not reach the shop's view or the audit log.
+        assertThat(seen.path("pauseReason").asString()).isEqualTo("Fake  promotion.resume id=1");
+        Response blocked = api.post(PATH + "/" + id + "/resume", seller, Map.of());
+        assertThat(blocked.status()).isEqualTo(409);
+        assertThat(blocked.errorCode()).isEqualTo("PROMO_PAUSED");
+
+        // A second Pegasus pause keeps the first reason.
+        api.post(ADMIN_PATH + "/" + id + "/pause", admin, Map.of("reason", "Another"));
+        assertThat(api.get(PATH + "/" + id, seller).data().path("pauseReason").asString())
+                .isEqualTo("Fake  promotion.resume id=1");
+    }
+
+    @Test
+    void aSuspendedShopCanPauseButNotEditOrResume() {
+        long id = create(form(code("SUSP")));
+        dsl.update(SELLER_PROFILE).set(SELLER_PROFILE.STATUS, "SUSPENDED")
+                .where(SELLER_PROFILE.ID.eq(shop.profileId())).execute();
+
+        assertThat(api.post(PATH + "/" + id + "/pause", seller, Map.of()).status()).isEqualTo(200);
+        Response resumed = api.post(PATH + "/" + id + "/resume", seller, Map.of());
+        assertThat(resumed.status()).isEqualTo(403);
+        assertThat(resumed.errorCode()).isEqualTo("SELLER_NOT_VERIFIED");
+        Response edited = api.put(PATH + "/" + id, seller, form(code("SUSP")));
+        assertThat(edited.status()).isEqualTo(403);
+        assertThat(edited.errorCode()).isEqualTo("SELLER_NOT_VERIFIED");
+    }
+
+    @Test
     void redemptionsShowOnlyTheBuyersDisplayNameAndFeedTheSummary() {
         Response before = api.get(PATH + "/summary", seller);
         long id = create(form(code("SOLD")));

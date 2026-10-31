@@ -38,7 +38,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
                 "pegasus.order.auto-release-cron=-",
                 "pegasus.cart.guest-purge-cron=-",
                 "pegasus.pricing.market-job-cron=-",
-                "pegasus.payment.mock-enabled=true"
+                "pegasus.payment.mock-enabled=true",
+                // Every test calls from localhost; the cap itself is covered by PromoRateLimitFilterTest.
+                "pegasus.promo.rate-limit-per-minute=1000000"
         })
 @Import(IntegrationTestConfig.class)
 public abstract class PostgresIntegrationTest {

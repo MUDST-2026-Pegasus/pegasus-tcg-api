@@ -131,6 +131,8 @@ public enum ErrorCode {
     FILE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "File is larger than this upload allows"),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "File was never uploaded"),
 
+    RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many requests; try again in a minute"),
+
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error"),
     STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Object storage is unavailable");
 

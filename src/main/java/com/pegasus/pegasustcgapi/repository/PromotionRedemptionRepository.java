@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.repository;
 import static com.pegasus.pegasustcgapi.jooq.tables.Promotion.PROMOTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.PromotionRedemption.PROMOTION_REDEMPTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
+import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -44,6 +45,33 @@ public class PromotionRedemptionRepository {
     }
 
     /** How many times this buyer holds or has spent the code; released uses do not count. */
+    /**
+     * Holds the buyer's account row until the checkout commits, so two checkouts by
+     * one buyer take their codes one after the other and each sees the other's uses.
+     *
+     * <p>NO KEY UPDATE, not UPDATE: the order rows already inserted hold a KEY SHARE
+     * on this row through their foreign key, and FOR UPDATE would deadlock on it.
+     */
+    public void lockBuyer(long buyerId) {
+        dsl.select(USER_ACCOUNT.ID).from(USER_ACCOUNT).where(USER_ACCOUNT.ID.eq(buyerId)).forNoKeyUpdate().fetch();
+    }
+
+    /**
+     * Whether an unpaid order of this buyer already holds a first-order-only code.
+     *
+     * @param exceptSalesOrderId the order being placed, whose own codes do not count; null for none
+     */
+    public boolean holdsNewBuyerCode(long buyerId, Long exceptSalesOrderId) {
+        return dsl.fetchExists(dsl.selectOne()
+                .from(PROMOTION_REDEMPTION)
+                .join(PROMOTION).on(PROMOTION.ID.eq(PROMOTION_REDEMPTION.PROMOTION_ID))
+                .where(PROMOTION_REDEMPTION.BUYER_ID.eq(buyerId))
+                .and(PROMOTION_REDEMPTION.STATUS.eq(RESERVED))
+                .and(PROMOTION.NEW_BUYER_ONLY.isTrue())
+                .and(exceptSalesOrderId == null ? DSL.noCondition()
+                        : PROMOTION_REDEMPTION.SALES_ORDER_ID.ne(exceptSalesOrderId)));
+    }
+
     public int countHeld(long promotionId, long buyerId) {
         return dsl.fetchCount(PROMOTION_REDEMPTION, PROMOTION_REDEMPTION.PROMOTION_ID.eq(promotionId)
                 .and(PROMOTION_REDEMPTION.BUYER_ID.eq(buyerId))

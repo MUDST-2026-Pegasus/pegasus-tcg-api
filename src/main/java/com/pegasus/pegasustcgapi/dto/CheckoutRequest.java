@@ -25,7 +25,7 @@ public record CheckoutRequest(
 
         @Size(max = 20) String platformCode,
 
-        Map<Long, @Size(max = 20) String> sellerCodes,
+        @Size(max = PromoPreviewRequest.MAX_SHOP_CODES) Map<Long, @Size(max = 20) String> sellerCodes,
 
         BigDecimal expectedGrandTotal) {
 
