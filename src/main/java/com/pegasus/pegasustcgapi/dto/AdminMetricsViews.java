@@ -49,11 +49,16 @@ public final class AdminMetricsViews {
             BigDecimal averageRatePercent) {
     }
 
+    /**
+     * @param promotionCost what Pegasus paid shops back for Pegasus codes (PROMO_SUBSIDY
+     *                      ledger entries), by when the money was released
+     */
     public record Stats(
             MoneyStat gmv,
             CountStat newSellers,
             ActiveListingsStat activeListings,
-            CommissionStat commission) {
+            CommissionStat commission,
+            MoneyStat promotionCost) {
     }
 
     /** @param month {@code YYYY-MM} */

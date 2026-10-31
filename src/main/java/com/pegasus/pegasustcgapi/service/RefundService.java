@@ -60,7 +60,7 @@ public class RefundService {
         var sellerOrder = orders.findSellerOrderById(sellerOrderId).orElseThrow();
         var hold = escrow.lock(sellerOrderId).orElse(null);
         if (hold == null) {
-            payments.cancelPendingWhenNoUnpaidSuborders(sellerOrder.getSalesOrderId(), actorUserId == null);
+            payments.cancelStalePendingPayment(sellerOrder.getSalesOrderId(), actorUserId == null);
             return;
         }
         if (!"HELD".equals(hold.getStatus())) throw new ConflictException(ErrorCode.REFUND_EXCEEDS_REFUNDABLE);

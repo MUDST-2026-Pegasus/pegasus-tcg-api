@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.service;
 
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
+import com.pegasus.pegasustcgapi.dto.AppliedPromotion;
 import com.pegasus.pegasustcgapi.dto.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.OrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.OrderItemDetailsResponse;
@@ -19,6 +20,7 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderStatusHistoryRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.ShipmentRecord;
+import com.pegasus.pegasustcgapi.model.Promotion;
 import com.pegasus.pegasustcgapi.model.SellerOrderStatus;
 import com.pegasus.pegasustcgapi.model.SellerProfile;
 import com.pegasus.pegasustcgapi.port.CollectionPort;
@@ -26,15 +28,20 @@ import com.pegasus.pegasustcgapi.port.InventoryPort;
 import com.pegasus.pegasustcgapi.port.LedgerPort;
 import com.pegasus.pegasustcgapi.port.SellerPort;
 import com.pegasus.pegasustcgapi.repository.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.PromotionRedemptionRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -74,6 +81,7 @@ public class OrderLifecycleService {
     private final CollectionPort collectionPort;
     private final Clock clock;
     private final StorageService storageService;
+    private CheckoutPromotionService checkoutPromotions;
 
     @Autowired
     public OrderLifecycleService(
@@ -703,7 +711,9 @@ public class OrderLifecycleService {
             if ("CANCELLED".equals(newStatus) && cancelledAt == null) {
                 cancelledAt = now;
             }
-        } else if (statuses.equals(Set.of(SellerOrderStatus.PENDING_PAYMENT))) {
+        } else if (stillUnpaid(statuses)) {
+            // A shop that cancelled before payment drops out; the buyer still owes
+            // for the rest. Calling this PAID would block the payment and the timeout.
             newStatus = "PENDING_PAYMENT";
         } else {
             // Somewhere between paid and delivered: the buyer has paid, and the parent
@@ -715,6 +725,76 @@ public class OrderLifecycleService {
         }
 
         orderRepository.updateSalesOrderStatus(salesOrderId, newStatus, paidAt, completedAt, cancelledAt);
+        settlePromotions(salesOrderId, newStatus, paidAt, children);
+    }
+
+    /** Codes still on these orders; none when the service was built without discount codes. */
+    private Map<Long, List<PromotionRedemptionRepository.Applied>> appliedPromotions(List<Long> salesOrderIds) {
+        return checkoutPromotions == null ? Map.of() : checkoutPromotions.appliedBySalesOrder(salesOrderIds);
+    }
+
+    /** One shop's view: its own code, and its share of the Pegasus code. */
+    private static List<AppliedPromotion> shopShare(SellerOrderRecord so,
+            List<PromotionRedemptionRepository.Applied> applied) {
+        List<AppliedPromotion> out = new ArrayList<>();
+        for (PromotionRedemptionRepository.Applied a : applied) {
+            if ("SELLER".equals(a.ownerType()) && Objects.equals(a.sellerOrderId(), so.getId())) {
+                out.add(toApplied(a));
+            } else if ("PLATFORM".equals(a.ownerType()) && money(so.getPlatformDiscountAmount()).signum() > 0) {
+                out.add(new AppliedPromotion(a.code(), Promotion.OwnerType.PLATFORM, null,
+                        money(so.getPlatformDiscountAmount()), a.status()));
+            }
+        }
+        return out;
+    }
+
+    /** The columns are NOT NULL; records a test builds by hand may leave them unset. */
+    private static BigDecimal money(BigDecimal amount) {
+        return amount == null ? BigDecimal.ZERO : amount;
+    }
+
+    private static AppliedPromotion toApplied(PromotionRedemptionRepository.Applied a) {
+        return new AppliedPromotion(a.code(), Promotion.OwnerType.valueOf(a.ownerType()), a.sellerProfileId(),
+                a.amount(), a.status());
+    }
+
+    /**
+     * Discount code uses follow the money [TCG-569]: spent once the order is paid, given
+     * back when it is called off unpaid. A shop that drops out before payment gives its
+     * own code back at once. Cancelling after payment gives nothing back.
+     */
+    private void settlePromotions(long salesOrderId, String newStatus, OffsetDateTime paidAt,
+            List<SellerOrderRecord> children) {
+        if (checkoutPromotions == null) {
+            return;
+        }
+        if (paidAt != null) {
+            checkoutPromotions.consume(salesOrderId);
+            return;
+        }
+        if ("CANCELLED".equals(newStatus)) {
+            checkoutPromotions.release(salesOrderId);
+            return;
+        }
+        children.stream()
+                .filter(child -> SellerOrderStatus.of(child.getStatus()) == SellerOrderStatus.CANCELLED)
+                .forEach(child -> checkoutPromotions.releaseSellerOrder(child.getId()));
+    }
+
+    /**
+     * Optional so the constructors the unit tests use stay as they are; Spring always
+     * supplies it.
+     */
+    @Autowired(required = false)
+    void setCheckoutPromotions(CheckoutPromotionService checkoutPromotions) {
+        this.checkoutPromotions = checkoutPromotions;
+    }
+
+    /** True when every sub-order that is not cancelled or refunded is still waiting for payment. */
+    private static boolean stillUnpaid(Set<SellerOrderStatus> statuses) {
+        Set<SellerOrderStatus> live = EnumSet.copyOf(statuses);
+        live.removeAll(EnumSet.of(SellerOrderStatus.CANCELLED, SellerOrderStatus.REFUNDED));
+        return live.equals(EnumSet.of(SellerOrderStatus.PENDING_PAYMENT));
     }
 
     // ==========================================
@@ -786,6 +866,7 @@ public class OrderLifecycleService {
                 .toList();
         Map<Long, SellerOrderDetailsResponse> sellerResponsesById = sellerDetailsById(allSellerOrders);
         Set<Long> underReview = orderRepository.findSalesOrderIdsWithPaymentUnderReview(salesOrderIds);
+        Map<Long, List<PromotionRedemptionRepository.Applied>> appliedBySalesOrder = appliedPromotions(salesOrderIds);
         Duration cancelWindow = platformSettingService.getHours(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS);
 
         return salesOrders.stream().map(so -> {
@@ -793,6 +874,9 @@ public class OrderLifecycleService {
                     sellerOrdersByParent.getOrDefault(so.getId(), List.of()).stream()
                             .map(child -> sellerResponsesById.get(child.getId()))
                             .toList();
+            List<AppliedPromotion> promotions = appliedBySalesOrder.getOrDefault(so.getId(), List.of()).stream()
+                    .map(OrderLifecycleService::toApplied)
+                    .toList();
 
             return new OrderDetailsResponse(
                     so.getId(),
@@ -813,7 +897,13 @@ public class OrderLifecycleService {
                     so.getCancelledAt(),
                     sellerResponses,
                     underReview.contains(so.getId()),
-                    so.getPaidAt() != null ? so.getPaidAt().plus(cancelWindow) : null);
+                    so.getPaidAt() != null ? so.getPaidAt().plus(cancelWindow) : null,
+                    sellerResponses.stream().map(SellerOrderDetailsResponse::sellerDiscount)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add),
+                    sellerResponses.stream().map(SellerOrderDetailsResponse::platformDiscount)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add),
+                    promotions,
+                    so.getPaidAt() == null && "PENDING_PAYMENT".equals(so.getStatus()) && !promotions.isEmpty());
         }).toList();
     }
 
@@ -859,6 +949,8 @@ public class OrderLifecycleService {
 
         List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
         Map<Long, String> sellerNames = orderRepository.findSellerNamesByProfileIds(profileIds);
+        Map<Long, List<PromotionRedemptionRepository.Applied>> appliedBySalesOrder = appliedPromotions(
+                sellerOrders.stream().map(SellerOrderRecord::getSalesOrderId).distinct().toList());
 
         Map<Long, SellerOrderDetailsResponse> responses = new LinkedHashMap<>();
         for (SellerOrderRecord so : sellerOrders) {
@@ -886,7 +978,14 @@ public class OrderLifecycleService {
                                         oi.getGameNameSnapshot(),
                                         oi.getImageKeySnapshot(),
                                         imageUrl,
-                                        unitIdsByItem.getOrDefault(oi.getId(), List.of()));
+                                        unitIdsByItem.getOrDefault(oi.getId(), List.of()),
+                                        money(oi.getDiscountAllocated()),
+                                        money(oi.getSellerDiscountAllocated()),
+                                        money(oi.getDiscountAllocated())
+                                                .subtract(money(oi.getSellerDiscountAllocated())),
+                                        oi.getLineTotal().subtract(money(oi.getDiscountAllocated()))
+                                                .divide(BigDecimal.valueOf(oi.getQuantity()), 2,
+                                                        RoundingMode.HALF_UP));
                             })
                             .toList();
 
@@ -920,6 +1019,8 @@ public class OrderLifecycleService {
                                     h.getCreatedAt()))
                             .toList();
 
+            List<AppliedPromotion> promotions = shopShare(so,
+                    appliedBySalesOrder.getOrDefault(so.getSalesOrderId(), List.of()));
             responses.put(so.getId(), new SellerOrderDetailsResponse(
                     so.getId(),
                     so.getSalesOrderId(),
@@ -943,7 +1044,13 @@ public class OrderLifecycleService {
                     itemResponses,
                     shipmentResponses,
                     historyResponses,
-                    sellerNames.get(so.getSellerProfileId())));
+                    sellerNames.get(so.getSellerProfileId()),
+                    money(so.getSellerDiscountAmount()),
+                    money(so.getPlatformDiscountAmount()),
+                    money(so.getPlatformDiscountAmount()),
+                    so.getItemsSubtotal().subtract(money(so.getSellerDiscountAmount())),
+                    promotions,
+                    SellerOrderStatus.PENDING_PAYMENT.name().equals(so.getStatus()) && !promotions.isEmpty()));
         }
         return responses;
     }

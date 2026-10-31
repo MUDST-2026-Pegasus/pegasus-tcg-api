@@ -9,6 +9,7 @@ import com.pegasus.pegasustcgapi.repository.EscrowRepository;
 import com.pegasus.pegasustcgapi.repository.OrderRepository;
 import com.pegasus.pegasustcgapi.repository.PaymentRepository;
 import com.pegasus.pegasustcgapi.repository.ReturnRepository;
+import com.pegasus.pegasustcgapi.repository.ReturnRepository.ReturnedValue;
 import com.pegasus.pegasustcgapi.service.WalletLedgerService.Bucket;
 import com.pegasus.pegasustcgapi.service.WalletLedgerService.Direction;
 import java.math.BigDecimal;
@@ -61,13 +62,20 @@ public class EscrowReleaseService {
         var order = orders.findSellerOrderById(sellerOrderId).orElseThrow();
         BigDecimal release = hold.getAmount().subtract(hold.getRefundedAmount());
         if (release.signum() <= 0) return;
-        BigDecimal returnedItems = returns.returnedItemValue(sellerOrderId);
-        BigDecimal base = order.getItemsSubtotal().subtract(returnedItems).max(BigDecimal.ZERO);
-        BigDecimal commission = order.getItemsSubtotal().signum() == 0 ? BigDecimal.ZERO :
+        // The commission base is the items less the shop's own code, less what came
+        // back; a Pegasus code never lowers it. Pegasus then pays the shop back its own
+        // code, less the part that went with returned cards [TCG-570].
+        ReturnedValue returned = returns.returnedValue(sellerOrderId);
+        BigDecimal quotedBase = order.getItemsSubtotal().subtract(order.getSellerDiscountAmount());
+        BigDecimal base = quotedBase.subtract(returned.gross().subtract(returned.shopShare()))
+                .max(BigDecimal.ZERO);
+        BigDecimal subsidy = order.getPlatformDiscountAmount().subtract(returned.pegasusShare())
+                .max(BigDecimal.ZERO);
+        BigDecimal commission = quotedBase.signum() == 0 ? BigDecimal.ZERO :
                 order.getCommissionAmount().multiply(base)
-                        .divide(order.getItemsSubtotal(), 2, RoundingMode.HALF_UP);
-        commission = commission.min(release);
-        BigDecimal sellerNet = release.subtract(commission);
+                        .divide(quotedBase, 2, RoundingMode.HALF_UP);
+        commission = commission.min(release.add(subsidy));
+        BigDecimal sellerNet = release.add(subsidy).subtract(commission);
         if (sellerNet.signum() < 0) throw new ConflictException(ErrorCode.REFUND_EXCEEDS_REFUNDABLE);
         long sellerUserId = dsl.select(SELLER_PROFILE.USER_ID).from(SELLER_PROFILE)
                 .where(SELLER_PROFILE.ID.eq(order.getSellerProfileId()))
@@ -79,6 +87,10 @@ public class EscrowReleaseService {
         if (commission.signum() > 0) {
             ledger.post(platformWallet, Bucket.AVAILABLE, "COMMISSION_FEE", Direction.CREDIT,
                     commission, "SELLER_ORDER", sellerOrderId);
+        }
+        if (subsidy.signum() > 0) {
+            ledger.post(platformWallet, Bucket.AVAILABLE, "PROMO_SUBSIDY", Direction.DEBIT,
+                    subsidy, "SELLER_ORDER", sellerOrderId);
         }
         if (sellerNet.signum() > 0) {
             ledger.post(sellerWallet, Bucket.AVAILABLE, "SELLER_EARNING", Direction.CREDIT,

@@ -3,12 +3,16 @@ package com.pegasus.pegasustcgapi.config;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.pegasus.pegasustcgapi.security.AuthClaims;
 import com.pegasus.pegasustcgapi.security.SecurityErrorHandler;
+import com.pegasus.pegasustcgapi.security.PromoRateLimitFilter;
+import com.pegasus.pegasustcgapi.security.RefreshOriginFilter;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.util.Base64;
 import java.util.List;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -31,7 +35,9 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.filter.CorsFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -63,6 +69,8 @@ public class SecurityConfig {
         ApiPaths.AUTH + "/logout",
         ApiPaths.AUTH + "/password/forgot",
         ApiPaths.AUTH + "/password/reset",
+        // What a cart would cost with codes; a guest sees it before signing in.
+        ApiPaths.CHECKOUT + "/promo-preview",
     };
 
     /**
@@ -82,6 +90,12 @@ public class SecurityConfig {
         ApiPaths.PROFILES + "/*",
         ApiPaths.PROFILES + "/*/listings",
         ApiPaths.PROFILES + "/*/reviews",
+        // Codes on the home page and a store page, and a code's terms; claiming needs sign-in.
+        ApiPaths.PROFILES + "/*/promotions",
+        ApiPaths.PROMOTIONS + "/featured",
+        ApiPaths.PROMOTIONS + "/*/terms",
+        // The code picker on the cart page, open to guests like the cart itself.
+        ApiPaths.CHECKOUT + "/promotions",
     };
 
     /** Public Swagger UI and OpenAPI documentation resources. */
@@ -102,12 +116,19 @@ public class SecurityConfig {
             HttpSecurity http,
             JwtDecoder jwtDecoder,
             JwtAuthenticationConverter jwtAuthenticationConverter,
-            SecurityErrorHandler securityErrorHandler) throws Exception {
+            SecurityErrorHandler securityErrorHandler,
+            CorsProperties corsProperties,
+            Clock clock,
+            @Value("${pegasus.promo.rate-limit-per-minute}") int promoRateLimit) throws Exception {
 
         return http
-                // Nothing is authenticated by a cookie, so there is no CSRF surface.
+                // Only refresh and logout use a cookie; RefreshOriginFilter guards those endpoints.
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
+                .addFilterBefore(new RefreshOriginFilter(corsProperties, securityErrorHandler), CorsFilter.class)
+                // After the bearer token is read, so a signed-in caller is also counted per account.
+                .addFilterAfter(new PromoRateLimitFilter(promoRateLimit, clock, securityErrorHandler),
+                        BearerTokenAuthenticationFilter.class)
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable())
                 .logout(logout -> logout.disable())
@@ -200,8 +221,10 @@ public class SecurityConfig {
         config.setExposedHeaders(List.of(
                 "X-Cart-Session",
                 "Idempotency-Key"));
-        // Tokens travel in the Authorization header, never in a cookie.
-        config.setAllowCredentials(false);
+        if (properties.allowedOrigins().contains("*")) {
+            throw new IllegalStateException("Credentialed CORS requires explicit allowed origins");
+        }
+        config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

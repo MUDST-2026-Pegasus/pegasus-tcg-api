@@ -256,7 +256,7 @@ class AdminUserApiIntegrationTest extends PostgresIntegrationTest {
     private String login(String email) {
         Response response = client.post("/api/v1/auth/login", null, Map.of("email", email, "password", PASSWORD));
         assertThat(response.status()).isEqualTo(200);
-        return response.data().path("tokens").path("refreshToken").asText();
+        return response.refreshToken();
     }
 
     private int activeRefreshTokens(long userId) {

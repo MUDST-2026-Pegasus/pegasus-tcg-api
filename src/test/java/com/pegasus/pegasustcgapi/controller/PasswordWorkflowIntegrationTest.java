@@ -46,8 +46,8 @@ class PasswordWorkflowIntegrationTest extends PostgresIntegrationTest {
 
     @Test
     void resetPasswordRevokesEveryOldSessionAndEveryOtherResetLink() {
-        String firstSession = login(OLD_PASSWORD).data().path("tokens").path("refreshToken").asString();
-        String secondSession = login(OLD_PASSWORD).data().path("tokens").path("refreshToken").asString();
+        String firstSession = login(OLD_PASSWORD).refreshToken();
+        String secondSession = login(OLD_PASSWORD).refreshToken();
         String resetToken = resetToken();
         String otherResetToken = resetToken();
 
@@ -71,14 +71,14 @@ class PasswordWorkflowIntegrationTest extends PostgresIntegrationTest {
     void changePasswordKeepsOnlyTheNewSessionRefreshable() {
         Response firstLogin = login(OLD_PASSWORD);
         String access = firstLogin.data().path("tokens").path("accessToken").asString();
-        String firstRefresh = firstLogin.data().path("tokens").path("refreshToken").asString();
-        String secondRefresh = login(OLD_PASSWORD).data().path("tokens").path("refreshToken").asString();
+        String firstRefresh = firstLogin.refreshToken();
+        String secondRefresh = login(OLD_PASSWORD).refreshToken();
 
         Response changed = client.post(ApiPaths.AUTH + "/password/change", "Bearer " + access,
                 Map.of("currentPassword", OLD_PASSWORD, "newPassword", NEW_PASSWORD));
 
         assertThat(changed.status()).isEqualTo(200);
-        String newRefresh = changed.data().path("tokens").path("refreshToken").asString();
+        String newRefresh = changed.refreshToken();
         assertThat(newRefresh).isNotBlank();
         assertInvalidRefresh(firstRefresh);
         assertInvalidRefresh(secondRefresh);
@@ -92,7 +92,7 @@ class PasswordWorkflowIntegrationTest extends PostgresIntegrationTest {
     void wrongCurrentPasswordLeavesExistingSessionActive() {
         Response signedIn = login(OLD_PASSWORD);
         String access = signedIn.data().path("tokens").path("accessToken").asString();
-        String refresh = signedIn.data().path("tokens").path("refreshToken").asString();
+        String refresh = signedIn.refreshToken();
 
         Response rejected = client.post(ApiPaths.AUTH + "/password/change", "Bearer " + access,
                 Map.of("currentPassword", "wrong-password", "newPassword", NEW_PASSWORD));

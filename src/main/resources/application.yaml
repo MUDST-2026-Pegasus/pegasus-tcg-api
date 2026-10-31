@@ -28,6 +28,11 @@ pegasus:
     jwt-issuer: pegasus-tcg-api
     access-token-ttl: 15m
     refresh-token-ttl: 30d
+    refresh-cookie:
+      name: pegasus_rt
+      secure: ${AUTH_REFRESH_COOKIE_SECURE:true}
+      same-site: Lax
+      domain: ${AUTH_REFRESH_COOKIE_DOMAIN:}
     password-reset-ttl: 1h
     max-failed-logins: 5
     lockout-duration: 15m
@@ -41,6 +46,11 @@ pegasus:
     # Signed-out baskets past their expires_at. Anyone can create one without an
     # account, so something has to clear them out.
     guest-purge-cron: ${CART_GUEST_PURGE_CRON:0 30 3 * * *}
+
+  promo:
+    # Tries a minute per client address and per account on the endpoints that say
+    # whether a typed discount code exists (promo-preview, claim-by-code, terms).
+    rate-limit-per-minute: ${PROMO_RATE_LIMIT_PER_MINUTE:30}
 
   order:
     # Escrow auto-release sweep: completes sub-orders the buyer never confirmed.

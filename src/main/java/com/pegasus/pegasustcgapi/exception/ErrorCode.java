@@ -48,6 +48,7 @@ public enum ErrorCode {
     REFUND_NOT_FOUND(HttpStatus.NOT_FOUND, "Refund not found"),
     REVIEW_NOT_FOUND(HttpStatus.NOT_FOUND, "Review not found"),
     RETURN_NOT_FOUND(HttpStatus.NOT_FOUND, "Return request not found"),
+    PROMO_NOT_FOUND(HttpStatus.NOT_FOUND, "Discount code not found"),
 
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email address is already registered"),
     USERNAME_ALREADY_USED(HttpStatus.CONFLICT, "Username is already taken"),
@@ -98,6 +99,12 @@ public enum ErrorCode {
     CANCEL_WINDOW_CLOSED(HttpStatus.CONFLICT, "Order cancellation window has closed"),
     IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "Request with this idempotency key is already in progress or completed"),
     DATA_CONFLICT(HttpStatus.CONFLICT, "This change conflicts with data that already exists"),
+    PROMO_CODE_TAKEN(HttpStatus.CONFLICT, "Another promotion already uses this code"),
+    PROMO_IN_USE(HttpStatus.CONFLICT, "This discount code has been used on an order and cannot be deleted"),
+    PROMO_CHANGED(HttpStatus.CONFLICT, "Discounts changed since the total was shown; review the order again"),
+    PROMO_PAUSED(HttpStatus.CONFLICT, "This discount code is paused"),
+    PROMO_USED_UP(HttpStatus.CONFLICT, "This discount code has no uses left"),
+    PROMO_CLAIM_FULL(HttpStatus.CONFLICT, "All of this discount code has been handed out"),
 
     INVALID_ATTRIBUTE_DEFINITION(HttpStatus.BAD_REQUEST, "Attribute definition is not usable"),
     INVALID_PRODUCT_ATTRIBUTES(HttpStatus.BAD_REQUEST, "Product attributes do not match this game"),
@@ -109,10 +116,22 @@ public enum ErrorCode {
     PAYMENT_METHOD_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "Payment method is not supported"),
     PAYOUT_BELOW_MINIMUM(HttpStatus.BAD_REQUEST, "Payout amount is below the minimum"),
     CART_SESSION_INVALID(HttpStatus.BAD_REQUEST, "X-Cart-Session is not a session key this API issued"),
+    PROMO_INVALID(HttpStatus.BAD_REQUEST, "Discount code settings are invalid"),
+    PROMO_NOT_STARTED(HttpStatus.BAD_REQUEST, "This discount code is not active yet"),
+    PROMO_EXPIRED(HttpStatus.BAD_REQUEST, "This discount code has expired"),
+    PROMO_USER_LIMIT_REACHED(HttpStatus.BAD_REQUEST, "You have already used this discount code as many times as allowed"),
+    PROMO_MIN_SPEND_NOT_MET(HttpStatus.BAD_REQUEST, "The order does not reach this code's minimum spend"),
+    PROMO_NOT_APPLICABLE(HttpStatus.BAD_REQUEST, "Nothing in the order qualifies for this discount code"),
+    PROMO_NEW_BUYER_ONLY(HttpStatus.BAD_REQUEST, "This discount code is for a buyer's first order only"),
+    PROMO_WRONG_SELLER(HttpStatus.BAD_REQUEST, "This shop code does not belong to a shop in the order"),
+    PROMO_ALREADY_APPLIED(HttpStatus.BAD_REQUEST, "A code of this kind is already applied to the order"),
+    PROMO_NOT_CLAIMED(HttpStatus.BAD_REQUEST, "Collect this discount code before using it"),
 
     UNSUPPORTED_FILE_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "File type is not allowed for this upload"),
     FILE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "File is larger than this upload allows"),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "File was never uploaded"),
+
+    RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many requests; try again in a minute"),
 
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error"),
     STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Object storage is unavailable");

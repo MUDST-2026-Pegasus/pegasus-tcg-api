@@ -7,6 +7,7 @@ import com.pegasus.pegasustcgapi.dto.ForgotPasswordRequest;
 import com.pegasus.pegasustcgapi.dto.ResetPasswordRequest;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.security.ClientInfo;
+import com.pegasus.pegasustcgapi.security.RefreshCookie;
 import com.pegasus.pegasustcgapi.service.PasswordService;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
@@ -16,6 +17,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,9 +31,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class PasswordController {
 
     private final PasswordService passwordService;
+    private final RefreshCookie refreshCookie;
 
-    public PasswordController(PasswordService passwordService) {
+    public PasswordController(PasswordService passwordService, RefreshCookie refreshCookie) {
         this.passwordService = passwordService;
+        this.refreshCookie = refreshCookie;
     }
 
     @Operation(summary = "Reset password", description = "Resets user password using a valid password reset token.")
@@ -46,8 +50,8 @@ public class PasswordController {
         return ApiResult.success("Password reset; sign in again", null);
     }
 
-    /** Returns a fresh token pair, since changing the password drops the old sessions. */
-    @Operation(summary = "Change password", description = "Changes password for the currently signed-in user and returns a fresh JWT token pair.",
+    /** Returns a fresh access token and refresh cookie, since changing the password drops old sessions. */
+    @Operation(summary = "Change password", description = "Changes password for the currently signed-in user, returns a fresh access token, and sets a new HttpOnly refresh cookie.",
             security = @SecurityRequirement(name = "BearerAuth"))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Password changed successfully"),
@@ -58,10 +62,10 @@ public class PasswordController {
     public ApiResult<AuthResponse> change(
             AuthPrincipal principal,
             @Valid @RequestBody ChangePasswordRequest request,
-            HttpServletRequest http) {
+            HttpServletRequest http, HttpServletResponse servletResponse) {
 
-        return ApiResult.success(
-                "Password changed",
-                passwordService.change(principal.userId(), request, ClientInfo.from(http)));
+        AuthResponse response = passwordService.change(principal.userId(), request, ClientInfo.from(http));
+        refreshCookie.set(servletResponse, response.tokens().refreshToken());
+        return ApiResult.success("Password changed", response);
     }
 }

@@ -282,7 +282,30 @@ public class OrderRepository {
             BigDecimal commissionAmount,
             BigDecimal sellerNetAmount,
             Long shippingOptionId) {
+        return insertSellerOrder(salesOrderId, sellerProfileId, sellerOrderNumber, itemsSubtotal, shippingFee,
+                discountAmount, BigDecimal.ZERO, grandTotal, commissionRatePercent, commissionAmount,
+                sellerNetAmount, shippingOptionId);
+    }
 
+    /**
+     * An order part with discount codes on it [TCG-569]. The shop pays
+     * {@code sellerDiscount} itself; Pegasus pays {@code platformDiscount} back at release.
+     */
+    public SellerOrderRecord insertSellerOrder(
+            long salesOrderId,
+            long sellerProfileId,
+            String sellerOrderNumber,
+            BigDecimal itemsSubtotal,
+            BigDecimal shippingFee,
+            BigDecimal sellerDiscount,
+            BigDecimal platformDiscount,
+            BigDecimal grandTotal,
+            BigDecimal commissionRatePercent,
+            BigDecimal commissionAmount,
+            BigDecimal sellerNetAmount,
+            Long shippingOptionId) {
+
+        BigDecimal discountAmount = sellerDiscount.add(platformDiscount);
         return dsl.insertInto(SELLER_ORDER)
                 .set(SELLER_ORDER.SALES_ORDER_ID, salesOrderId)
                 .set(SELLER_ORDER.SELLER_PROFILE_ID, sellerProfileId)
@@ -291,6 +314,8 @@ public class OrderRepository {
                 .set(SELLER_ORDER.ITEMS_SUBTOTAL, itemsSubtotal)
                 .set(SELLER_ORDER.SHIPPING_FEE, shippingFee)
                 .set(SELLER_ORDER.DISCOUNT_AMOUNT, discountAmount)
+                .set(SELLER_ORDER.SELLER_DISCOUNT_AMOUNT, sellerDiscount)
+                .set(SELLER_ORDER.PLATFORM_DISCOUNT_AMOUNT, platformDiscount)
                 .set(SELLER_ORDER.GRAND_TOTAL, grandTotal)
                 .set(SELLER_ORDER.COMMISSION_RATE_PERCENT,
                         commissionRatePercent != null ? commissionRatePercent : BigDecimal.ZERO)
@@ -318,6 +343,31 @@ public class OrderRepository {
             String conditionSnapshot,
             String gameNameSnapshot,
             String imageKeySnapshot) {
+        return insertOrderItem(sellerOrderId, listingId, catalogVariantId, quantity, unitPrice, lineTotal,
+                BigDecimal.ZERO, BigDecimal.ZERO, unitCostSnapshot, productNameSnapshot, variantLabelSnapshot,
+                conditionSnapshot, gameNameSnapshot, imageKeySnapshot);
+    }
+
+    /**
+     * @param discountAllocated       this line's share of the order part's item discounts,
+     *                                so a partial return refunds what the buyer paid for it
+     * @param sellerDiscountAllocated the shop-code part of it; the rest is Pegasus's
+     */
+    public OrderItemRecord insertOrderItem(
+            long sellerOrderId,
+            Long listingId,
+            long catalogVariantId,
+            int quantity,
+            BigDecimal unitPrice,
+            BigDecimal lineTotal,
+            BigDecimal discountAllocated,
+            BigDecimal sellerDiscountAllocated,
+            BigDecimal unitCostSnapshot,
+            String productNameSnapshot,
+            String variantLabelSnapshot,
+            String conditionSnapshot,
+            String gameNameSnapshot,
+            String imageKeySnapshot) {
 
         return dsl.insertInto(ORDER_ITEM)
                 .set(ORDER_ITEM.SELLER_ORDER_ID, sellerOrderId)
@@ -326,6 +376,8 @@ public class OrderRepository {
                 .set(ORDER_ITEM.QUANTITY, quantity)
                 .set(ORDER_ITEM.UNIT_PRICE, unitPrice)
                 .set(ORDER_ITEM.LINE_TOTAL, lineTotal)
+                .set(ORDER_ITEM.DISCOUNT_ALLOCATED, discountAllocated)
+                .set(ORDER_ITEM.SELLER_DISCOUNT_ALLOCATED, sellerDiscountAllocated)
                 .set(ORDER_ITEM.UNIT_COST_SNAPSHOT, unitCostSnapshot != null ? unitCostSnapshot : BigDecimal.ZERO)
                 .set(ORDER_ITEM.PRODUCT_NAME_SNAPSHOT, productNameSnapshot)
                 .set(ORDER_ITEM.VARIANT_LABEL_SNAPSHOT, variantLabelSnapshot)

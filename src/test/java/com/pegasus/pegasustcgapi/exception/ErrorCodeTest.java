@@ -61,4 +61,31 @@ class ErrorCodeTest {
         assertThat(ErrorCode.REVIEW_ALREADY_EXISTS.status()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(ErrorCode.REVIEW_ALREADY_REPLIED.status()).isEqualTo(HttpStatus.CONFLICT);
     }
+
+    @Test
+    @DisplayName("verifies promotion error codes and HTTP statuses")
+    void promotionErrorCodesMatchExpectedHttpStatus() {
+        // 404
+        assertThat(ErrorCode.PROMO_NOT_FOUND.status()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // 400 — the code is fine as data but cannot go on this order
+        assertThat(ErrorCode.PROMO_INVALID.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.PROMO_NOT_STARTED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.PROMO_EXPIRED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.PROMO_USER_LIMIT_REACHED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.PROMO_MIN_SPEND_NOT_MET.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.PROMO_NOT_APPLICABLE.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.PROMO_NEW_BUYER_ONLY.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.PROMO_WRONG_SELLER.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.PROMO_ALREADY_APPLIED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.PROMO_NOT_CLAIMED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // 409 — shared state moved underneath the request
+        assertThat(ErrorCode.PROMO_PAUSED.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.PROMO_USED_UP.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.PROMO_CLAIM_FULL.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.PROMO_CHANGED.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.PROMO_CODE_TAKEN.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.PROMO_IN_USE.status()).isEqualTo(HttpStatus.CONFLICT);
+    }
 }

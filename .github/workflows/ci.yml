@@ -19,6 +19,10 @@ jobs:
     name: Test / Build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
     env:
       DB_URL: jdbc:postgresql://localhost:5432/pegasus_tcg
       DB_USERNAME: postgres
@@ -52,6 +56,52 @@ jobs:
       - name: Test and build
         run: ./gradlew build --no-daemon
 
+      - name: Publish BE test results
+        if: always() && hashFiles('build/test-results/test/*.xml') != ''
+        uses: EnricoMi/publish-unit-test-result-action/linux@v2.24.0
+        with:
+          files: build/test-results/test/*.xml
+          check_name: BE Tests
+          comment_mode: off
+          job_summary: false
+          check_run: ${{ github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork }}
+
+      - name: Summarize BE tests
+        id: be-report
+        if: always()
+        run: |
+          python3 .github/scripts/be_test_summary.py > "$RUNNER_TEMP/be-tests.md"
+          cat "$RUNNER_TEMP/be-tests.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update BE tests PR comment
+        if: >-
+          always() && steps.be-report.outcome == 'success' &&
+          github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          comment_id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | test("(?m)^#{1,3} BE Tests|^<!-- pegasus-be-tests -->"))) | .id' | head -n 1)
+          body=$(cat "$RUNNER_TEMP/be-tests.md")
+          if [ -n "$comment_id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -f body="$body" > /dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" -f body="$body" > /dev/null
+          fi
+
+      - name: Publish JaCoCo coverage
+        if: always() && hashFiles('build/reports/jacoco/test/jacocoTestReport.xml') != ''
+        uses: madrapps/jacoco-report@v1.8.0
+        with:
+          paths: build/reports/jacoco/test/jacocoTestReport.xml
+          token: ${{ github.token }}
+          title: BE Coverage
+          comment-type: ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && 'both' || 'summary' }}
+          update-comment: true
+          min-coverage-overall: 0
+          min-coverage-changed-files: 0
+
       - name: Upload application JAR
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         uses: actions/upload-artifact@v7
@@ -69,6 +119,7 @@ jobs:
           path: |
             build/reports/tests/test/
             build/test-results/test/
+            build/reports/jacoco/
           if-no-files-found: ignore
           retention-days: 14
 

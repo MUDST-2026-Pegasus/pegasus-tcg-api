@@ -60,21 +60,21 @@ class MultiDeviceLogoutIntegrationTest extends PostgresIntegrationTest {
         Response loginResp1 = client.post("/api/v1/auth/login", null, loginBody, device1Headers);
         assertThat(loginResp1.status()).isEqualTo(200);
         String accessToken1 = "Bearer " + loginResp1.data().path("tokens").path("accessToken").asText();
-        String refreshToken1 = loginResp1.data().path("tokens").path("refreshToken").asText();
+        String refreshToken1 = loginResp1.refreshToken();
         assertThat(refreshToken1).isNotBlank();
 
         // 3. Device 2 logs in (Mobile iOS)
         Map<String, String> device2Headers = Map.of("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0)");
         Response loginResp2 = client.post("/api/v1/auth/login", null, loginBody, device2Headers);
         assertThat(loginResp2.status()).isEqualTo(200);
-        String refreshToken2 = loginResp2.data().path("tokens").path("refreshToken").asText();
+        String refreshToken2 = loginResp2.refreshToken();
         assertThat(refreshToken2).isNotBlank();
 
         // 4. Device 3 logs in (Tablet iPad)
         Map<String, String> device3Headers = Map.of("User-Agent", "Mozilla/5.0 (iPad; CPU OS 16_0)");
         Response loginResp3 = client.post("/api/v1/auth/login", null, loginBody, device3Headers);
         assertThat(loginResp3.status()).isEqualTo(200);
-        String refreshToken3 = loginResp3.data().path("tokens").path("refreshToken").asText();
+        String refreshToken3 = loginResp3.refreshToken();
         assertThat(refreshToken3).isNotBlank();
 
         // 5. Verify that in DB, there are 3 unrevoked refresh tokens for this user
@@ -142,12 +142,12 @@ class MultiDeviceLogoutIntegrationTest extends PostgresIntegrationTest {
         // 2. Device 1 logs in
         Response loginResp1 = client.post("/api/v1/auth/login", null, loginBody, Map.of("User-Agent", "Device1-Laptop"));
         assertThat(loginResp1.status()).isEqualTo(200);
-        String refreshToken1 = loginResp1.data().path("tokens").path("refreshToken").asText();
+        String refreshToken1 = loginResp1.refreshToken();
 
         // 3. Device 2 logs in
         Response loginResp2 = client.post("/api/v1/auth/login", null, loginBody, Map.of("User-Agent", "Device2-Phone"));
         assertThat(loginResp2.status()).isEqualTo(200);
-        String refreshToken2 = loginResp2.data().path("tokens").path("refreshToken").asText();
+        String refreshToken2 = loginResp2.refreshToken();
 
         // 4. In DB: 2 active tokens
         int activeBefore = dsl.selectCount()

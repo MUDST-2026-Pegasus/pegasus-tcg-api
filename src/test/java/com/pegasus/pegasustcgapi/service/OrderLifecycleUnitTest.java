@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -249,6 +250,39 @@ class OrderLifecycleUnitTest {
             service.rollupSalesOrderStatus(1L);
 
             verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PENDING_PAYMENT"), any(), any(), any());
+        }
+
+        @ParameterizedTest(name = "1 PENDING_PAYMENT and 1 {0} before payment -> parent stays PENDING_PAYMENT, no paid_at")
+        @ValueSource(strings = {"CANCELLED", "REFUNDED"})
+        void rollup_UnpaidWithDroppedSibling_StaysPendingPayment(String droppedStatus) {
+            SalesOrderRecord parent = mockSalesOrder(1L, "PENDING_PAYMENT");
+            SellerOrderRecord so1 = mockSellerOrder(11L, 1L, "PENDING_PAYMENT");
+            SellerOrderRecord so2 = mockSellerOrder(12L, 1L, droppedStatus);
+
+            when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
+            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+
+            service.rollupSalesOrderStatus(1L);
+
+            // TCG-582: this used to fall through to PAID with paid_at = now, which
+            // blocked the buyer from paying and hid the order from the payment timeout.
+            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PENDING_PAYMENT"), isNull(), any(), any());
+        }
+
+        @Test
+        @DisplayName("PENDING_PAYMENT, CANCELLED and REFUNDED children -> parent status PENDING_PAYMENT")
+        void rollup_UnpaidWithCancelledAndRefundedSiblings_StaysPendingPayment() {
+            SalesOrderRecord parent = mockSalesOrder(1L, "PENDING_PAYMENT");
+            SellerOrderRecord so1 = mockSellerOrder(11L, 1L, "PENDING_PAYMENT");
+            SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "CANCELLED");
+            SellerOrderRecord so3 = mockSellerOrder(13L, 1L, "REFUNDED");
+
+            when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
+            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2, so3));
+
+            service.rollupSalesOrderStatus(1L);
+
+            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PENDING_PAYMENT"), isNull(), any(), any());
         }
 
         @ParameterizedTest(name = "Active child {0} with CANCELLED sibling -> parent status PAID")

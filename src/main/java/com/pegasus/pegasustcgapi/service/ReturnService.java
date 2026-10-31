@@ -112,6 +112,7 @@ public class ReturnService {
 
         List<Long> returnIds = returnRows.stream().map(ReturnRepository.SellerReturnRow::id).toList();
         List<ReturnRepository.SellerReturnItemRow> itemRows = returns.findReturnItemsBatch(returnIds);
+        Map<Long, BigDecimal> estimates = returns.refundEstimates(returnIds);
 
         Map<Long, List<SellerReturnRequestResponse.SellerReturnItem>> itemsByReturnId = itemRows.stream()
                 .collect(Collectors.groupingBy(
@@ -169,7 +170,8 @@ public class ReturnService {
                     row.reviewedAt(),
                     row.receivedAt(),
                     row.closedAt(),
-                    itemsByReturnId.getOrDefault(row.id(), List.of())
+                    itemsByReturnId.getOrDefault(row.id(), List.of()),
+                    estimates.getOrDefault(row.id(), BigDecimal.ZERO)
             );
         }).toList();
     }
@@ -201,6 +203,11 @@ public class ReturnService {
         var request = sellerReturn(sellerUserId, returnId);
         if (!"REQUESTED".equals(request.getStatus())) throw new ConflictException(ErrorCode.RETURN_STATE);
         var order = orders.findSellerOrderById(request.getSellerOrderId()).orElseThrow();
+        if (amount == null) {
+            // The shop may take the suggestion: what the buyer paid for these cards [TCG-570].
+            amount = "FULL_REFUND".equals(resolution) ? order.getGrandTotal()
+                    : returns.refundEstimates(List.of(returnId)).getOrDefault(returnId, BigDecimal.ZERO);
+        }
         if (!Set.of("FULL_REFUND", "PARTIAL_REFUND").contains(resolution)
                 || amount == null || amount.signum() <= 0 || amount.scale() > 2
                 || amount.compareTo(order.getGrandTotal()) > 0

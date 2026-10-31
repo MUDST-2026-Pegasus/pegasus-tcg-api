@@ -13,8 +13,11 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.OrderItemRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.ReturnItemRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.ReturnRequestRecord;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Collection;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
@@ -262,8 +265,26 @@ public class ReturnRepository {
                 .where(RETURN_REQUEST.ID.eq(id)).execute();
     }
 
-    public BigDecimal returnedItemValue(long sellerOrderId) {
-        return dsl.select(DSL.coalesce(DSL.sum(ORDER_ITEM.UNIT_PRICE.mul(RETURN_ITEM.QUANTITY)), BigDecimal.ZERO))
+    /**
+     * What came back on returns that were received and refunded, split three ways,
+     * each card counted for the share of its quantity that came back.
+     *
+     * @param gross       the cards at their price
+     * @param shopShare   the part of their discount the shop's own code gave
+     * @param pegasusShare the part a Pegasus code gave
+     */
+    public record ReturnedValue(BigDecimal gross, BigDecimal shopShare, BigDecimal pegasusShare) {
+
+        public static final ReturnedValue NONE =
+                new ReturnedValue(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+    }
+
+    public ReturnedValue returnedValue(long sellerOrderId) {
+        BigDecimal gross = BigDecimal.ZERO;
+        BigDecimal shop = BigDecimal.ZERO;
+        BigDecimal pegasus = BigDecimal.ZERO;
+        for (var r : dsl.select(ORDER_ITEM.UNIT_PRICE, ORDER_ITEM.QUANTITY, ORDER_ITEM.DISCOUNT_ALLOCATED,
+                        ORDER_ITEM.SELLER_DISCOUNT_ALLOCATED, RETURN_ITEM.QUANTITY)
                 .from(RETURN_ITEM)
                 .join(RETURN_REQUEST).on(RETURN_REQUEST.ID.eq(RETURN_ITEM.RETURN_REQUEST_ID))
                 .join(ORDER_ITEM).on(ORDER_ITEM.ID.eq(RETURN_ITEM.ORDER_ITEM_ID))
@@ -271,6 +292,41 @@ public class ReturnRepository {
                 .where(RETURN_REQUEST.SELLER_ORDER_ID.eq(sellerOrderId))
                 .and(RETURN_REQUEST.RECEIVED_AT.isNotNull())
                 .and(REFUND.STATUS.eq("PROCESSED"))
-                .fetchSingle(0, BigDecimal.class);
+                .fetch()) {
+            int ordered = r.get(ORDER_ITEM.QUANTITY);
+            int back = r.get(RETURN_ITEM.QUANTITY);
+            BigDecimal allocated = r.get(ORDER_ITEM.DISCOUNT_ALLOCATED);
+            BigDecimal shopPart = r.get(ORDER_ITEM.SELLER_DISCOUNT_ALLOCATED);
+            gross = gross.add(r.get(ORDER_ITEM.UNIT_PRICE).multiply(BigDecimal.valueOf(back)));
+            shop = shop.add(share(shopPart, back, ordered));
+            pegasus = pegasus.add(share(allocated.subtract(shopPart), back, ordered));
+        }
+        return new ReturnedValue(gross, shop, pegasus);
+    }
+
+    /**
+     * What each return should refund: every card coming back at what the buyer paid
+     * for it, its price less the discount it carried [TCG-570]. Shipping is not in it.
+     */
+    public Map<Long, BigDecimal> refundEstimates(Collection<Long> returnRequestIds) {
+        Map<Long, BigDecimal> estimates = new java.util.HashMap<>();
+        if (returnRequestIds.isEmpty()) return estimates;
+        for (var r : dsl.select(RETURN_ITEM.RETURN_REQUEST_ID, ORDER_ITEM.LINE_TOTAL, ORDER_ITEM.DISCOUNT_ALLOCATED,
+                        ORDER_ITEM.QUANTITY, RETURN_ITEM.QUANTITY)
+                .from(RETURN_ITEM)
+                .join(ORDER_ITEM).on(ORDER_ITEM.ID.eq(RETURN_ITEM.ORDER_ITEM_ID))
+                .where(RETURN_ITEM.RETURN_REQUEST_ID.in(returnRequestIds))
+                .fetch()) {
+            BigDecimal paid = r.get(ORDER_ITEM.LINE_TOTAL).subtract(r.get(ORDER_ITEM.DISCOUNT_ALLOCATED));
+            estimates.merge(r.get(RETURN_ITEM.RETURN_REQUEST_ID),
+                    share(paid, r.get(RETURN_ITEM.QUANTITY), r.get(ORDER_ITEM.QUANTITY)), BigDecimal::add);
+        }
+        return estimates;
+    }
+
+    /** {@code amount} for {@code part} of {@code whole} cards, to the satang. */
+    public static BigDecimal share(BigDecimal amount, int part, int whole) {
+        if (part >= whole) return amount;
+        return amount.multiply(BigDecimal.valueOf(part)).divide(BigDecimal.valueOf(whole), 2, RoundingMode.HALF_UP);
     }
 }
