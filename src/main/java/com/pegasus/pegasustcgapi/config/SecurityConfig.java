@@ -96,6 +96,10 @@ public class SecurityConfig {
         ApiPaths.PROMOTIONS + "/*/terms",
         // The code picker on the cart page, open to guests like the cart itself.
         ApiPaths.CHECKOUT + "/promotions",
+        // Auctions and their bid history; bidding, buy-now and checkout need sign-in.
+        ApiPaths.AUCTIONS,
+        ApiPaths.AUCTIONS + "/*",
+        ApiPaths.AUCTIONS + "/*/bids",
     };
 
     /** Public Swagger UI and OpenAPI documentation resources. */
