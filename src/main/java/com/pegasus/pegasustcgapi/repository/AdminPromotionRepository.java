@@ -42,6 +42,35 @@ public class AdminPromotionRepository {
 
     private static final UserAccount OWNER = USER_ACCOUNT.as("owner");
     private static final UserAccount BUYER = USER_ACCOUNT.as("buyer");
+    private static final UserAccount CREATOR = USER_ACCOUNT.as("creator");
+    private static final UserAccount PAUSER = USER_ACCOUNT.as("pauser");
+
+    /** Orders that count as paid for the KPI row; refunded and cancelled ones do not. */
+    private static final List<String> PAID = List.of("PAID", "PARTIALLY_COMPLETED", "COMPLETED");
+
+    private static final Field<BigDecimal> DISCOUNT_TOTAL = DSL.field(
+            DSL.select(DSL.coalesce(DSL.sum(PROMOTION_REDEMPTION.AMOUNT), BigDecimal.ZERO))
+                    .from(PROMOTION_REDEMPTION)
+                    .where(PROMOTION_REDEMPTION.PROMOTION_ID.eq(PROMOTION.ID))
+                    .and(PROMOTION_REDEMPTION.STATUS.eq("CONSUMED")))
+            .as("discount_total");
+
+    private static final Field<BigDecimal> SALES_TOTAL = DSL.field(
+            DSL.select(DSL.coalesce(DSL.sum(SALES_ORDER.GRAND_TOTAL), BigDecimal.ZERO))
+                    .from(SALES_ORDER)
+                    .where(DSL.exists(DSL.selectOne()
+                            .from(PROMOTION_REDEMPTION)
+                            .where(PROMOTION_REDEMPTION.SALES_ORDER_ID.eq(SALES_ORDER.ID))
+                            .and(PROMOTION_REDEMPTION.PROMOTION_ID.eq(PROMOTION.ID))
+                            .and(PROMOTION_REDEMPTION.STATUS.eq("CONSUMED")))))
+            .as("sales_total");
+
+    private static final Field<Integer> RESERVED_ORDERS = DSL.field(
+            DSL.selectCount()
+                    .from(PROMOTION_REDEMPTION)
+                    .where(PROMOTION_REDEMPTION.PROMOTION_ID.eq(PROMOTION.ID))
+                    .and(PROMOTION_REDEMPTION.STATUS.eq("RESERVED")))
+            .as("reserved_orders");
 
     private final DSLContext dsl;
     private final StorageService storage;
@@ -54,7 +83,7 @@ public class AdminPromotionRepository {
     /** Newest first. {@code owner}, {@code status} and {@code q} are optional. */
     public List<AdminPromotion> page(OwnerType owner, PromotionStatus status, String q, Paging paging,
             OffsetDateTime now) {
-        return withOwner(dsl.select(PROMOTION.fields()).select(OWNER.USERNAME, OWNER.DISPLAY_NAME, OWNER.AVATAR_URL))
+        return withOwner(viewSelect())
                 .where(filters(owner, q))
                 .and(status == null ? DSL.noCondition() : status(now).eq(status.name()))
                 .orderBy(PROMOTION.CREATED_AT.desc(), PROMOTION.ID.desc())
@@ -85,7 +114,7 @@ public class AdminPromotionRepository {
     }
 
     public Optional<AdminPromotion> find(long id, OffsetDateTime now) {
-        return withOwner(dsl.select(PROMOTION.fields()).select(OWNER.USERNAME, OWNER.DISPLAY_NAME, OWNER.AVATAR_URL))
+        return withOwner(viewSelect())
                 .where(PROMOTION.ID.eq(id))
                 .fetchOptional(r -> toView(r, now));
     }
@@ -144,6 +173,32 @@ public class AdminPromotionRepository {
                 .fetchSingle(0, BigDecimal.class);
     }
 
+    /** Grand total of orders paid in [from, to). */
+    public BigDecimal gmv(OffsetDateTime from, OffsetDateTime to) {
+        return dsl.select(DSL.coalesce(DSL.sum(SALES_ORDER.GRAND_TOTAL), BigDecimal.ZERO))
+                .from(SALES_ORDER)
+                .where(paidIn(from, to))
+                .fetchSingle(0, BigDecimal.class);
+    }
+
+    public long countPaidOrders(OffsetDateTime from, OffsetDateTime to) {
+        return dsl.fetchCount(SALES_ORDER, paidIn(from, to));
+    }
+
+    /** Orders paid in [from, to) that used any code — the same orders {@link #countPaidOrders} counts. */
+    public long countPaidOrdersWithCodes(OffsetDateTime from, OffsetDateTime to) {
+        return dsl.fetchCount(SALES_ORDER, paidIn(from, to).and(DSL.exists(DSL.selectOne()
+                .from(PROMOTION_REDEMPTION)
+                .where(PROMOTION_REDEMPTION.SALES_ORDER_ID.eq(SALES_ORDER.ID))
+                .and(PROMOTION_REDEMPTION.STATUS.eq("CONSUMED")))));
+    }
+
+    private static Condition paidIn(OffsetDateTime from, OffsetDateTime to) {
+        return SALES_ORDER.STATUS.in(PAID)
+                .and(SALES_ORDER.PAID_AT.ge(from))
+                .and(to == null ? DSL.noCondition() : SALES_ORDER.PAID_AT.lt(to));
+    }
+
     /** Newest first. */
     public List<Redemption> redemptions(long promotionId, Paging paging) {
         return dsl.select(PROMOTION_REDEMPTION.ID, PROMOTION_REDEMPTION.SALES_ORDER_ID, SALES_ORDER.ORDER_NUMBER,
@@ -182,10 +237,21 @@ public class AdminPromotionRepository {
                 .otherwise(PromotionStatus.ACTIVE.name());
     }
 
+    /** Everything {@link #toView} reads: the code, its shop, who created and paused it, and its totals. */
+    private SelectSelectStep<Record> viewSelect() {
+        return dsl.select(PROMOTION.fields())
+                .select(OWNER.USERNAME, OWNER.DISPLAY_NAME, OWNER.AVATAR_URL)
+                .select(CREATOR.ID, CREATOR.USERNAME, CREATOR.DISPLAY_NAME, CREATOR.AVATAR_URL)
+                .select(PAUSER.ID, PAUSER.USERNAME, PAUSER.DISPLAY_NAME, PAUSER.AVATAR_URL)
+                .select(DISCOUNT_TOTAL, SALES_TOTAL, RESERVED_ORDERS);
+    }
+
     private static <R extends Record> SelectOnConditionStep<R> withOwner(SelectSelectStep<R> select) {
         return select.from(PROMOTION)
                 .leftJoin(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(PROMOTION.SELLER_PROFILE_ID))
-                .leftJoin(OWNER).on(OWNER.ID.eq(SELLER_PROFILE.USER_ID));
+                .leftJoin(OWNER).on(OWNER.ID.eq(SELLER_PROFILE.USER_ID))
+                .leftJoin(CREATOR).on(CREATOR.ID.eq(PROMOTION.CREATED_BY))
+                .leftJoin(PAUSER).on(PAUSER.ID.eq(PROMOTION.PAUSED_BY));
     }
 
     /** {@code q} matches the code, the name, or the shop's username or display name. */
@@ -210,7 +276,15 @@ public class AdminPromotionRepository {
                 p.visibility(), p.newBuyerOnly(), p.usageLimitTotal(), p.usageLimitPerUser(), p.usedCount(),
                 p.claimable(), p.claimRequired(), p.claimLimit(), p.claimedCount(), p.featuredOnHome(),
                 p.homeSort(), p.startsAt(), p.endsAt(), p.statusAt(now), p.pausedAt(), p.pauseReason(),
-                p.createdAt(), p.updatedAt());
+                p.createdAt(), p.updatedAt(),
+                party(r, CREATOR), party(r, PAUSER),
+                r.get(DISCOUNT_TOTAL), r.get(SALES_TOTAL), r.get(RESERVED_ORDERS));
+    }
+
+    private Party party(Record r, UserAccount user) {
+        Long id = r.get(user.ID);
+        return id == null ? null
+                : new Party(id, r.get(user.USERNAME), r.get(user.DISPLAY_NAME), avatar(r.get(user.AVATAR_URL)));
     }
 
     /** {@code user_account.avatar_url} holds an object key; the page needs a short-lived link. */

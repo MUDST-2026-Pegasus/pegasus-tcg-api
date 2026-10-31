@@ -42,12 +42,14 @@ class AdminPromotionApiIntegrationTest extends PostgresIntegrationTest {
     @Autowired CheckoutService checkout;
 
     private ApiClient api;
+    private AuthPrincipal adminUser;
     private String admin;
 
     @BeforeEach
     void signIn() {
         api = new ApiClient(port);
-        admin = data.bearer(data.admin());
+        adminUser = data.admin();
+        admin = data.bearer(adminUser);
     }
 
     @Test
@@ -216,15 +218,42 @@ class AdminPromotionApiIntegrationTest extends PostgresIntegrationTest {
         assertThat(paused.data().path("status").asString()).isEqualTo("PAUSED");
         assertThat(paused.data().path("pauseReason").asString()).isEqualTo("Misleading discount");
         assertThat(paused.data().path("owner").path("username").asString()).isNotBlank();
+        assertThat(paused.data().path("pausedBy").path("id").asLong()).isEqualTo(adminUser.userId());
         assertThat(promotions.findById(id).orElseThrow().pauseReason()).isEqualTo("Misleading discount");
 
         Response resumed = api.post(PATH + "/" + id + "/resume", admin, Map.of("notifySeller", false));
         assertThat(resumed.data().path("status").asString()).isEqualTo("ACTIVE");
         assertThat(resumed.data().path("pauseReason").isNull()).isTrue();
+        assertThat(resumed.data().path("pausedBy").isNull()).isTrue();
 
         long platform = create(form(code("PAUSEPEG")));
         assertThat(api.post(PATH + "/" + platform + "/pause", admin, Map.of()).data().path("status").asString())
                 .isEqualTo("PAUSED");
+    }
+
+    @Test
+    void endStopsAUsedCodeNowAndTakesItOffTheHomePage() {
+        long id = create(featurable(code("END"), true));
+        promotions.takeUse(id);
+
+        Response ended = api.post(PATH + "/" + id + "/end", admin, Map.of());
+        assertThat(ended.status()).isEqualTo(200);
+        assertThat(ended.data().path("status").asString()).isEqualTo("EXPIRED");
+        assertThat(ended.data().path("featuredOnHome").asBoolean()).isFalse();
+        assertThat(ended.data().path("usedCount").asInt()).isEqualTo(1);
+        assertThat(promotions.findById(id).orElseThrow().endsAt()).isBefore(now().plusMinutes(1));
+
+        // Ending again leaves the code as it is.
+        String endsAt = ended.data().path("endsAt").asString();
+        assertThat(api.post(PATH + "/" + id + "/end", admin, Map.of()).data().path("endsAt").asString())
+                .isEqualTo(endsAt);
+
+        long later = insertPlatform(code("ENDLATER"), now().plusDays(2), now().plusDays(9), false);
+        assertThat(api.post(PATH + "/" + later + "/end", admin, Map.of()).errorCode()).isEqualTo("PROMO_INVALID");
+
+        long shop = shopCode(code("ENDSHOP"));
+        assertThat(api.post(PATH + "/" + shop + "/end", admin, Map.of()).status()).isEqualTo(403);
+        assertThat(api.post(PATH + "/" + id + "/end", data.bearer(data.buyer()), Map.of()).status()).isEqualTo(403);
     }
 
     @Test
@@ -292,13 +321,29 @@ class AdminPromotionApiIntegrationTest extends PostgresIntegrationTest {
         assertThat(row.path("amount").decimalValue()).isEqualByComparingTo("10.00");
         assertThat(row.path("status").asString()).isEqualTo("CONSUMED");
 
+        Response view = api.get(PATH + "/" + id, admin);
+        BigDecimal grandTotal = dsl.select(SALES_ORDER.GRAND_TOTAL).from(SALES_ORDER)
+                .where(SALES_ORDER.ID.eq(salesOrderId)).fetchSingle(SALES_ORDER.GRAND_TOTAL);
+        assertThat(view.data().path("discountTotal").decimalValue()).isEqualByComparingTo("10.00");
+        assertThat(view.data().path("salesTotal").decimalValue()).isEqualByComparingTo(grandTotal);
+        assertThat(view.data().path("reservedOrders").asLong()).isZero();
+        assertThat(view.data().path("createdBy").path("id").asLong()).isEqualTo(adminUser.userId());
+        assertThat(view.data().path("pausedBy").isNull()).isTrue();
+
+        dsl.update(SALES_ORDER)
+                .set(SALES_ORDER.STATUS, "PAID")
+                .set(SALES_ORDER.PAID_AT, now())
+                .where(SALES_ORDER.ID.eq(salesOrderId))
+                .execute();
+
         Response after = api.get(PATH + "/summary", admin);
+        assertThat(delta(before, after, "gmv30d")).isEqualByComparingTo(grandTotal);
+        assertThat(delta(before, after, "paidOrders30d")).isEqualByComparingTo("1");
+        assertThat(delta(before, after, "ordersWithCodes30d")).isEqualByComparingTo("1");
         assertThat(delta(before, after, "redemptions30d")).isEqualByComparingTo("1");
         assertThat(delta(before, after, "activePlatformCodes")).isEqualByComparingTo("1");
         assertThat(delta(before, after, "platformDiscountCost30d")).isEqualByComparingTo("10.00");
-        assertThat(delta(before, after, "salesWithCodes30d")).isEqualByComparingTo(dsl
-                .select(SALES_ORDER.GRAND_TOTAL).from(SALES_ORDER).where(SALES_ORDER.ID.eq(salesOrderId))
-                .fetchSingle(SALES_ORDER.GRAND_TOTAL));
+        assertThat(delta(before, after, "salesWithCodes30d")).isEqualByComparingTo(grandTotal);
     }
 
     private long placeOrder(AuthPrincipal buyer) {

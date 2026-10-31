@@ -27,6 +27,7 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -97,7 +98,10 @@ public class AdminPromotionService {
                 change,
                 views.countClaims(from, null),
                 views.platformDiscountCost(from, null),
-                views.salesWithCodes(from, null));
+                views.salesWithCodes(from, null),
+                views.gmv(from, null),
+                views.countPaidOrders(from, null),
+                views.countPaidOrdersWithCodes(from, null));
     }
 
     public PageResponse<Redemption> redemptions(long id, int page, int size) {
@@ -150,6 +154,30 @@ public class AdminPromotionService {
         }
         promotions.delete(id);
         audit("delete", id, current.code(), adminId, "");
+    }
+
+    /**
+     * Ends a Pegasus code now, used or not. PUT refuses an earlier end once the code
+     * is used ({@link PromotionEditRules}), but ending does not change how any past
+     * order was priced, so it gets its own action. Orders already holding the code
+     * keep it until they are paid or released.
+     *
+     * <p>A code that has not started has nothing to end: delete or pause it instead.
+     * An ended code is returned as it is.
+     */
+    @Transactional
+    public AdminPromotion end(long id, long adminId) {
+        Promotion current = lockPlatform(id);
+        // timestamptz keeps microseconds and rounds to the nearest one; truncating keeps
+        // the stored end at or before this read, so the code reads as ended right away.
+        OffsetDateTime now = now().truncatedTo(ChronoUnit.MICROS);
+        if (!current.endsAt().isAfter(now)) return get(id);
+        if (!current.startsAt().isBefore(now)) {
+            invalid("This code has not started; delete or pause it instead");
+        }
+        promotions.endAt(id, now);
+        audit("end", id, current.code(), adminId, "was=" + current.endsAt());
+        return get(id);
     }
 
     /**
