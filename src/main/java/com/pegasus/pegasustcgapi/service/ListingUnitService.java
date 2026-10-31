@@ -276,6 +276,7 @@ public class ListingUnitService {
     private static ConflictException notMovable(ListingUnit unit) {
         String why = switch (unit.status()) {
             case RESERVED -> "it is held by an order that has not shipped";
+            case ON_AUCTION -> "it is in an open auction";
             case SOLD -> "it has left with a parcel";
             case WRITTEN_OFF -> "it is out of stock for good";
             default -> "it changed while this request was on its way";
