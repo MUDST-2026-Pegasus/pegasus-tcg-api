@@ -7,6 +7,16 @@ import com.pegasus.pegasustcgapi.dto.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.OrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.OrderItemDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.OrderStatusHistoryResponse;
+import com.pegasus.pegasustcgapi.dto.ReorderPreviewResponse;
+import com.pegasus.pegasustcgapi.dto.ReorderPreviewResponse.ReorderAlternativeConditionResponse;
+import com.pegasus.pegasustcgapi.dto.ReorderPreviewResponse.ReorderCurrentListingResponse;
+import com.pegasus.pegasustcgapi.dto.ReorderPreviewResponse.ReorderItemResponse;
+import com.pegasus.pegasustcgapi.dto.ReorderPreviewResponse.ReorderItemStatus;
+import com.pegasus.pegasustcgapi.dto.ReorderPreviewResponse.ReorderSellerOrderResponse;
+import com.pegasus.pegasustcgapi.exception.ForbiddenException;
+import com.pegasus.pegasustcgapi.model.Listing;
+import com.pegasus.pegasustcgapi.repository.ListingRepository;
+import java.util.Comparator;
 import com.pegasus.pegasustcgapi.dto.SellerOrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.dto.ShipmentResponse;
@@ -42,6 +52,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -81,6 +92,7 @@ public class OrderLifecycleService {
     private final CollectionPort collectionPort;
     private final Clock clock;
     private final StorageService storageService;
+    private final ListingRepository listingRepository;
     private CheckoutPromotionService checkoutPromotions;
 
     @Autowired
@@ -92,7 +104,8 @@ public class OrderLifecycleService {
             LedgerPort ledgerPort,
             CollectionPort collectionPort,
             Clock clock,
-            @Autowired(required = false) StorageService storageService) {
+            @Autowired(required = false) StorageService storageService,
+            @Autowired(required = false) ListingRepository listingRepository) {
         this.orderRepository = orderRepository;
         this.sellerPort = sellerPort;
         this.platformSettingService = platformSettingService;
@@ -101,6 +114,20 @@ public class OrderLifecycleService {
         this.collectionPort = collectionPort;
         this.clock = clock != null ? clock : Clock.systemUTC();
         this.storageService = storageService;
+        this.listingRepository = listingRepository;
+    }
+
+    public OrderLifecycleService(
+            OrderRepository orderRepository,
+            SellerPort sellerPort,
+            PlatformSettingService platformSettingService,
+            InventoryPort inventoryPort,
+            LedgerPort ledgerPort,
+            CollectionPort collectionPort,
+            Clock clock,
+            StorageService storageService) {
+        this(orderRepository, sellerPort, platformSettingService,
+                inventoryPort, ledgerPort, collectionPort, clock, storageService, null);
     }
 
     public OrderLifecycleService(
@@ -112,7 +139,7 @@ public class OrderLifecycleService {
             CollectionPort collectionPort,
             Clock clock) {
         this(orderRepository, sellerPort, platformSettingService,
-                inventoryPort, ledgerPort, collectionPort, clock, null);
+                inventoryPort, ledgerPort, collectionPort, clock, null, null);
     }
 
     public OrderLifecycleService(
@@ -123,7 +150,7 @@ public class OrderLifecycleService {
             LedgerPort ledgerPort,
             CollectionPort collectionPort) {
         this(orderRepository, sellerPort, platformSettingService,
-                inventoryPort, ledgerPort, collectionPort, Clock.systemUTC(), null);
+                inventoryPort, ledgerPort, collectionPort, Clock.systemUTC(), null, null);
     }
 
     // ==========================================
@@ -149,6 +176,152 @@ public class OrderLifecycleService {
         SalesOrderRecord order = orderRepository.findSalesOrderByIdAndBuyerId(orderId, principal.userId())
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
         return toOrderDetailsResponse(order);
+    }
+
+    @Transactional(readOnly = true)
+    public ReorderPreviewResponse getReorderPreview(AuthPrincipal principal, long orderId) {
+        requireAuthenticated(principal);
+
+        SalesOrderRecord order = orderRepository.findSalesOrderById(orderId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+
+        if (order.getBuyerId() != principal.userId()) {
+            throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
+        }
+
+        if (!"COMPLETED".equals(order.getStatus())) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Only completed orders can be reordered");
+        }
+
+        List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(order.getId());
+        if (sellerOrders.isEmpty()) {
+            return new ReorderPreviewResponse(order.getId(), List.of());
+        }
+
+        List<Long> sellerOrderIds = sellerOrders.stream().map(SellerOrderRecord::getId).toList();
+        Map<Long, List<OrderItemRecord>> itemsBySellerOrder = orderRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
+
+        List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
+        Map<Long, ListingRepository.SellerStanding> standings = listingRepository != null
+                ? listingRepository.findSellerStandings(profileIds)
+                : Map.of();
+
+        List<Long> availableProfileIds = profileIds.stream()
+                .filter(pid -> standings.get(pid) != null && standings.get(pid).sellerAvailable())
+                .toList();
+
+        List<Long> variantIds = sellerOrders.stream()
+                .filter(so -> availableProfileIds.contains(so.getSellerProfileId()))
+                .flatMap(so -> itemsBySellerOrder.getOrDefault(so.getId(), List.of()).stream())
+                .map(OrderItemRecord::getCatalogVariantId)
+                .distinct()
+                .toList();
+
+        List<Listing> activeListings = (listingRepository != null && !availableProfileIds.isEmpty() && !variantIds.isEmpty())
+                ? listingRepository.findActiveListingsForReorder(availableProfileIds, variantIds)
+                : List.of();
+
+        record SellerVariantKey(long sellerProfileId, long catalogVariantId) {}
+        Map<SellerVariantKey, List<Listing>> listingsByKey = activeListings.stream()
+                .collect(Collectors.groupingBy(l -> new SellerVariantKey(l.sellerProfileId(), l.catalogVariantId())));
+
+        List<ReorderSellerOrderResponse> sellerOrderResponses = sellerOrders.stream().map(so -> {
+            ListingRepository.SellerStanding standing = standings.get(so.getSellerProfileId());
+            boolean vacation = standing != null && standing.vacationMode();
+            boolean available = standing != null && standing.sellerAvailable();
+            String sellerName = standing != null ? standing.sellerName() : "";
+
+            List<OrderItemRecord> items = itemsBySellerOrder.getOrDefault(so.getId(), List.of());
+            List<ReorderItemResponse> itemResponses = items.stream().map(oi -> {
+                String originalCondition = oi.getConditionSnapshot();
+                BigDecimal originalPrice = oi.getUnitPrice();
+                int originalQuantity = oi.getQuantity();
+
+                String imageUrl = null;
+                if (storageService != null && oi.getImageKeySnapshot() != null && !oi.getImageKeySnapshot().isBlank()) {
+                    try {
+                        imageUrl = storageService.presignDownload(oi.getImageKeySnapshot());
+                    } catch (Exception e) {
+                        // Ignore storage failure, keep imageUrl null
+                    }
+                }
+
+                ReorderCurrentListingResponse currentListing = null;
+                List<ReorderAlternativeConditionResponse> alternativeConditions = List.of();
+                ReorderItemStatus status;
+
+                if (!available) {
+                    status = ReorderItemStatus.OUT_OF_STOCK;
+                } else {
+                    List<Listing> candidates = listingsByKey.getOrDefault(
+                            new SellerVariantKey(so.getSellerProfileId(), oi.getCatalogVariantId()), List.of());
+
+                    alternativeConditions = candidates.stream()
+                            .filter(l -> l.condition() == null || !l.condition().name().equalsIgnoreCase(originalCondition))
+                            .sorted(Comparator.comparingInt((Listing l) -> conditionRank(l.condition() == null ? null : l.condition().name()))
+                                    .thenComparing(Listing::price))
+                            .map(l -> new ReorderAlternativeConditionResponse(
+                                    l.id(),
+                                    l.condition() != null ? l.condition().name() : "",
+                                    l.price(),
+                                    l.quantityAvailable()))
+                            .toList();
+
+                    Optional<Listing> matchingListing = candidates.stream()
+                            .filter(l -> l.condition() != null && l.condition().name().equalsIgnoreCase(originalCondition))
+                            .findFirst();
+
+                    if (matchingListing.isPresent()) {
+                        Listing l = matchingListing.get();
+                        boolean priceChanged = l.price().compareTo(originalPrice) != 0;
+                        currentListing = new ReorderCurrentListingResponse(
+                                l.id(),
+                                l.condition().name(),
+                                l.price(),
+                                priceChanged,
+                                l.quantityAvailable(),
+                                true);
+                        status = priceChanged ? ReorderItemStatus.AVAILABLE_PRICE_CHANGED : ReorderItemStatus.AVAILABLE;
+                    } else {
+                        status = alternativeConditions.isEmpty()
+                                ? ReorderItemStatus.OUT_OF_STOCK
+                                : ReorderItemStatus.ALTERNATIVE_AVAILABLE;
+                    }
+                }
+
+                return new ReorderItemResponse(
+                        oi.getId(),
+                        oi.getCatalogVariantId(),
+                        oi.getProductNameSnapshot(),
+                        oi.getVariantLabelSnapshot(),
+                        originalCondition,
+                        originalPrice,
+                        originalQuantity,
+                        imageUrl,
+                        currentListing,
+                        alternativeConditions,
+                        status);
+            }).toList();
+
+            return new ReorderSellerOrderResponse(
+                    so.getSellerProfileId(),
+                    sellerName,
+                    available,
+                    vacation,
+                    itemResponses);
+        }).toList();
+
+        return new ReorderPreviewResponse(order.getId(), sellerOrderResponses);
+    }
+
+    private static final List<String> REORDER_CONDITION_ORDER = List.of("NM", "LP", "MP", "HP", "DMG", "SEALED");
+
+    private static int conditionRank(String condition) {
+        if (condition == null) {
+            return Integer.MAX_VALUE;
+        }
+        int idx = REORDER_CONDITION_ORDER.indexOf(condition.toUpperCase());
+        return idx >= 0 ? idx : Integer.MAX_VALUE - 1;
     }
 
     @Transactional

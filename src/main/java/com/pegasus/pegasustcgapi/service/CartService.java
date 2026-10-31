@@ -223,6 +223,70 @@ public class CartService {
         }
 
         Cart cart = found.get();
+        return buildCartResponse(cart);
+    }
+
+    /**
+     * Atomically adds multiple items to the user's cart in a single transaction.
+     * If any item is invalid or not purchasable, the entire batch is rolled back.
+     */
+    @Transactional
+    public CartResponse addBatchItems(Long userId, List<CartItemRequest> requests) {
+        if (userId == null) {
+            throw new UnauthorizedException(ErrorCode.UNAUTHENTICATED);
+        }
+        if (requests == null || requests.isEmpty()) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Item list must not be empty");
+        }
+
+        Cart cart = cartRepository.getOrCreateForUser(userId);
+        Optional<SellerProfile> sellerProfile = sellerProfileRepository.findByUserId(userId);
+
+        for (CartItemRequest request : requests) {
+            if (request == null || request.listingId() == null || request.listingId() <= 0) {
+                throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Listing ID is required and must be positive");
+            }
+            int requestedQuantity = request.resolvedQuantity();
+            if (requestedQuantity < 1) {
+                throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Quantity must be at least 1");
+            }
+
+            ListingOffer offer = pricingPort.offer(request.listingId())
+                    .orElseThrow(() -> new ConflictException(ErrorCode.LISTING_NOT_PURCHASABLE));
+
+            if (!offer.purchasable()) {
+                throw new ConflictException(ErrorCode.LISTING_NOT_PURCHASABLE);
+            }
+
+            if (sellerProfile.isPresent() && sellerProfile.get().id() == offer.sellerProfileId()) {
+                throw new ConflictException(ErrorCode.CANNOT_BUY_OWN_LISTING);
+            }
+
+            Optional<CartItem> existingItem = cartRepository.findItemByCartIdAndListingId(cart.id(), request.listingId());
+            int cumulativeQuantity;
+            if (existingItem.isPresent()) {
+                try {
+                    cumulativeQuantity = Math.addExact(existingItem.get().quantity(), requestedQuantity);
+                } catch (ArithmeticException e) {
+                    throw new ConflictException(ErrorCode.INSUFFICIENT_STOCK, "Requested quantity causes integer overflow");
+                }
+            } else {
+                cumulativeQuantity = requestedQuantity;
+            }
+
+            if (cumulativeQuantity > offer.quantityAvailable()) {
+                throw new ConflictException(
+                        ErrorCode.INSUFFICIENT_STOCK,
+                        "Requested quantity (" + cumulativeQuantity + ") exceeds available stock (" + offer.quantityAvailable() + ")");
+            }
+
+            cartRepository.upsertItem(cart.id(), request.listingId(), cumulativeQuantity, offer.price());
+        }
+
+        return buildCartResponse(cart);
+    }
+
+    private CartResponse buildCartResponse(Cart cart) {
         List<CartItemResponse> items = findAndEnrichItems(cart.id());
         int totalQuantity = items.stream().mapToInt(CartItemResponse::quantity).sum();
         BigDecimal subtotal = items.stream()

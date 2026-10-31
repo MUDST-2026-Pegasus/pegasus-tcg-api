@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.OrderDetailsResponse;
+import com.pegasus.pegasustcgapi.dto.ReorderPreviewResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.OrderLifecycleService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -55,6 +56,21 @@ public class OrderController {
     @GetMapping("/{id}")
     public ApiResult<OrderDetailsResponse> get(@PathVariable long id, AuthPrincipal principal) {
         return ApiResult.success(orderLifecycleService.getBuyerOrder(principal, id));
+    }
+
+    @Operation(summary = "Get reorder preview",
+            description = "Retrieves reorder preview for a completed order, checking seller availability and current listing status.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Reorder preview retrieved"),
+            @ApiResponse(responseCode = "400", description = "Order is not completed"),
+            @ApiResponse(responseCode = "403", description = "Forbidden to access another user's order"),
+            @ApiResponse(responseCode = "404", description = "Order not found")
+    })
+    @GetMapping("/{orderId}/reorder-preview")
+    public ApiResult<ReorderPreviewResponse> getReorderPreview(
+            @PathVariable long orderId,
+            AuthPrincipal principal) {
+        return ApiResult.success(orderLifecycleService.getReorderPreview(principal, orderId));
     }
 
     @Operation(summary = "Cancel order", description = "Cancels an order within the cancellation window before shipping.")

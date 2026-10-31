@@ -7,6 +7,9 @@ import com.pegasus.pegasustcgapi.dto.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.CartItemResponse;
 import com.pegasus.pegasustcgapi.dto.CartResponse;
 import com.pegasus.pegasustcgapi.dto.UpdateCartItemRequest;
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
+import com.pegasus.pegasustcgapi.exception.ErrorCode;
+import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.CartService;
 import com.pegasus.pegasustcgapi.service.CartService.AddResult;
@@ -67,6 +70,35 @@ public class CartController {
             builder.header("X-Cart-Session", result.sessionKey());
         }
         return builder.body(ApiResult.success("Item added to cart", result.item()));
+    }
+
+    @Operation(summary = "Batch add items to cart", description = "Adds multiple listings to the cart atomically.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Items added to cart"),
+            @ApiResponse(responseCode = "400", description = "Invalid request payload"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "409", description = "Listing not purchasable, insufficient stock, or seller cannot buy own listing")
+    })
+    @PostMapping("/items/batch")
+    public ResponseEntity<ApiResult<CartResponse>> addBatchItems(
+            @RequestBody List<@Valid CartItemRequest> requests,
+            AuthPrincipal principal) {
+        if (principal == null) {
+            throw new UnauthorizedException(ErrorCode.UNAUTHENTICATED);
+        }
+        if (requests == null || requests.isEmpty()) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Item list must not be empty");
+        }
+        for (CartItemRequest req : requests) {
+            if (req == null || req.listingId() == null || req.listingId() <= 0) {
+                throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Listing ID is required and must be positive");
+            }
+            if (req.quantity() != null && req.quantity() < 1) {
+                throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Quantity must be at least 1");
+            }
+        }
+        CartResponse response = cartService.addBatchItems(principal.userId(), requests);
+        return ResponseEntity.ok(ApiResult.success("Items added to cart", response));
     }
 
     @Operation(summary = "Merge guest cart", description = "Merges guest cart items into authenticated user cart")

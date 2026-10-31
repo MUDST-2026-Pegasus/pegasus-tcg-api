@@ -282,6 +282,59 @@ public class ListingRepository {
                         r.get(USER_ACCOUNT.USERNAME)));
     }
 
+    public record SellerStanding(
+            long sellerProfileId,
+            String sellerName,
+            boolean vacationMode,
+            boolean sellerAvailable) {}
+
+    /**
+     * Checks standing for the given seller profile IDs against sellerOpenForBusiness criteria:
+     * verified, not in vacation mode, active account, and not deleted.
+     */
+    public Map<Long, SellerStanding> findSellerStandings(Collection<Long> sellerProfileIds) {
+        if (sellerProfileIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(
+                SELLER_PROFILE.ID,
+                SELLER_PROFILE.STATUS,
+                SELLER_PROFILE.VACATION_MODE,
+                USER_ACCOUNT.STATUS,
+                USER_ACCOUNT.DELETED_AT,
+                USER_ACCOUNT.DISPLAY_NAME,
+                USER_ACCOUNT.USERNAME)
+                .from(SELLER_PROFILE)
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .where(SELLER_PROFILE.ID.in(sellerProfileIds))
+                .fetchMap(SELLER_PROFILE.ID, r -> {
+                    boolean vacation = Boolean.TRUE.equals(r.get(SELLER_PROFILE.VACATION_MODE));
+                    boolean verified = SellerStatus.VERIFIED.name().equals(r.get(SELLER_PROFILE.STATUS));
+                    boolean activeAccount = r.get(USER_ACCOUNT.STATUS) == UserStatus.ACTIVE && r.get(USER_ACCOUNT.DELETED_AT) == null;
+                    boolean available = verified && !vacation && activeAccount;
+                    String displayName = r.get(USER_ACCOUNT.DISPLAY_NAME);
+                    String username = r.get(USER_ACCOUNT.USERNAME);
+                    String sellerName = (displayName != null && !displayName.isBlank()) ? displayName : username;
+                    return new SellerStanding(r.get(SELLER_PROFILE.ID), sellerName, vacation, available);
+                });
+    }
+
+    /**
+     * Active listings with stock > 0 for specified sellers and catalog variants.
+     */
+    public List<Listing> findActiveListingsForReorder(Collection<Long> sellerProfileIds, Collection<Long> catalogVariantIds) {
+        if (sellerProfileIds.isEmpty() || catalogVariantIds.isEmpty()) {
+            return List.of();
+        }
+        return dsl.selectFrom(LISTING)
+                .where(LISTING.SELLER_PROFILE_ID.in(sellerProfileIds))
+                .and(LISTING.CATALOG_VARIANT_ID.in(catalogVariantIds))
+                .and(LISTING.DELETED_AT.isNull())
+                .and(LISTING.STATUS.eq(ListingStatus.ACTIVE.name()))
+                .and(LISTING.QUANTITY_AVAILABLE.gt(0))
+                .fetch(ListingRepository::toListing);
+    }
+
     // ---------- the nightly job ----------
 
     /** Every market that has at least one AUTO_MEDIAN listing to move. */
