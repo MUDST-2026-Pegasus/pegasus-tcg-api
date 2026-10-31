@@ -21,7 +21,12 @@ public final class AdminPromotionViews {
     /**
      * One code, Pegasus's or a shop's, with its status worked out at read time.
      *
-     * @param owner the shop for a SELLER code (id is the seller profile); null for PLATFORM
+     * @param owner          the shop for a SELLER code (id is the seller profile); null for PLATFORM
+     * @param createdBy      the user who created the code (id is the user); null for seeded codes
+     * @param pausedBy       the user who paused it while it is paused; null otherwise
+     * @param discountTotal  what the code took off paid orders (CONSUMED redemptions)
+     * @param salesTotal     grand total of the paid orders that used it, each order once
+     * @param reservedOrders orders holding it while they wait for payment
      */
     public record AdminPromotion(
             long id,
@@ -53,7 +58,12 @@ public final class AdminPromotionViews {
             OffsetDateTime pausedAt,
             String pauseReason,
             OffsetDateTime createdAt,
-            OffsetDateTime updatedAt) {
+            OffsetDateTime updatedAt,
+            Party createdBy,
+            Party pausedBy,
+            BigDecimal discountTotal,
+            BigDecimal salesTotal,
+            long reservedOrders) {
     }
 
     /** @param statusCounts every status, zero included, for the tabs; ignores the status filter */
@@ -67,6 +77,9 @@ public final class AdminPromotionViews {
      * @param redemptionsChangePercent against the 30 days before; null when that was zero
      * @param platformDiscountCost30d  what Pegasus codes took off paid orders
      * @param salesWithCodes30d        grand total of paid orders that used any code
+     * @param gmv30d                   grand total of every order paid in the window, for "% of GMV"
+     * @param paidOrders30d            orders paid in the window
+     * @param ordersWithCodes30d       of those, orders that used any code
      */
     public record Summary(
             long activePlatformCodes,
@@ -75,7 +88,10 @@ public final class AdminPromotionViews {
             BigDecimal redemptionsChangePercent,
             long claims30d,
             BigDecimal platformDiscountCost30d,
-            BigDecimal salesWithCodes30d) {
+            BigDecimal salesWithCodes30d,
+            BigDecimal gmv30d,
+            long paidOrders30d,
+            long ordersWithCodes30d) {
     }
 
     /** A code on one order. {@code status} is RESERVED, CONSUMED or RELEASED. */

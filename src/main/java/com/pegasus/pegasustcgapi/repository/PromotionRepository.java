@@ -133,6 +133,17 @@ public class PromotionRepository {
                 .execute();
     }
 
+    /** Ends the code at {@code at} and takes it off the home page; past orders keep their discount. */
+    public void endAt(long id, OffsetDateTime at) {
+        dsl.update(PROMOTION)
+                .set(PROMOTION.ENDS_AT, at)
+                .set(PROMOTION.FEATURED_ON_HOME, false)
+                .setNull(PROMOTION.HOME_SORT)
+                .set(PROMOTION.UPDATED_AT, DSL.currentOffsetDateTime())
+                .where(PROMOTION.ID.eq(id))
+                .execute();
+    }
+
     public void resume(long id) {
         dsl.update(PROMOTION)
                 .setNull(PROMOTION.PAUSED_AT)

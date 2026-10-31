@@ -113,6 +113,14 @@ public class AdminPromotionController {
         return ApiResult.success(promotions.pause(id, request, principal.userId()));
     }
 
+    @Operation(summary = "End a Pegasus code now",
+            description = "Works on a used code too (PUT cannot move its end earlier). Takes it off the "
+                    + "home page. 400 PROMO_INVALID before it starts; shop codes are 403.")
+    @PostMapping("/{id}/end")
+    public ApiResult<AdminPromotion> end(@PathVariable long id, AuthPrincipal principal) {
+        return ApiResult.success(promotions.end(id, principal.userId()));
+    }
+
     @Operation(summary = "Resume a paused code")
     @PostMapping("/{id}/resume")
     public ApiResult<AdminPromotion> resume(@PathVariable long id,
