@@ -55,6 +55,18 @@ class PromoRateLimitFilterTest {
     }
 
     @Test
+    void aForwardedHeaderFromOutsideTheClusterIsNotTrusted() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            MockHttpServletRequest r = preview("198.51.100.20");
+            r.addHeader("X-Forwarded-For", "192.0.2." + i);
+            assertThat(send(r)).isEqualTo(200);
+        }
+        MockHttpServletRequest r = preview("198.51.100.20");
+        r.addHeader("X-Forwarded-For", "192.0.2.99");
+        assertThat(send(r)).isEqualTo(429);
+    }
+
+    @Test
     void aSignedInCallerIsCountedPerAccountAcrossAddresses() throws Exception {
         Jwt jwt = Jwt.withTokenValue("t").header("alg", "HS256").subject("42").build();
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));

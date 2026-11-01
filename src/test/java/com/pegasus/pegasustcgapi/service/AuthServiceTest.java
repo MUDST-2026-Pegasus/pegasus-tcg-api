@@ -257,6 +257,7 @@ class AuthServiceTest {
             given(users.findByEmail("ploy@example.com")).willReturn(Optional.of(stored));
             given(users.findById(USER_ID)).willReturn(Optional.of(stored));
             given(roles.rolesOf(USER_ID)).willReturn(Set.of(RoleCode.BUYER, RoleCode.SELLER));
+            givenAttempt(1);
             givenIssuedTokens();
 
             AuthResponse response = service.login(
@@ -287,12 +288,15 @@ class AuthServiceTest {
             given(users.findByEmail("ploy@example.com")).willReturn(Optional.of(
                     anActiveUser().withId(USER_ID).withPassword("correct-horse")
                             .withFailedLoginAttempts(1).build()));
+            givenAttempt(2);
 
             assertThatThrownBy(() -> service.login(new LoginRequest("ploy@example.com", "wrong"), CLIENT))
                     .isInstanceOfSatisfying(UnauthorizedException.class,
                             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INVALID_CREDENTIALS));
 
-            verify(users).recordFailedLogin(USER_ID, (short) 2, null);
+            // Counted before the password was checked; nothing more to write below the limit.
+            verify(users).reserveLoginAttempt(USER_ID, NOW_AT);
+            verify(users, never()).recordFailedLogin(anyLong(), anyShort(), any());
             verify(users, never()).recordSuccessfulLogin(anyLong(), any());
             verifyNoInteractions(authTokens, jwtService);
         }
@@ -303,6 +307,7 @@ class AuthServiceTest {
             given(users.findByEmail("ploy@example.com")).willReturn(Optional.of(
                     anActiveUser().withId(USER_ID).withPassword("correct-horse")
                             .withFailedLoginAttempts(MAX_FAILED_LOGINS - 1).build()));
+            givenAttempt(MAX_FAILED_LOGINS);
 
             assertThatThrownBy(() -> service.login(new LoginRequest("ploy@example.com", "wrong"), CLIENT))
                     .isInstanceOfSatisfying(ForbiddenException.class,
@@ -323,7 +328,40 @@ class AuthServiceTest {
                             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.ACCOUNT_LOCKED));
 
             verify(passwordEncoder, never()).matches(any(), anyString());
+            verify(users, never()).reserveLoginAttempt(anyLong(), any());
             verify(users, never()).recordFailedLogin(anyLong(), anyShort(), any());
+            verifyNoInteractions(authTokens, jwtService);
+        }
+
+        @Test
+        @DisplayName("a parallel attempt past the limit is turned away without a guess, and locks")
+        void attemptPastTheLimitLocksWithoutCheckingPassword() {
+            given(users.findByEmail("ploy@example.com")).willReturn(Optional.of(
+                    anActiveUser().withId(USER_ID).withPassword("correct-horse").build()));
+            givenAttempt(MAX_FAILED_LOGINS + 1);
+
+            assertThatThrownBy(() -> service.login(new LoginRequest("ploy@example.com", "correct-horse"), CLIENT))
+                    .isInstanceOfSatisfying(ForbiddenException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.ACCOUNT_LOCKED));
+
+            verify(passwordEncoder, never()).matches(eq("correct-horse"), anyString());
+            verify(users).recordFailedLogin(USER_ID, (short) 0, NOW_AT.plus(LOCKOUT));
+            verify(users, never()).recordSuccessfulLogin(anyLong(), any());
+            verifyNoInteractions(authTokens, jwtService);
+        }
+
+        @Test
+        @DisplayName("an account locked by a parallel attempt since it was read is turned away")
+        void accountLockedMeanwhileIsRejected() {
+            given(users.findByEmail("ploy@example.com")).willReturn(Optional.of(
+                    anActiveUser().withId(USER_ID).withPassword("correct-horse").build()));
+            given(users.reserveLoginAttempt(USER_ID, NOW_AT)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.login(new LoginRequest("ploy@example.com", "correct-horse"), CLIENT))
+                    .isInstanceOfSatisfying(ForbiddenException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.ACCOUNT_LOCKED));
+
+            verify(passwordEncoder, never()).matches(eq("correct-horse"), anyString());
             verifyNoInteractions(authTokens, jwtService);
         }
 
@@ -335,6 +373,7 @@ class AuthServiceTest {
             given(users.findByEmail("ploy@example.com")).willReturn(Optional.of(stored));
             given(users.findById(USER_ID)).willReturn(Optional.of(stored));
             given(roles.rolesOf(USER_ID)).willReturn(Set.of(RoleCode.BUYER));
+            givenAttempt(1);
             givenIssuedTokens();
 
             AuthResponse response = service.login(new LoginRequest("ploy@example.com", "correct-horse"), CLIENT);
@@ -595,6 +634,11 @@ class AuthServiceTest {
     private void givenStoredUser(AuthUser user) {
         given(users.findById(user.id())).willReturn(Optional.of(user));
         given(roles.rolesOf(user.id())).willReturn(user.roles());
+    }
+
+    /** The number the database hands this login attempt. */
+    private void givenAttempt(int attempt) {
+        given(users.reserveLoginAttempt(USER_ID, NOW_AT)).willReturn(Optional.of((short) attempt));
     }
 
     private void givenIssuedTokens() {
