@@ -117,9 +117,10 @@ public class AuthService {
         }
 
         requireLoginAllowed(user);
+        int attempt = reserveAttempt(user);
 
         if (!passwordEncoder.matches(request.password(), user.passwordHash())) {
-            recordFailedAttempt(user);
+            recordFailedAttempt(user, attempt);
             throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
         }
 
@@ -251,21 +252,41 @@ public class AuthService {
     }
 
     /**
-     * Counts the attempt in the database so the limit holds across instances and
-     * restarts. Hitting the limit starts a lockout and resets the counter, giving
-     * the user a full allowance again once it lapses.
+     * Counts this attempt in the database before the password is checked, so the
+     * limit holds across instances and restarts and also against parallel requests:
+     * each attempt gets its own number, and one past the limit is turned away
+     * without a guess. A successful login resets the counter as before.
+     *
+     * <p>One request at a time sees exactly what it did before: attempt n is the
+     * stored count plus one, and the n-th wrong password at the limit locks.
      */
-    private void recordFailedAttempt(AuthUser user) {
-        int attempts = user.failedLoginAttempts() + 1;
-
-        if (attempts >= properties.maxFailedLogins()) {
-            OffsetDateTime until = OffsetDateTime.now(clock).plus(properties.lockoutDuration());
-            users.recordFailedLogin(user.id(), (short) 0, until);
-            log.warn("Locked user {} until {} after {} failed logins", user.id(), until, attempts);
-            throw new ForbiddenException(ErrorCode.ACCOUNT_LOCKED);
+    private int reserveAttempt(AuthUser user) {
+        int attempt = users.reserveLoginAttempt(user.id(), OffsetDateTime.now(clock))
+                // Locked by a parallel attempt since the account was read.
+                .orElseThrow(() -> new ForbiddenException(ErrorCode.ACCOUNT_LOCKED));
+        if (attempt > properties.maxFailedLogins()) {
+            // Only parallel requests get here; the one that reached the limit locks, and
+            // so does this one, in case that one never finishes.
+            lock(user, attempt);
         }
+        return attempt;
+    }
 
-        users.recordFailedLogin(user.id(), (short) attempts, null);
+    /**
+     * The attempt is already counted. Hitting the limit starts a lockout and resets
+     * the counter, giving the user a full allowance again once it lapses.
+     */
+    private void recordFailedAttempt(AuthUser user, int attempt) {
+        if (attempt >= properties.maxFailedLogins()) {
+            lock(user, attempt);
+        }
+    }
+
+    private void lock(AuthUser user, int attempts) {
+        OffsetDateTime until = OffsetDateTime.now(clock).plus(properties.lockoutDuration());
+        users.recordFailedLogin(user.id(), (short) 0, until);
+        log.warn("Locked user {} until {} after {} failed logins", user.id(), until, attempts);
+        throw new ForbiddenException(ErrorCode.ACCOUNT_LOCKED);
     }
 
     /** ADMIN and SUPPORT are never self-service; they are granted by an existing admin. */

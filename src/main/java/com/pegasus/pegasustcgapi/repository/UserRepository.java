@@ -150,6 +150,28 @@ public class UserRepository {
      *
      * @param lockedUntil {@code null} while the account is still under the limit.
      */
+    /**
+     * Counts a login attempt before its password is checked, in one statement, and
+     * says which attempt it is.
+     *
+     * <p>Reading the counter and writing it back later would let a burst of parallel
+     * logins all read the same count and all get a guess in; an in-place increment
+     * makes Postgres hand out each number once. Commits on its own for the same
+     * reason as {@link #recordFailedLogin}, and so a parallel attempt sees it at once.
+     *
+     * @return empty when the account is locked as of {@code now}, so nothing was counted
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public Optional<Short> reserveLoginAttempt(long userId, OffsetDateTime now) {
+        return dsl.update(USER_ACCOUNT)
+                .set(USER_ACCOUNT.FAILED_LOGIN_ATTEMPTS, USER_ACCOUNT.FAILED_LOGIN_ATTEMPTS.plus((short) 1))
+                .where(USER_ACCOUNT.ID.eq(userId))
+                .and(USER_ACCOUNT.LOCKED_UNTIL.isNull().or(USER_ACCOUNT.LOCKED_UNTIL.le(now)))
+                .returningResult(USER_ACCOUNT.FAILED_LOGIN_ATTEMPTS)
+                .fetchOptional()
+                .map(r -> r.value1());
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordFailedLogin(long userId, short attempts, OffsetDateTime lockedUntil) {
         dsl.update(USER_ACCOUNT)
