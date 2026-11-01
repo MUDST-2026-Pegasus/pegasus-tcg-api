@@ -108,7 +108,13 @@ public class AuthService {
         return new AuthResponse(UserResponse.from(user), startSession(user, client));
     }
 
-    @Transactional
+    /**
+     * Deliberately not one transaction. The attempt counter and the lockout commit on
+     * their own ({@code REQUIRES_NEW}), and an outer transaction would hold a pooled
+     * connection through the slow password hash while each of those asks for a
+     * second one: a burst of wrong passwords then fills the pool and stalls every
+     * request. Nothing here needs to roll back together; each step stands alone.
+     */
     public AuthResponse login(LoginRequest request, ClientInfo client) {
         AuthUser user = users.findByEmail(normalizeEmail(request.email())).orElse(null);
         if (user == null) {
