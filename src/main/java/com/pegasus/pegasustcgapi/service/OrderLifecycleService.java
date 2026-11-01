@@ -14,9 +14,9 @@ import com.pegasus.pegasustcgapi.dto.ReorderPreviewResponse.ReorderItemResponse;
 import com.pegasus.pegasustcgapi.dto.ReorderPreviewResponse.ReorderItemStatus;
 import com.pegasus.pegasustcgapi.dto.ReorderPreviewResponse.ReorderSellerOrderResponse;
 import com.pegasus.pegasustcgapi.exception.ForbiddenException;
+import com.pegasus.pegasustcgapi.model.CardCondition;
 import com.pegasus.pegasustcgapi.model.Listing;
 import com.pegasus.pegasustcgapi.repository.ListingRepository;
-import java.util.Comparator;
 import com.pegasus.pegasustcgapi.dto.SellerOrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.dto.ShipmentResponse;
@@ -46,7 +46,10 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -71,6 +74,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class OrderLifecycleService {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderLifecycleService.class);
 
     /**
      * The compare-and-set guards, as names because the column stores names. Which
@@ -104,8 +109,8 @@ public class OrderLifecycleService {
             LedgerPort ledgerPort,
             CollectionPort collectionPort,
             Clock clock,
-            @Autowired(required = false) StorageService storageService,
-            @Autowired(required = false) ListingRepository listingRepository) {
+            ListingRepository listingRepository,
+            @Autowired(required = false) StorageService storageService) {
         this.orderRepository = orderRepository;
         this.sellerPort = sellerPort;
         this.platformSettingService = platformSettingService;
@@ -113,8 +118,8 @@ public class OrderLifecycleService {
         this.ledgerPort = ledgerPort;
         this.collectionPort = collectionPort;
         this.clock = clock != null ? clock : Clock.systemUTC();
-        this.storageService = storageService;
         this.listingRepository = listingRepository;
+        this.storageService = storageService;
     }
 
     public OrderLifecycleService(
@@ -125,32 +130,9 @@ public class OrderLifecycleService {
             LedgerPort ledgerPort,
             CollectionPort collectionPort,
             Clock clock,
-            StorageService storageService) {
+            ListingRepository listingRepository) {
         this(orderRepository, sellerPort, platformSettingService,
-                inventoryPort, ledgerPort, collectionPort, clock, storageService, null);
-    }
-
-    public OrderLifecycleService(
-            OrderRepository orderRepository,
-            SellerPort sellerPort,
-            PlatformSettingService platformSettingService,
-            InventoryPort inventoryPort,
-            LedgerPort ledgerPort,
-            CollectionPort collectionPort,
-            Clock clock) {
-        this(orderRepository, sellerPort, platformSettingService,
-                inventoryPort, ledgerPort, collectionPort, clock, null, null);
-    }
-
-    public OrderLifecycleService(
-            OrderRepository orderRepository,
-            SellerPort sellerPort,
-            PlatformSettingService platformSettingService,
-            InventoryPort inventoryPort,
-            LedgerPort ledgerPort,
-            CollectionPort collectionPort) {
-        this(orderRepository, sellerPort, platformSettingService,
-                inventoryPort, ledgerPort, collectionPort, Clock.systemUTC(), null, null);
+                inventoryPort, ledgerPort, collectionPort, clock, listingRepository, null);
     }
 
     // ==========================================
@@ -182,18 +164,16 @@ public class OrderLifecycleService {
     public ReorderPreviewResponse getReorderPreview(AuthPrincipal principal, long orderId) {
         requireAuthenticated(principal);
 
-        SalesOrderRecord order = orderRepository.findSalesOrderById(orderId)
+        SalesOrderRecord order = orderRepository.findSalesOrderByIdAndBuyerId(orderId, principal.userId())
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
 
-        if (order.getBuyerId() != principal.userId()) {
-            throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
-        }
-
-        if (!"COMPLETED".equals(order.getStatus())) {
+        if (!SellerOrderStatus.COMPLETED.name().equals(order.getStatus())) {
             throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Only completed orders can be reordered");
         }
 
-        List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(order.getId());
+        List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(order.getId()).stream()
+                .filter(so -> !SellerOrderStatus.CANCELLED.name().equals(so.getStatus()))
+                .toList();
         if (sellerOrders.isEmpty()) {
             return new ReorderPreviewResponse(order.getId(), List.of());
         }
@@ -202,9 +182,7 @@ public class OrderLifecycleService {
         Map<Long, List<OrderItemRecord>> itemsBySellerOrder = orderRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
 
         List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
-        Map<Long, ListingRepository.SellerStanding> standings = listingRepository != null
-                ? listingRepository.findSellerStandings(profileIds)
-                : Map.of();
+        Map<Long, ListingRepository.SellerStanding> standings = listingRepository.findSellerStandings(profileIds);
 
         List<Long> availableProfileIds = profileIds.stream()
                 .filter(pid -> standings.get(pid) != null && standings.get(pid).sellerAvailable())
@@ -217,13 +195,21 @@ public class OrderLifecycleService {
                 .distinct()
                 .toList();
 
-        List<Listing> activeListings = (listingRepository != null && !availableProfileIds.isEmpty() && !variantIds.isEmpty())
+        List<Listing> activeListings = (!availableProfileIds.isEmpty() && !variantIds.isEmpty())
                 ? listingRepository.findActiveListingsForReorder(availableProfileIds, variantIds)
                 : List.of();
 
         record SellerVariantKey(long sellerProfileId, long catalogVariantId) {}
         Map<SellerVariantKey, List<Listing>> listingsByKey = activeListings.stream()
                 .collect(Collectors.groupingBy(l -> new SellerVariantKey(l.sellerProfileId(), l.catalogVariantId())));
+
+        List<Long> originalListingIds = itemsBySellerOrder.values().stream()
+                .flatMap(List::stream)
+                .map(OrderItemRecord::getListingId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, ListingRepository.ListingGrading> originalGradings = listingRepository.findGradingByListingIds(originalListingIds);
 
         List<ReorderSellerOrderResponse> sellerOrderResponses = sellerOrders.stream().map(so -> {
             ListingRepository.SellerStanding standing = standings.get(so.getSellerProfileId());
@@ -242,7 +228,7 @@ public class OrderLifecycleService {
                     try {
                         imageUrl = storageService.presignDownload(oi.getImageKeySnapshot());
                     } catch (Exception e) {
-                        // Ignore storage failure, keep imageUrl null
+                        log.warn("Failed to presign download for image key {}", oi.getImageKeySnapshot(), e);
                     }
                 }
 
@@ -253,13 +239,58 @@ public class OrderLifecycleService {
                 if (!available) {
                     status = ReorderItemStatus.OUT_OF_STOCK;
                 } else {
-                    List<Listing> candidates = listingsByKey.getOrDefault(
+                    ListingRepository.ListingGrading origGrading = oi.getListingId() != null
+                            ? originalGradings.get(oi.getListingId())
+                            : null;
+                    boolean isGraded = origGrading != null && origGrading.isGraded();
+                    String origGradingCompany = isGraded ? origGrading.gradingCompany() : null;
+                    BigDecimal origGradeValue = isGraded ? origGrading.gradeValue() : null;
+
+                    List<Listing> allCandidates = listingsByKey.getOrDefault(
                             new SellerVariantKey(so.getSellerProfileId(), oi.getCatalogVariantId()), List.of());
 
+                    // Graded isolation: raw cards only match raw listings; graded cards only match identical company & grade
+                    List<Listing> candidates = allCandidates.stream()
+                            .filter(l -> {
+                                boolean candidateIsGraded = l.gradingCompany() != null && !l.gradingCompany().isBlank();
+                                if (!isGraded) {
+                                    return !candidateIsGraded;
+                                } else {
+                                    return candidateIsGraded
+                                            && l.gradingCompany().equalsIgnoreCase(origGradingCompany)
+                                            && Objects.equals(l.gradeValue(), origGradeValue);
+                                }
+                            })
+                            .toList();
+
+                    List<Listing> matchingConditionCandidates = candidates.stream()
+                            .filter(l -> l.condition() != null && l.condition().name().equalsIgnoreCase(originalCondition))
+                            .toList();
+
+                    Listing selectedListing = null;
+                    // First priority: original order_item.listing_id if still active with stock
+                    if (oi.getListingId() != null) {
+                        long origListingId = oi.getListingId();
+                        selectedListing = matchingConditionCandidates.stream()
+                                .filter(l -> l.id() == origListingId)
+                                .findFirst()
+                                .orElse(null);
+                    }
+                    // Second priority: lowest price
+                    if (selectedListing == null && !matchingConditionCandidates.isEmpty()) {
+                        selectedListing = matchingConditionCandidates.stream()
+                                .min(Comparator.comparing(Listing::price).thenComparingLong(Listing::id))
+                                .orElse(null);
+                    }
+
+                    final Long selectedListingId = selectedListing != null ? selectedListing.id() : null;
+
+                    // Alternative conditions: all other active candidate listings from the same seller (including other prices/conditions)
                     alternativeConditions = candidates.stream()
-                            .filter(l -> l.condition() == null || !l.condition().name().equalsIgnoreCase(originalCondition))
-                            .sorted(Comparator.comparingInt((Listing l) -> conditionRank(l.condition() == null ? null : l.condition().name()))
-                                    .thenComparing(Listing::price))
+                            .filter(l -> selectedListingId == null || l.id() != selectedListingId)
+                            .sorted(Comparator.comparingInt((Listing l) -> l.condition() == null ? Integer.MAX_VALUE : l.condition().ordinal())
+                                    .thenComparing(Listing::price)
+                                    .thenComparingLong(Listing::id))
                             .map(l -> new ReorderAlternativeConditionResponse(
                                     l.id(),
                                     l.condition() != null ? l.condition().name() : "",
@@ -267,19 +298,14 @@ public class OrderLifecycleService {
                                     l.quantityAvailable()))
                             .toList();
 
-                    Optional<Listing> matchingListing = candidates.stream()
-                            .filter(l -> l.condition() != null && l.condition().name().equalsIgnoreCase(originalCondition))
-                            .findFirst();
-
-                    if (matchingListing.isPresent()) {
-                        Listing l = matchingListing.get();
-                        boolean priceChanged = l.price().compareTo(originalPrice) != 0;
+                    if (selectedListing != null) {
+                        boolean priceChanged = selectedListing.price().compareTo(originalPrice) != 0;
                         currentListing = new ReorderCurrentListingResponse(
-                                l.id(),
-                                l.condition().name(),
-                                l.price(),
+                                selectedListing.id(),
+                                selectedListing.condition().name(),
+                                selectedListing.price(),
                                 priceChanged,
-                                l.quantityAvailable(),
+                                selectedListing.quantityAvailable(),
                                 true);
                         status = priceChanged ? ReorderItemStatus.AVAILABLE_PRICE_CHANGED : ReorderItemStatus.AVAILABLE;
                     } else {
@@ -312,16 +338,6 @@ public class OrderLifecycleService {
         }).toList();
 
         return new ReorderPreviewResponse(order.getId(), sellerOrderResponses);
-    }
-
-    private static final List<String> REORDER_CONDITION_ORDER = List.of("NM", "LP", "MP", "HP", "DMG", "SEALED");
-
-    private static int conditionRank(String condition) {
-        if (condition == null) {
-            return Integer.MAX_VALUE;
-        }
-        int idx = REORDER_CONDITION_ORDER.indexOf(condition.toUpperCase());
-        return idx >= 0 ? idx : Integer.MAX_VALUE - 1;
     }
 
     @Transactional

@@ -10,6 +10,7 @@ import com.pegasus.pegasustcgapi.dto.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.CheckoutResponse;
 import com.pegasus.pegasustcgapi.dto.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.model.CardCondition;
+import com.pegasus.pegasustcgapi.model.ListingStatus;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.CartService;
 import com.pegasus.pegasustcgapi.service.CheckoutService;
@@ -198,15 +199,15 @@ class ReorderAndBatchCartIntegrationTest extends PostgresIntegrationTest {
         }
 
         @Test
-        @DisplayName("Case 4: Accessing another user's order or non-COMPLETED order returns 403/404/400")
+        @DisplayName("Case 4: Accessing another user's order or non-COMPLETED order returns 404/400")
         void case4_OwnershipAndStatusValidation() {
             CompletedOrder order = createCompletedOrder(CardCondition.NM, "100.00", 5);
 
-            // Another buyer attempts to access Buyer 1's completed order -> 403 Forbidden
+            // Another buyer attempts to access Buyer 1's completed order -> 404 Not Found (prevents ID enumeration)
             AuthPrincipal otherBuyer = data.buyer();
             String otherBearer = data.bearer(otherBuyer);
-            Response forbiddenRes = api.get("/api/v1/orders/" + order.salesOrderId() + "/reorder-preview", otherBearer);
-            assertThat(forbiddenRes.status()).isEqualTo(403);
+            Response notFoundOtherBuyerRes = api.get("/api/v1/orders/" + order.salesOrderId() + "/reorder-preview", otherBearer);
+            assertThat(notFoundOtherBuyerRes.status()).isEqualTo(404);
 
             // Accessing non-existent order -> 404 Not Found
             Response notFoundRes = api.get("/api/v1/orders/999999999/reorder-preview", order.buyerBearer());
@@ -223,6 +224,36 @@ class ReorderAndBatchCartIntegrationTest extends PostgresIntegrationTest {
 
             Response nonCompletedRes = api.get("/api/v1/orders/" + pendingOrder.orderId() + "/reorder-preview", buyerBearer);
             assertThat(nonCompletedRes.status()).isEqualTo(400);
+        }
+
+        @Test
+        @DisplayName("Case 5: Graded listing isolation — raw order item does not match PSA graded listing")
+        void case5_GradedListingIsolation() {
+            CompletedOrder order = createCompletedOrder(CardCondition.NM, "100.00", 5);
+
+            // Delist original raw listing so only graded listing exists
+            dsl.update(LISTING)
+                    .set(LISTING.STATUS, ListingStatus.DELISTED.name())
+                    .set(LISTING.QUANTITY_AVAILABLE, 0)
+                    .set(LISTING.QUANTITY_TOTAL, 0)
+                    .where(LISTING.ID.eq(order.originalListing().id()))
+                    .execute();
+
+            // Create a PSA 10 graded listing from the same seller
+            TestData.Listing gradedListing = data.onSale(order.seller(), order.card(), CardCondition.NM, 1, "5000.00");
+            dsl.update(LISTING)
+                    .set(LISTING.GRADING_COMPANY, "PSA")
+                    .set(LISTING.GRADE_VALUE, new BigDecimal("10.0"))
+                    .where(LISTING.ID.eq(gradedListing.id()))
+                    .execute();
+
+            Response res = api.get("/api/v1/orders/" + order.salesOrderId() + "/reorder-preview", order.buyerBearer());
+            assertThat(res.status()).isEqualTo(200);
+
+            JsonNode item = res.data().path("sellerOrders").get(0).path("items").get(0);
+            assertThat(item.path("currentListing").isNull()).isTrue();
+            assertThat(item.path("alternativeConditions").size()).isEqualTo(0);
+            assertThat(item.path("status").asText()).isEqualTo("OUT_OF_STOCK");
         }
     }
 
@@ -286,6 +317,7 @@ class ReorderAndBatchCartIntegrationTest extends PostgresIntegrationTest {
             Response res = api.post("/api/v1/cart/items/batch", bearer, batchPayload);
 
             assertThat(res.status()).isEqualTo(409);
+            assertThat(res.data().path("details").path("listingId").asLong()).isEqualTo(outOfStockListing.id());
 
             // Verify item 1 was rolled back and is NOT in cart_item
             Long cartId = dsl.select(CART.ID).from(CART).where(CART.USER_ID.eq(buyer.userId())).fetchOne(CART.ID);
@@ -293,6 +325,20 @@ class ReorderAndBatchCartIntegrationTest extends PostgresIntegrationTest {
                 int count = dsl.fetchCount(CART_ITEM, CART_ITEM.CART_ID.eq(cartId).and(CART_ITEM.LISTING_ID.eq(validListing.id())));
                 assertThat(count).isEqualTo(0);
             }
+        }
+
+        @Test
+        @DisplayName("Case 3: Batch size exceeding limit (> 50 items) returns 400 Bad Request")
+        void case3_BatchSizeLimitExceeded() {
+            AuthPrincipal buyer = data.buyer();
+            String bearer = data.bearer(buyer);
+
+            List<Map<String, Object>> largeBatch = java.util.stream.IntStream.rangeClosed(1, 51)
+                    .mapToObj(i -> Map.<String, Object>of("listingId", (long) i, "quantity", 1))
+                    .toList();
+
+            Response res = api.post("/api/v1/cart/items/batch", bearer, largeBatch);
+            assertThat(res.status()).isEqualTo(400);
         }
     }
 }

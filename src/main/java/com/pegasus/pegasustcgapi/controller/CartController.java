@@ -18,6 +18,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
+import org.springframework.validation.annotation.Validated;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
@@ -44,6 +46,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Cart", description = "Shopping cart and guest session management")
 @RestController
 @RequestMapping(ApiPaths.CART)
+@Validated
 public class CartController {
 
     private final CartService cartService;
@@ -81,21 +84,13 @@ public class CartController {
     })
     @PostMapping("/items/batch")
     public ResponseEntity<ApiResult<CartResponse>> addBatchItems(
-            @RequestBody List<@Valid CartItemRequest> requests,
+            @RequestBody @Valid @Size(min = 1, max = 50, message = "Batch size must be between 1 and 50") List<@Valid CartItemRequest> requests,
             AuthPrincipal principal) {
         if (principal == null) {
             throw new UnauthorizedException(ErrorCode.UNAUTHENTICATED);
         }
-        if (requests == null || requests.isEmpty()) {
-            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Item list must not be empty");
-        }
-        for (CartItemRequest req : requests) {
-            if (req == null || req.listingId() == null || req.listingId() <= 0) {
-                throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Listing ID is required and must be positive");
-            }
-            if (req.quantity() != null && req.quantity() < 1) {
-                throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Quantity must be at least 1");
-            }
+        if (requests == null || requests.isEmpty() || requests.size() > 50) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Batch size must be between 1 and 50");
         }
         CartResponse response = cartService.addBatchItems(principal.userId(), requests);
         return ResponseEntity.ok(ApiResult.success("Items added to cart", response));

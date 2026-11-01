@@ -764,6 +764,18 @@ class CartServiceTest {
         }
 
         @Test
+        @DisplayName("requests list exceeding 50 items throws VALIDATION_FAILED")
+        void batchExceedingMaxSize_ThrowsBadRequest() {
+            List<CartItemRequest> largeBatch = java.util.stream.IntStream.rangeClosed(1, 51)
+                    .mapToObj(i -> new CartItemRequest((long) i, 1))
+                    .toList();
+
+            assertThatThrownBy(() -> cartService.addBatchItems(userId, largeBatch))
+                    .isInstanceOfSatisfying(BadRequestException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+        }
+
+        @Test
         @DisplayName("invalid listingId throws VALIDATION_FAILED")
         void invalidListingId_ThrowsBadRequest() {
             assertThatThrownBy(() -> cartService.addBatchItems(userId, List.of(new CartItemRequest(null, 1))))
@@ -779,8 +791,10 @@ class CartServiceTest {
             given(pricingPort.offer(10L)).willReturn(Optional.of(offer(10L, 99L, new BigDecimal("100.00"), false)));
 
             assertThatThrownBy(() -> cartService.addBatchItems(userId, List.of(new CartItemRequest(10L, 1))))
-                    .isInstanceOfSatisfying(ConflictException.class,
-                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.LISTING_NOT_PURCHASABLE));
+                    .isInstanceOfSatisfying(ConflictException.class, e -> {
+                        assertThat(e.errorCode()).isEqualTo(ErrorCode.LISTING_NOT_PURCHASABLE);
+                        assertThat(e.details()).containsEntry("listingId", 10L);
+                    });
         }
 
         @Test
