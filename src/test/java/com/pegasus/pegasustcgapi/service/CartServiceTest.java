@@ -740,4 +740,131 @@ class CartServiceTest {
             verify(cartRepository, never()).updateItemQuantity(anyLong(), anyLong(), anyInt());
         }
     }
+
+    @Nested
+    @DisplayName("Batch Add Items Tests")
+    class BatchAddTests {
+        private final long userId = 42L;
+        private final Cart userCart = new Cart(2L, userId, null, "THB", OffsetDateTime.now(), OffsetDateTime.now(), null);
+
+        @Test
+        @DisplayName("null userId throws UNAUTHENTICATED")
+        void nullUserId_ThrowsUnauthorized() {
+            assertThatThrownBy(() -> cartService.addBatchItems(null, List.of(new CartItemRequest(10L, 1))))
+                    .isInstanceOfSatisfying(com.pegasus.pegasustcgapi.exception.UnauthorizedException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.UNAUTHENTICATED));
+        }
+
+        @Test
+        @DisplayName("empty requests list throws VALIDATION_FAILED")
+        void emptyRequests_ThrowsBadRequest() {
+            assertThatThrownBy(() -> cartService.addBatchItems(userId, List.of()))
+                    .isInstanceOfSatisfying(BadRequestException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+        }
+
+        @Test
+        @DisplayName("requests list exceeding 50 items throws VALIDATION_FAILED")
+        void batchExceedingMaxSize_ThrowsBadRequest() {
+            List<CartItemRequest> largeBatch = java.util.stream.IntStream.rangeClosed(1, 51)
+                    .mapToObj(i -> new CartItemRequest((long) i, 1))
+                    .toList();
+
+            assertThatThrownBy(() -> cartService.addBatchItems(userId, largeBatch))
+                    .isInstanceOfSatisfying(BadRequestException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+        }
+
+        @Test
+        @DisplayName("invalid listingId throws VALIDATION_FAILED")
+        void invalidListingId_ThrowsBadRequest() {
+            assertThatThrownBy(() -> cartService.addBatchItems(userId, List.of(new CartItemRequest(null, 1))))
+                    .isInstanceOfSatisfying(BadRequestException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+        }
+
+        @Test
+        @DisplayName("unpurchasable listing throws LISTING_NOT_PURCHASABLE")
+        void unpurchasableListing_ThrowsConflict() {
+            given(cartRepository.getOrCreateForUser(userId)).willReturn(userCart);
+            given(sellerProfileRepository.findByUserId(userId)).willReturn(Optional.empty());
+            given(pricingPort.offer(10L)).willReturn(Optional.of(offer(10L, 99L, new BigDecimal("100.00"), false)));
+
+            assertThatThrownBy(() -> cartService.addBatchItems(userId, List.of(new CartItemRequest(10L, 1))))
+                    .isInstanceOfSatisfying(ConflictException.class, e -> {
+                        assertThat(e.errorCode()).isEqualTo(ErrorCode.LISTING_NOT_PURCHASABLE);
+                        assertThat(e.details()).containsEntry("listingId", 10L);
+                    });
+        }
+
+        @Test
+        @DisplayName("buying own listing throws CANNOT_BUY_OWN_LISTING")
+        void ownListing_ThrowsConflict() {
+            long sellerProfileId = 99L;
+            SellerProfile ownProfile = new SellerProfile(sellerProfileId, userId, SellerStatus.VERIFIED,
+                    OffsetDateTime.now(), null, (short) 1, false, true, OffsetDateTime.now());
+
+            given(cartRepository.getOrCreateForUser(userId)).willReturn(userCart);
+            given(sellerProfileRepository.findByUserId(userId)).willReturn(Optional.of(ownProfile));
+            given(pricingPort.offer(10L)).willReturn(Optional.of(offer(10L, sellerProfileId, new BigDecimal("100.00"), true)));
+
+            assertThatThrownBy(() -> cartService.addBatchItems(userId, List.of(new CartItemRequest(10L, 1))))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CANNOT_BUY_OWN_LISTING));
+        }
+
+        @Test
+        @DisplayName("quantity exceeding available stock throws INSUFFICIENT_STOCK")
+        void quantityExceedingStock_ThrowsConflict() {
+            given(cartRepository.getOrCreateForUser(userId)).willReturn(userCart);
+            given(sellerProfileRepository.findByUserId(userId)).willReturn(Optional.empty());
+            given(pricingPort.offer(10L)).willReturn(Optional.of(offer(10L, 99L, new BigDecimal("100.00"), true))); // stock is 10
+            given(cartRepository.findItemByCartIdAndListingId(2L, 10L)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> cartService.addBatchItems(userId, List.of(new CartItemRequest(10L, 11))))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INSUFFICIENT_STOCK));
+        }
+
+        @Test
+        @DisplayName("successfully adds multiple items and returns updated CartResponse")
+        void successfulBatchAdd_ReturnsCartResponse() {
+            given(cartRepository.getOrCreateForUser(userId)).willReturn(userCart);
+            given(sellerProfileRepository.findByUserId(userId)).willReturn(Optional.empty());
+
+            given(pricingPort.offer(10L)).willReturn(Optional.of(offer(10L, 99L, new BigDecimal("100.00"), true)));
+            given(pricingPort.offer(20L)).willReturn(Optional.of(offer(20L, 99L, new BigDecimal("200.00"), true)));
+
+            given(cartRepository.findItemByCartIdAndListingId(2L, 10L)).willReturn(Optional.empty());
+            given(cartRepository.findItemByCartIdAndListingId(2L, 20L)).willReturn(Optional.empty());
+
+            CartItem item1 = new CartItem(1L, 2L, 10L, 2, new BigDecimal("100.00"), OffsetDateTime.now(), OffsetDateTime.now());
+            CartItem item2 = new CartItem(2L, 2L, 20L, 1, new BigDecimal("200.00"), OffsetDateTime.now(), OffsetDateTime.now());
+
+            given(cartRepository.upsertItem(2L, 10L, 2, new BigDecimal("100.00"))).willReturn(item1);
+            given(cartRepository.upsertItem(2L, 20L, 1, new BigDecimal("200.00"))).willReturn(item2);
+
+            given(cartRepository.findItemsByCartId(2L)).willReturn(List.of(item1, item2));
+            given(pricingPort.offers(List.of(10L, 20L))).willReturn(Map.of(
+                    10L, offer(10L, 99L, new BigDecimal("100.00"), true),
+                    20L, offer(20L, 99L, new BigDecimal("200.00"), true)));
+
+            List<CartItemRequest> batch = List.of(
+                    new CartItemRequest(10L, 2),
+                    new CartItemRequest(20L, 1)
+            );
+
+            CartResponse response = cartService.addBatchItems(userId, batch);
+
+            assertThat(response).isNotNull();
+            assertThat(response.id()).isEqualTo(2L);
+            assertThat(response.userId()).isEqualTo(userId);
+            assertThat(response.items()).hasSize(2);
+            assertThat(response.totalQuantity()).isEqualTo(3);
+            assertThat(response.itemsSubtotal()).isEqualByComparingTo("400.00");
+
+            verify(cartRepository).upsertItem(2L, 10L, 2, new BigDecimal("100.00"));
+            verify(cartRepository).upsertItem(2L, 20L, 1, new BigDecimal("200.00"));
+        }
+    }
 }

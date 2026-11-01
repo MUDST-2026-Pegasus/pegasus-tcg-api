@@ -282,6 +282,79 @@ public class ListingRepository {
                         r.get(USER_ACCOUNT.USERNAME)));
     }
 
+    public record SellerStanding(
+            long sellerProfileId,
+            String sellerName,
+            boolean vacationMode,
+            boolean sellerAvailable) {}
+
+    public record ListingGrading(String gradingCompany, BigDecimal gradeValue) {
+        public boolean isGraded() {
+            return gradingCompany != null && !gradingCompany.isBlank();
+        }
+    }
+
+    public Map<Long, ListingGrading> findGradingByListingIds(Collection<Long> listingIds) {
+        if (listingIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(LISTING.ID, LISTING.GRADING_COMPANY, LISTING.GRADE_VALUE)
+                .from(LISTING)
+                .where(LISTING.ID.in(listingIds))
+                .fetchMap(LISTING.ID, r -> new ListingGrading(
+                        r.get(LISTING.GRADING_COMPANY),
+                        r.get(LISTING.GRADE_VALUE)));
+    }
+
+    /**
+     * Checks standing for the given seller profile IDs against sellerOpenForBusiness criteria:
+     * verified, not in vacation mode, active account, and not deleted.
+     */
+    public Map<Long, SellerStanding> findSellerStandings(Collection<Long> sellerProfileIds) {
+        if (sellerProfileIds.isEmpty()) {
+            return Map.of();
+        }
+        Field<Boolean> isOpen = DSL.field(sellerProfileOpenForBusiness()).as("is_open");
+
+        return dsl.select(
+                SELLER_PROFILE.ID,
+                SELLER_PROFILE.VACATION_MODE,
+                isOpen,
+                USER_ACCOUNT.DISPLAY_NAME,
+                USER_ACCOUNT.USERNAME)
+                .from(SELLER_PROFILE)
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .where(SELLER_PROFILE.ID.in(sellerProfileIds))
+                .fetchMap(SELLER_PROFILE.ID, r -> {
+                    boolean vacation = Boolean.TRUE.equals(r.get(SELLER_PROFILE.VACATION_MODE));
+                    boolean available = Boolean.TRUE.equals(r.get(isOpen));
+                    String displayName = r.get(USER_ACCOUNT.DISPLAY_NAME);
+                    String username = r.get(USER_ACCOUNT.USERNAME);
+                    String sellerName = (displayName != null && !displayName.isBlank()) ? displayName : username;
+                    return new SellerStanding(r.get(SELLER_PROFILE.ID), sellerName, vacation, available);
+                });
+    }
+
+    /**
+     * Active listings with stock > 0 for specified sellers and catalog variants,
+     * restricted to sellers who are open for business.
+     */
+    public List<Listing> findActiveListingsForReorder(Collection<Long> sellerProfileIds, Collection<Long> catalogVariantIds) {
+        if (sellerProfileIds.isEmpty() || catalogVariantIds.isEmpty()) {
+            return List.of();
+        }
+        return dsl.select(LISTING.fields())
+                .from(LISTING)
+                .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .where(LISTING.SELLER_PROFILE_ID.in(sellerProfileIds))
+                .and(LISTING.CATALOG_VARIANT_ID.in(catalogVariantIds))
+                .and(sellerOpenForBusiness())
+                .and(LISTING.STATUS.eq(ListingStatus.ACTIVE.name()))
+                .and(LISTING.QUANTITY_AVAILABLE.gt(0))
+                .fetch(r -> toListing(r.into(LISTING)));
+    }
+
     // ---------- the nightly job ----------
 
     /** Every market that has at least one AUTO_MEDIAN listing to move. */
@@ -386,12 +459,16 @@ public class ListingRepository {
      * still active. Vacation hides every listing at once without touching their
      * statuses. {@link ProductMarketRepository} prices the catalogue by the same rule.
      */
-    static Condition sellerOpenForBusiness() {
-        return LISTING.DELETED_AT.isNull()
-                .and(SELLER_PROFILE.STATUS.eq(SellerStatus.VERIFIED.name()))
+    static Condition sellerProfileOpenForBusiness() {
+        return SELLER_PROFILE.STATUS.eq(SellerStatus.VERIFIED.name())
                 .and(SELLER_PROFILE.VACATION_MODE.isFalse())
                 .and(USER_ACCOUNT.STATUS.eq(UserStatus.ACTIVE))
                 .and(USER_ACCOUNT.DELETED_AT.isNull());
+    }
+
+    static Condition sellerOpenForBusiness() {
+        return LISTING.DELETED_AT.isNull()
+                .and(sellerProfileOpenForBusiness());
     }
 
     private static Condition publicConditions(PublicListingQuery query) {

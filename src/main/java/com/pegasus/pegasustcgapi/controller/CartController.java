@@ -7,6 +7,9 @@ import com.pegasus.pegasustcgapi.dto.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.CartItemResponse;
 import com.pegasus.pegasustcgapi.dto.CartResponse;
 import com.pegasus.pegasustcgapi.dto.UpdateCartItemRequest;
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
+import com.pegasus.pegasustcgapi.exception.ErrorCode;
+import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.CartService;
 import com.pegasus.pegasustcgapi.service.CartService.AddResult;
@@ -15,6 +18,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
+import org.springframework.validation.annotation.Validated;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
@@ -41,6 +46,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Cart", description = "Shopping cart and guest session management")
 @RestController
 @RequestMapping(ApiPaths.CART)
+@Validated
 public class CartController {
 
     private final CartService cartService;
@@ -67,6 +73,27 @@ public class CartController {
             builder.header("X-Cart-Session", result.sessionKey());
         }
         return builder.body(ApiResult.success("Item added to cart", result.item()));
+    }
+
+    @Operation(summary = "Batch add items to cart", description = "Adds multiple listings to the cart atomically.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Items added to cart"),
+            @ApiResponse(responseCode = "400", description = "Invalid request payload"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "409", description = "Listing not purchasable, insufficient stock, or seller cannot buy own listing")
+    })
+    @PostMapping("/items/batch")
+    public ResponseEntity<ApiResult<CartResponse>> addBatchItems(
+            @RequestBody @Valid @Size(min = 1, max = 50, message = "Batch size must be between 1 and 50") List<@Valid CartItemRequest> requests,
+            AuthPrincipal principal) {
+        if (principal == null) {
+            throw new UnauthorizedException(ErrorCode.UNAUTHENTICATED);
+        }
+        if (requests == null || requests.isEmpty() || requests.size() > 50) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Batch size must be between 1 and 50");
+        }
+        CartResponse response = cartService.addBatchItems(principal.userId(), requests);
+        return ResponseEntity.ok(ApiResult.success("Items added to cart", response));
     }
 
     @Operation(summary = "Merge guest cart", description = "Merges guest cart items into authenticated user cart")

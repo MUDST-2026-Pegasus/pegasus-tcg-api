@@ -73,29 +73,86 @@ public class CartService {
      * Adds or updates an item in the cart.
      * On first POST for a guest, generates a 128-bit session key and returns it.
      */
-    @Transactional
-    public AddResult addItem(AuthPrincipal principal, String sessionKey, CartItemRequest request) {
-        String guestKey = CartSessionKey.normalize(sessionKey);
+    record ValidatedCartItem(long listingId, int cumulativeQuantity, ListingOffer offer) {}
 
-        ListingOffer offer = pricingPort.offer(request.listingId())
-                .orElseThrow(() -> new ConflictException(ErrorCode.LISTING_NOT_PURCHASABLE));
+    private ListingOffer validateOffer(CartItemRequest request, Optional<SellerProfile> callerSellerProfile) {
+        if (request == null || request.listingId() == null || request.listingId() <= 0) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Listing ID is required and must be positive");
+        }
+        long listingId = request.listingId();
+
+        ListingOffer offer = pricingPort.offer(listingId)
+                .orElseThrow(() -> new ConflictException(
+                        ErrorCode.LISTING_NOT_PURCHASABLE,
+                        "Listing " + listingId + " is not available for purchase",
+                        Map.of("listingId", listingId)));
 
         if (!offer.purchasable()) {
-            throw new ConflictException(ErrorCode.LISTING_NOT_PURCHASABLE);
+            throw new ConflictException(
+                    ErrorCode.LISTING_NOT_PURCHASABLE,
+                    "Listing " + listingId + " is not available for purchase",
+                    Map.of("listingId", listingId));
         }
 
-        if (principal != null) {
-            Optional<SellerProfile> sellerProfile = sellerProfileRepository.findByUserId(principal.userId());
-            if (sellerProfile.isPresent() && sellerProfile.get().id() == offer.sellerProfileId()) {
-                throw new ConflictException(ErrorCode.CANNOT_BUY_OWN_LISTING);
-            }
+        if (callerSellerProfile.isPresent() && callerSellerProfile.get().id() == offer.sellerProfileId()) {
+            throw new ConflictException(
+                    ErrorCode.CANNOT_BUY_OWN_LISTING,
+                    "Cannot purchase own listing",
+                    Map.of("listingId", listingId));
         }
 
-        // Checked before a cart row exists, so a rejected request leaves nothing behind.
         int requestedQuantity = request.resolvedQuantity();
         if (requestedQuantity < 1) {
             throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Quantity must be at least 1");
         }
+
+        return offer;
+    }
+
+    private int calculateCumulativeQuantity(long cartId, long listingId, int requestedQuantity, int quantityAvailable) {
+        Optional<CartItem> existingItem = cartRepository.findItemByCartIdAndListingId(cartId, listingId);
+        int cumulativeQuantity;
+        if (existingItem.isPresent()) {
+            try {
+                cumulativeQuantity = Math.addExact(existingItem.get().quantity(), requestedQuantity);
+            } catch (ArithmeticException e) {
+                throw new ConflictException(
+                        ErrorCode.INSUFFICIENT_STOCK,
+                        "Requested quantity causes integer overflow",
+                        Map.of("listingId", listingId));
+            }
+        } else {
+            cumulativeQuantity = requestedQuantity;
+        }
+
+        if (cumulativeQuantity > quantityAvailable) {
+            throw new ConflictException(
+                    ErrorCode.INSUFFICIENT_STOCK,
+                    "Requested quantity (" + cumulativeQuantity + ") exceeds available stock (" + quantityAvailable + ")",
+                    Map.of("listingId", listingId));
+        }
+
+        return cumulativeQuantity;
+    }
+
+    private ValidatedCartItem validateAndCalculateItem(
+            CartItemRequest request,
+            long cartId,
+            Optional<SellerProfile> callerSellerProfile) {
+        ListingOffer offer = validateOffer(request, callerSellerProfile);
+        int cumulativeQuantity = calculateCumulativeQuantity(cartId, request.listingId(), request.resolvedQuantity(), offer.quantityAvailable());
+        return new ValidatedCartItem(request.listingId(), cumulativeQuantity, offer);
+    }
+
+    @Transactional
+    public AddResult addItem(AuthPrincipal principal, String sessionKey, CartItemRequest request) {
+        String guestKey = CartSessionKey.normalize(sessionKey);
+
+        Optional<SellerProfile> callerSellerProfile = principal != null
+                ? sellerProfileRepository.findByUserId(principal.userId())
+                : Optional.empty();
+
+        ListingOffer offer = validateOffer(request, callerSellerProfile);
 
         Cart cart;
         String returnSessionKey = null;
@@ -115,23 +172,7 @@ public class CartService {
             }
         }
 
-        Optional<CartItem> existingItem = cartRepository.findItemByCartIdAndListingId(cart.id(), request.listingId());
-        int cumulativeQuantity;
-        if (existingItem.isPresent()) {
-            try {
-                cumulativeQuantity = Math.addExact(existingItem.get().quantity(), requestedQuantity);
-            } catch (ArithmeticException e) {
-                throw new ConflictException(ErrorCode.INSUFFICIENT_STOCK, "Requested quantity causes integer overflow");
-            }
-        } else {
-            cumulativeQuantity = requestedQuantity;
-        }
-
-        if (cumulativeQuantity > offer.quantityAvailable()) {
-            throw new ConflictException(
-                    ErrorCode.INSUFFICIENT_STOCK,
-                    "Requested quantity (" + cumulativeQuantity + ") exceeds available stock (" + offer.quantityAvailable() + ")");
-        }
+        int cumulativeQuantity = calculateCumulativeQuantity(cart.id(), request.listingId(), request.resolvedQuantity(), offer.quantityAvailable());
 
         CartItem item = cartRepository.upsertItem(cart.id(), request.listingId(), cumulativeQuantity, offer.price());
         ListingCard card = cards.card(offer.catalogVariantId());
@@ -223,6 +264,43 @@ public class CartService {
         }
 
         Cart cart = found.get();
+        return buildCartResponse(cart);
+    }
+
+    /**
+     * Atomically adds multiple items to the user's cart in a single transaction.
+     * If any item is invalid or not purchasable, the entire batch is rolled back.
+     */
+    @Transactional
+    public CartResponse addBatchItems(Long userId, List<CartItemRequest> requests) {
+        if (userId == null) {
+            throw new UnauthorizedException(ErrorCode.UNAUTHENTICATED);
+        }
+        if (requests == null || requests.isEmpty() || requests.size() > 50) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Batch size must be between 1 and 50");
+        }
+
+        for (CartItemRequest req : requests) {
+            if (req == null || req.listingId() == null || req.listingId() <= 0) {
+                throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Listing ID is required and must be positive");
+            }
+            if (req.resolvedQuantity() < 1) {
+                throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Quantity must be at least 1");
+            }
+        }
+
+        Cart cart = cartRepository.getOrCreateForUser(userId);
+        Optional<SellerProfile> callerSellerProfile = sellerProfileRepository.findByUserId(userId);
+
+        for (CartItemRequest request : requests) {
+            ValidatedCartItem validated = validateAndCalculateItem(request, cart.id(), callerSellerProfile);
+            cartRepository.upsertItem(cart.id(), validated.listingId(), validated.cumulativeQuantity(), validated.offer().price());
+        }
+
+        return buildCartResponse(cart);
+    }
+
+    private CartResponse buildCartResponse(Cart cart) {
         List<CartItemResponse> items = findAndEnrichItems(cart.id());
         int totalQuantity = items.stream().mapToInt(CartItemResponse::quantity).sum();
         BigDecimal subtotal = items.stream()
