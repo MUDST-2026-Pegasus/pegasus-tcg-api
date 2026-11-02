@@ -66,8 +66,8 @@ public class GameService {
     }
 
     /**
-     * @param slug optional; left out, it is built from the name, and a clash picks
-     *             up a numeric suffix rather than failing
+     * Creates a new game. If the slug is omitted from {@code requested}, it is
+     * built from the name, and a clash picks up a numeric suffix rather than failing.
      */
     @Transactional
     public Game create(GameFields requested, Long createdBy) {
