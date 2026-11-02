@@ -4,6 +4,7 @@ import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
+import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.Http.Method;
 import io.minio.MinioClient;
@@ -11,16 +12,20 @@ import io.minio.RemoveObjectArgs;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
+import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -30,9 +35,10 @@ import org.springframework.util.StringUtils;
  * listing photos, payment slips, return evidence — goes through here, so there is
  * a single bucket, a single key layout, and a single set of credentials.
  *
- * <p>Files never pass through this service. It hands out presigned URLs and the
- * browser transfers the bytes itself, which keeps a 5MB photo out of the API's
- * heap and off its bandwidth.
+ * <p>Files are uploaded directly to MinIO via presigned PUT URLs. When attaching
+ * an uploaded file to business data, {@link #requireUploadedFor} inspects the actual
+ * file content (magic bytes and decoder validation) to guarantee that malicious or
+ * spoofed files are never persisted.
  */
 @Service
 public class StorageService {
@@ -53,24 +59,35 @@ public class StorageService {
     private final MinioClient client;
     private final MinioClient presigner;
     private final StorageProperties properties;
+    private final FileContentValidator validator;
 
     public StorageService(
             @Qualifier("minioClient") MinioClient minioClient,
             @Qualifier("presignedUrlClient") MinioClient presignedUrlClient,
             StorageProperties properties) {
+        this(minioClient, presignedUrlClient, properties, new FileContentValidator());
+    }
+
+    @Autowired
+    public StorageService(
+            @Qualifier("minioClient") MinioClient minioClient,
+            @Qualifier("presignedUrlClient") MinioClient presignedUrlClient,
+            StorageProperties properties,
+            FileContentValidator validator) {
 
         this.client = minioClient;
         this.presigner = presignedUrlClient;
         this.properties = properties;
+        this.validator = validator != null ? validator : new FileContentValidator();
     }
 
     /**
      * A URL the browser may PUT one file to, and nothing else: it names one key,
      * one bucket, and expires.
      *
-     * <p>Note what it does not do. MinIO signs the key, not the bytes, so a client
-     * can send a different size or type than it declared — which is why the
-     * feature calls {@link #requireUploadedFor} before saving the key.
+     * <p>MinIO signs the key, not the bytes, so a client can send a different size
+     * or type than it declared. The feature calls {@link #requireUploadedFor} before
+     * saving the key to inspect the actual bytes and validate format integrity.
      */
     public String presignUpload(String objectKey) {
         return presign(Method.PUT, objectKey, properties.uploadUrlTtl());
@@ -88,12 +105,19 @@ public class StorageService {
      * anyone read those ({@code pegasus.storage.public-read}). It goes out as a plain
      * URL that is the same on every call, so the browser and the CDN can cache it;
      * a signed one changes each time and is always a cache miss.
+     *
+     * <p>Presigned GET URLs include {@code response-content-type} query parameter matching
+     * the canonical MIME type to prevent browser MIME sniffing.
      */
     public String presignDownload(String objectKey) {
         if (properties.publicRead() && isPublic(objectKey)) {
             return publicUrl(objectKey);
         }
-        return presign(Method.GET, objectKey, properties.downloadUrlTtl());
+        String mimeType = mimeTypeFor(objectKey);
+        Map<String, String> queryParams = mimeType != null
+                ? Map.of("response-content-type", mimeType)
+                : null;
+        return presign(Method.GET, objectKey, properties.downloadUrlTtl(), queryParams);
     }
 
     /**
@@ -152,17 +176,8 @@ public class StorageService {
 
     /**
      * What a feature calls before writing a key to a row: the object has to be a
-     * finished upload for {@code purpose}, and fit it.
-     *
-     * <p>The key has to carry the purpose's prefix, because every purpose shares one
-     * bucket and a buyer's payment slip could otherwise be attached as public card
-     * art. Then the object has to be there, and within the size and types the
-     * purpose allows: the URL was issued for what the client declared, but the
-     * upload itself could have sent anything.
-     *
-     * <p>The size is what storage measured. The type is the one the client sent
-     * with the upload, so this catches mistakes and oversized files, not a file
-     * deliberately labelled as something it is not.
+     * finished upload for {@code purpose}, within permitted size limits, and containing
+     * valid magic bytes and decodable content matching the declared purpose and key extension.
      */
     public StoredObject requireUploadedFor(UploadPurpose purpose, String objectKey) {
         String prefix = purpose.prefix() + "/";
@@ -178,12 +193,75 @@ public class StorageService {
                     "The upload is " + object.sizeBytes() + " bytes; " + purpose + " allows at most "
                             + purpose.maxBytes() / (1024 * 1024) + "MB");
         }
-        if (!purpose.allows(object.contentType())) {
+        if (object.contentType() == null || !purpose.allows(object.contentType())) {
             throw new ApiException(ErrorCode.UNSUPPORTED_FILE_TYPE,
                     "The upload was sent as " + object.contentType() + ", which " + purpose
                             + " does not allow; use one of " + purpose.allowedContentTypes());
         }
-        return object;
+
+        // Validate actual object bytes (magic bytes and decoder validation)
+        byte[] bytes = readObjectBytes(objectKey);
+        String detectedContentType = validator.validate(bytes, purpose, objectKey);
+
+        if (!isCompatibleContentType(object.contentType(), detectedContentType)) {
+            throw new ApiException(ErrorCode.UNSUPPORTED_FILE_TYPE,
+                    "Declared content type (" + object.contentType() + ") does not match actual file format ("
+                            + detectedContentType + ")");
+        }
+
+        return new StoredObject(objectKey, object.sizeBytes(), detectedContentType);
+    }
+
+    private byte[] readObjectBytes(String objectKey) {
+        try (InputStream stream = client.getObject(GetObjectArgs.builder()
+                .bucket(properties.bucket())
+                .object(objectKey)
+                .build())) {
+            return stream.readAllBytes();
+        } catch (ApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw storageFailure("read content for", objectKey, e);
+        }
+    }
+
+    private static boolean isCompatibleContentType(String declared, String detected) {
+        if (declared == null || detected == null) {
+            return false;
+        }
+        String normDeclared = normaliseContentType(declared);
+        String normDetected = normaliseContentType(detected);
+        if (normDeclared.equalsIgnoreCase(normDetected)) {
+            return true;
+        }
+        return ("image/jpeg".equalsIgnoreCase(normDetected) || "image/jpg".equalsIgnoreCase(normDetected))
+                && ("image/jpeg".equalsIgnoreCase(normDeclared) || "image/jpg".equalsIgnoreCase(normDeclared));
+    }
+
+    private static String normaliseContentType(String contentType) {
+        int separator = contentType.indexOf(';');
+        String base = separator < 0 ? contentType : contentType.substring(0, separator);
+        return base.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String mimeTypeFor(String objectKey) {
+        if (objectKey == null) {
+            return null;
+        }
+        String lower = objectKey.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        if (lower.endsWith(".webp")) {
+            return "image/webp";
+        }
+        if (lower.endsWith(".pdf")) {
+            return "application/pdf";
+        }
+        return null;
     }
 
     /** Silent about a key that is already gone: deleting twice is not an error. */
@@ -212,13 +290,20 @@ public class StorageService {
     }
 
     private String presign(Method method, String objectKey, Duration ttl) {
+        return presign(method, objectKey, ttl, null);
+    }
+
+    private String presign(Method method, String objectKey, Duration ttl, Map<String, String> extraQueryParams) {
         try {
-            return presigner.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+            GetPresignedObjectUrlArgs.Builder builder = GetPresignedObjectUrlArgs.builder()
                     .method(method)
                     .bucket(properties.bucket())
                     .object(objectKey)
-                    .expiry((int) ttl.toSeconds(), TimeUnit.SECONDS)
-                    .build());
+                    .expiry((int) ttl.toSeconds(), TimeUnit.SECONDS);
+            if (extraQueryParams != null && !extraQueryParams.isEmpty()) {
+                builder.extraQueryParams(extraQueryParams);
+            }
+            return presigner.getPresignedObjectUrl(builder.build());
         } catch (Exception e) {
             throw storageFailure("sign " + method + " for", objectKey, e);
         }
