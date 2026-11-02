@@ -70,6 +70,7 @@ public class SellerOnboardingService implements SellerPort {
 
     // ---------- seller's own view ----------
 
+    @Override
     public SellerProfile requireProfile(long userId) {
         return profiles.findByUserId(userId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.SELLER_NOT_FOUND));
@@ -80,6 +81,7 @@ public class SellerOnboardingService implements SellerPort {
      *
      * @throws ForbiddenException when the profile exists but is not VERIFIED
      */
+    @Override
     public SellerProfile requireVerifiedSeller(long userId) {
         SellerProfile profile = requireProfile(userId);
         if (!profile.canPublish()) {

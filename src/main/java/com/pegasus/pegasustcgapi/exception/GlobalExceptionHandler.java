@@ -87,8 +87,7 @@ public class GlobalExceptionHandler {
 
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleUnreadable(
-            HttpMessageNotReadableException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleUnreadable(HttpServletRequest request) {
         return build(ErrorCode.MALFORMED_REQUEST, ErrorCode.MALFORMED_REQUEST.defaultMessage(),
                 request, List.of());
     }
@@ -98,15 +97,13 @@ public class GlobalExceptionHandler {
      * dispatcher. They only reach here when thrown from inside a controller or service.
      */
     @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleAuthentication(
-            AuthenticationException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleAuthentication(HttpServletRequest request) {
         return build(ErrorCode.UNAUTHENTICATED, ErrorCode.UNAUTHENTICATED.defaultMessage(),
                 request, List.of());
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleAccessDenied(
-            AccessDeniedException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleAccessDenied(HttpServletRequest request) {
         return build(ErrorCode.ACCESS_DENIED, ErrorCode.ACCESS_DENIED.defaultMessage(),
                 request, List.of());
     }
@@ -144,8 +141,7 @@ public class GlobalExceptionHandler {
      * usual way to get here. Without this it was a 500.
      */
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleUnsupportedMediaType(
-            HttpMediaTypeNotSupportedException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleUnsupportedMediaType(HttpServletRequest request) {
         return build(ErrorCode.UNSUPPORTED_CONTENT_TYPE, ErrorCode.UNSUPPORTED_CONTENT_TYPE.defaultMessage(),
                 request, List.of());
     }
@@ -158,22 +154,19 @@ public class GlobalExceptionHandler {
      * second time and ended up as a 401 from the error page.
      */
     @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleNotAcceptable(
-            HttpMediaTypeNotAcceptableException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleNotAcceptable() {
         return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).build();
     }
 
     /** Without this an unmapped path would fall through to the catch-all below as a 500. */
     @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleNoResource(
-            NoResourceFoundException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleNoResource(HttpServletRequest request) {
         return build(ErrorCode.RESOURCE_NOT_FOUND, ErrorCode.RESOURCE_NOT_FOUND.defaultMessage(),
                 request, List.of());
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleMethodNotSupported(
-            HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleMethodNotSupported(HttpServletRequest request) {
         return build(ErrorCode.METHOD_NOT_ALLOWED, ErrorCode.METHOD_NOT_ALLOWED.defaultMessage(),
                 request, List.of());
     }
