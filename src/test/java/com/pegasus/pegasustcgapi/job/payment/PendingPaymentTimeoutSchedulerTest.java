@@ -1,4 +1,8 @@
-package com.pegasus.pegasustcgapi.job;
+package com.pegasus.pegasustcgapi.job.payment;
+
+import com.pegasus.pegasustcgapi.job.JobLock;
+
+import com.pegasus.pegasustcgapi.job.JobLock;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;

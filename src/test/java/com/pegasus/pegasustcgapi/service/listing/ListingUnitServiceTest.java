@@ -24,7 +24,7 @@ import com.pegasus.pegasustcgapi.model.listing.ListingUnitStatus;
 import com.pegasus.pegasustcgapi.model.pricing.PricingMode;
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
 import com.pegasus.pegasustcgapi.model.seller.SellerStatus;
-import com.pegasus.pegasustcgapi.port.SellerPort;
+import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogVariantRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;

@@ -14,7 +14,7 @@ import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.jooq.tables.records.PayoutRecord;
 import com.pegasus.pegasustcgapi.model.finance.payout.PayoutAccount;
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
-import com.pegasus.pegasustcgapi.port.SellerPort;
+import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.finance.payout.PayoutAccountRepository;
 import com.pegasus.pegasustcgapi.repository.finance.payout.PayoutRepository;
 import com.pegasus.pegasustcgapi.repository.finance.wallet.WalletRepository;

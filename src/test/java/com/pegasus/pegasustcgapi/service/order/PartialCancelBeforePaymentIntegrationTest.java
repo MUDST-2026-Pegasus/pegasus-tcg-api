@@ -17,7 +17,7 @@ import static org.mockito.BDDMockito.given;
 import com.pegasus.pegasustcgapi.dto.cart.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.order.CheckoutResponse;
 import com.pegasus.pegasustcgapi.dto.order.CheckoutResponse.SellerOrderResponse;
-import com.pegasus.pegasustcgapi.job.PendingPaymentTimeoutScheduler;
+import com.pegasus.pegasustcgapi.job.payment.PendingPaymentTimeoutScheduler;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.listing.ListingUnitStatus;

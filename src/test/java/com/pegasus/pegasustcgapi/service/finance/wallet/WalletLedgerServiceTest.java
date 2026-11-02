@@ -6,7 +6,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.pegasus.pegasustcgapi.exception.ConflictException;
-import com.pegasus.pegasustcgapi.port.SellerPort;
+import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.finance.wallet.LedgerRepository;
 import com.pegasus.pegasustcgapi.repository.finance.wallet.WalletRepository;
 import com.pegasus.pegasustcgapi.repository.finance.wallet.WalletRepository.Balance;

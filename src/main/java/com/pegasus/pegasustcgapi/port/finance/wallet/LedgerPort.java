@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.port;
+package com.pegasus.pegasustcgapi.port.finance.wallet;
 
 import java.math.BigDecimal;
 import java.util.Collection;

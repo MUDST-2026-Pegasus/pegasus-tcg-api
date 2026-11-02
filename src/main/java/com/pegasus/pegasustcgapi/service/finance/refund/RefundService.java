@@ -39,13 +39,13 @@ public class RefundService {
     private final ReturnRepository returns;
     private final ObjectProvider<OrderLifecycleService> lifecycle;
     private final EscrowReleaseService escrowRelease;
-    private final com.pegasus.pegasustcgapi.port.CollectionPort collection;
+    private final com.pegasus.pegasustcgapi.port.collection.CollectionPort collection;
 
     public RefundService(RefundRepository refunds, RefundTransferRepository transfers, PaymentRepository payments,
             EscrowRepository escrow, OrderRepository orders, WalletLedgerService ledger, Clock clock,
             ReturnRepository returns, ObjectProvider<OrderLifecycleService> lifecycle,
             EscrowReleaseService escrowRelease,
-            com.pegasus.pegasustcgapi.port.CollectionPort collection) {
+            com.pegasus.pegasustcgapi.port.collection.CollectionPort collection) {
         this.refunds = refunds;
         this.transfers = transfers;
         this.payments = payments;

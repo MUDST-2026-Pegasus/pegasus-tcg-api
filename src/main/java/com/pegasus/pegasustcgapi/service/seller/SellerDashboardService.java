@@ -15,7 +15,7 @@ import com.pegasus.pegasustcgapi.dto.seller.SellerDashboardViews.Wallet;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
-import com.pegasus.pegasustcgapi.port.SellerPort;
+import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.seller.SellerDashboardRepository;
 import com.pegasus.pegasustcgapi.repository.seller.SellerDashboardRepository.ReviewTotals;
 import com.pegasus.pegasustcgapi.repository.seller.SellerDashboardRepository.SalesTotals;

@@ -4,7 +4,7 @@ import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
-import com.pegasus.pegasustcgapi.port.SellerPort;
+import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.finance.wallet.LedgerRepository;
 import com.pegasus.pegasustcgapi.repository.finance.wallet.WalletRepository;
 import com.pegasus.pegasustcgapi.repository.finance.wallet.WalletRepository.Balance;

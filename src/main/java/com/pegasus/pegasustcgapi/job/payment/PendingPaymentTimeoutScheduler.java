@@ -1,4 +1,6 @@
-package com.pegasus.pegasustcgapi.job;
+package com.pegasus.pegasustcgapi.job.payment;
+
+import com.pegasus.pegasustcgapi.job.JobLock;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;

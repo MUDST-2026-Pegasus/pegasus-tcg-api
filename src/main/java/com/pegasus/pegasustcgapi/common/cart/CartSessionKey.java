@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.common;
+package com.pegasus.pegasustcgapi.common.cart;
 
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;

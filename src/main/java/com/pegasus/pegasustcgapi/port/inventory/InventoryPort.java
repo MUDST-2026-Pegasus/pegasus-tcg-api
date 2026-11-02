@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.port;
+package com.pegasus.pegasustcgapi.port.inventory;
 
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import java.math.BigDecimal;

@@ -25,7 +25,7 @@ import com.pegasus.pegasustcgapi.repository.payment.PaymentRepository;
 import com.pegasus.pegasustcgapi.repository.finance.refund.RefundRepository;
 import com.pegasus.pegasustcgapi.repository.finance.refund.RefundTransferRepository;
 import com.pegasus.pegasustcgapi.repository.aftersales.ReturnRepository;
-import com.pegasus.pegasustcgapi.port.CollectionPort;
+import com.pegasus.pegasustcgapi.port.collection.CollectionPort;
 import java.time.Clock;
 import java.math.BigDecimal;
 import java.util.Optional;

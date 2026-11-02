@@ -20,7 +20,7 @@ Business code stays in the `controller`, `service`, `repository`, `dto`, and `mo
 | Returns and refunds | `controller/aftersales/ReturnController.java`, `controller/finance/refund/RefundController.java` | `aftersales`, `finance/refund` |
 | Wallet, commissions and payouts | `controller/finance/wallet/WalletController.java`, `controller/finance/payout/PayoutController.java` | `finance/wallet`, `finance/commission`, `finance/payout` |
 
-Other business domains are `auction`, `collection`, `home`, `metrics`, `setting`, `upload`, and `user`. Shared API types stay in `common`; application wiring in `config`; HTTP security in `security`; storage adapters in `storage`; scheduled tasks in `job`; and cross-domain ports in `port`. Generated jOOQ classes remain in `build/generated-src/jooq` and are not moved. The `build.gradle` forced enum mappings point to the new model packages.
+Other business domains are `auction`, `collection`, `home`, `metrics`, `setting`, `upload`, and `user`. Shared API types stay in `common`; application wiring in `config`; HTTP security in `security`; and storage adapters in `storage`. Scheduled tasks and cross-domain ports follow the same domain folders under `job` and `port`; the shared `JobLock` implementation stays in `job`. Generated jOOQ classes remain in `build/generated-src/jooq` and are not moved. The `build.gradle` forced enum mappings point to the new model packages.
 
 ## Requirements
 

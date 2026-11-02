@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
 
-import com.pegasus.pegasustcgapi.port.LedgerPort.CommissionQuote;
+import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort.CommissionQuote;
 import com.pegasus.pegasustcgapi.repository.finance.commission.CommissionRuleRepository;
 import com.pegasus.pegasustcgapi.repository.finance.commission.CommissionRuleRepository.ProductScope;
 import com.pegasus.pegasustcgapi.repository.finance.commission.CommissionRuleRepository.Rule;

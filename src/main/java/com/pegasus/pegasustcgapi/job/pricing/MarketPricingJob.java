@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.job;
+package com.pegasus.pegasustcgapi.job.pricing;
 
 import com.pegasus.pegasustcgapi.service.pricing.MarketPricingService;
 import org.springframework.scheduling.annotation.Scheduled;

@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.port;
+package com.pegasus.pegasustcgapi.port.pricing;
 
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.listing.ListingStatus;

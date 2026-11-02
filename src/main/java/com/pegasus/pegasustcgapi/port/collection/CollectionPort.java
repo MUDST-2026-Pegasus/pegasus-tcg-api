@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.port;
+package com.pegasus.pegasustcgapi.port.collection;
 
 /**
  * Collection management port stub for granting purchased cards to buyers.

@@ -2,7 +2,7 @@ package com.pegasus.pegasustcgapi.service.cart;
 
 import com.pegasus.pegasustcgapi.service.listing.ListingCardRenderer;
 
-import com.pegasus.pegasustcgapi.common.CartSessionKey;
+import com.pegasus.pegasustcgapi.common.cart.CartSessionKey;
 import com.pegasus.pegasustcgapi.dto.cart.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.cart.CartItemResponse;
 import com.pegasus.pegasustcgapi.dto.cart.CartResponse;
@@ -15,8 +15,8 @@ import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
 import com.pegasus.pegasustcgapi.model.cart.Cart;
 import com.pegasus.pegasustcgapi.model.cart.CartItem;
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
-import com.pegasus.pegasustcgapi.port.PricingPort;
-import com.pegasus.pegasustcgapi.port.PricingPort.ListingOffer;
+import com.pegasus.pegasustcgapi.port.pricing.PricingPort;
+import com.pegasus.pegasustcgapi.port.pricing.PricingPort.ListingOffer;
 import com.pegasus.pegasustcgapi.repository.cart.CartRepository;
 import com.pegasus.pegasustcgapi.repository.cart.CartRepository.CartListingDetails;
 import com.pegasus.pegasustcgapi.repository.seller.SellerProfileRepository;

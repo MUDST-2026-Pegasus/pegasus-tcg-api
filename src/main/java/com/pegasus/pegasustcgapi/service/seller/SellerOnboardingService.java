@@ -12,7 +12,7 @@ import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
 import com.pegasus.pegasustcgapi.model.seller.SellerStatus;
 import com.pegasus.pegasustcgapi.model.seller.SellerVerification;
 import com.pegasus.pegasustcgapi.model.seller.VerificationStatus;
-import com.pegasus.pegasustcgapi.port.SellerPort;
+import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.finance.payout.PayoutAccountRepository;
 import com.pegasus.pegasustcgapi.repository.seller.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.repository.seller.SellerVerificationRepository;

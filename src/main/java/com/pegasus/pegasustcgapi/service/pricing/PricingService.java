@@ -3,7 +3,7 @@ package com.pegasus.pegasustcgapi.service.pricing;
 import com.pegasus.pegasustcgapi.model.listing.Listing;
 import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
 import com.pegasus.pegasustcgapi.model.seller.SellerStatus;
-import com.pegasus.pegasustcgapi.port.PricingPort;
+import com.pegasus.pegasustcgapi.port.pricing.PricingPort;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.Offer;
 import java.util.Collection;

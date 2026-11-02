@@ -3,7 +3,7 @@ package com.pegasus.pegasustcgapi.service.finance.commission;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pegasus.pegasustcgapi.dto.finance.commission.CommissionRuleRequest;
-import com.pegasus.pegasustcgapi.port.LedgerPort;
+import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;

@@ -1,4 +1,8 @@
-package com.pegasus.pegasustcgapi.job;
+package com.pegasus.pegasustcgapi.job.order;
+
+import com.pegasus.pegasustcgapi.job.JobLock;
+
+import com.pegasus.pegasustcgapi.job.JobLock;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;

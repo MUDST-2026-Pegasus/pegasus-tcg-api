@@ -1,4 +1,6 @@
-package com.pegasus.pegasustcgapi.job;
+package com.pegasus.pegasustcgapi.job.cart;
+
+import com.pegasus.pegasustcgapi.job.JobLock;
 
 import com.pegasus.pegasustcgapi.repository.cart.CartRepository;
 import java.time.Clock;

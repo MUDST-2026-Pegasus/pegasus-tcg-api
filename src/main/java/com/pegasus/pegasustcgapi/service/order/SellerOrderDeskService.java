@@ -11,7 +11,7 @@ import com.pegasus.pegasustcgapi.dto.shipping.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
-import com.pegasus.pegasustcgapi.port.SellerPort;
+import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.order.AdminOrderRepository;
 import com.pegasus.pegasustcgapi.repository.order.AdminOrderRepository.AdminOrderQuery;
 import com.pegasus.pegasustcgapi.repository.order.AdminOrderRepository.AdminOrderRow;

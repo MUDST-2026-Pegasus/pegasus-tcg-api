@@ -22,7 +22,7 @@ import com.pegasus.pegasustcgapi.model.pricing.MarketKey;
 import com.pegasus.pegasustcgapi.model.pricing.PricingMode;
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
 import com.pegasus.pegasustcgapi.model.pricing.WeightedAverageCost;
-import com.pegasus.pegasustcgapi.port.SellerPort;
+import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogVariantRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingImageRepository;
 import com.pegasus.pegasustcgapi.repository.pricing.ListingPriceHistoryRepository;

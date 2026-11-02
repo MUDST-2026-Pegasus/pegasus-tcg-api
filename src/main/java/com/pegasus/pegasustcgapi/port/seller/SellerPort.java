@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.port;
+package com.pegasus.pegasustcgapi.port.seller;
 
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
 
