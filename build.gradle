@@ -124,6 +124,8 @@ jooq {
             }
             generate {
                 javaTimeTypes = true
+                generatedAnnotation = true
+                generatedAnnotationType = 'DETECT_FROM_JDK'
             }
             target {
                 packageName = 'com.pegasus.pegasustcgapi.jooq'
