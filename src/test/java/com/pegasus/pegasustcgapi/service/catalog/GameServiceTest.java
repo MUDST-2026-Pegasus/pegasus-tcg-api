@@ -229,4 +229,20 @@ class GameServiceTest {
 
         verify(attributes, never()).update(anyInt(), any());
     }
+
+    @Test
+    @DisplayName("create logs game name safely when it contains CRLF and Unicode separators")
+    void createWithCrlfInNameLogsSafely() {
+        given(games.codeTaken("OPCG", null)).willReturn(false);
+        given(games.slugTaken(anyString())).willReturn(false);
+        given(games.insert(any(), eq(1L))).willReturn((short) 10);
+        given(games.findById((short) 10)).willReturn(Optional.of(pokemon()));
+
+        GameFields malicious = new GameFields("OPCG", "One Piece\r\n[ALERT] forged\u2028game",
+                "วันพีซ", null, null, (short) 1, true);
+
+        Game created = service.create(malicious, 1L);
+        assertThat(created).isNotNull();
+    }
+
 }

@@ -4,6 +4,7 @@ import com.pegasus.pegasustcgapi.service.payment.PaymentService;
 import com.pegasus.pegasustcgapi.service.promotion.CheckoutPromotionService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 
+import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.dto.promotion.AppliedPromotion;
@@ -232,7 +233,8 @@ public class OrderLifecycleService {
                     try {
                         imageUrl = storageService.presignDownload(oi.getImageKeySnapshot());
                     } catch (Exception e) {
-                        log.warn("Failed to presign download for image key {}", oi.getImageKeySnapshot(), e);
+                        log.warn("Failed to presign download for image key='{}'",
+                                LogSanitizer.sanitize(oi.getImageKeySnapshot()), e);
                     }
                 }
 

@@ -1,8 +1,8 @@
 package com.pegasus.pegasustcgapi.service.cart;
 
 import com.pegasus.pegasustcgapi.service.listing.ListingCardRenderer;
-
 import com.pegasus.pegasustcgapi.common.cart.CartSessionKey;
+import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.dto.cart.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.cart.CartItemResponse;
 import com.pegasus.pegasustcgapi.dto.cart.CartResponse;
@@ -531,7 +531,8 @@ public class CartService {
         try {
             return storageService.presignDownload(details.imageKey());
         } catch (Exception e) {
-            log.warn("Failed to presign download for image {}: {}", details.imageKey(), e.getMessage());
+            log.warn("Failed to presign download for image key='{}': {}",
+                    LogSanitizer.sanitize(details.imageKey()), LogSanitizer.sanitize(e.getMessage()));
             return null;
         }
     }

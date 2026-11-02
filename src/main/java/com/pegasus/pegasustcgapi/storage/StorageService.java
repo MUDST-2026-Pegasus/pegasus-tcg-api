@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.storage;
 
+import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -112,7 +113,8 @@ public class StorageService {
             return value;
         }
         if (!isPublic(value)) {
-            log.warn("Not signing {} for a public page: it is outside {}", value, PUBLIC_PREFIXES);
+            log.warn("Not signing key='{}' for a public page: it is outside {}",
+                    LogSanitizer.sanitize(value), PUBLIC_PREFIXES);
             return null;
         }
         return presignDownload(value);
@@ -224,7 +226,11 @@ public class StorageService {
 
     /** The cause is logged rather than returned: it carries the bucket and credentials setup. */
     private ApiException storageFailure(String action, String objectKey, Exception cause) {
-        log.error("Object storage failed to {} {} in bucket {}", action, objectKey, properties.bucket(), cause);
+        log.error("Object storage failed: action='{}' key='{}' bucket='{}'",
+                LogSanitizer.sanitize(action),
+                LogSanitizer.sanitize(objectKey),
+                LogSanitizer.sanitize(properties.bucket()),
+                cause);
         return new ApiException(ErrorCode.STORAGE_UNAVAILABLE);
     }
 }

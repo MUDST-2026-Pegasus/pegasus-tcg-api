@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.dto.catalog.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -86,7 +87,8 @@ public class CatalogImageService {
         }
 
         long id = images.insert(productId, withPrimary(fields, primary));
-        log.info("Added image {} to product {}", fields.imageKey(), productId);
+        log.info("Added image: key='{}' productId={}",
+                LogSanitizer.sanitize(fields.imageKey()), productId);
         return require(productId, id);
     }
 
@@ -117,7 +119,8 @@ public class CatalogImageService {
         }
 
         storage.delete(image.imageKey());
-        log.info("Deleted image {} of product {}", image.imageKey(), productId);
+        log.info("Deleted image: key='{}' productId={}",
+                LogSanitizer.sanitize(image.imageKey()), productId);
     }
 
     private CatalogImageResponse require(long productId, long imageId) {

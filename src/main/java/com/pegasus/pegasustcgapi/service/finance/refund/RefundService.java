@@ -75,7 +75,7 @@ public class RefundService {
         var refund = refunds.create(sellerOrder.getSalesOrderId(), sellerOrderId,
                 hold.getAmount().subtract(hold.getRefundedAmount()), reason, payment.getMethod(), key);
         if ("MOCK_GATEWAY".equals(payment.getMethod())) {
-            processed(refund.getId(), null, "MOCK:" + refund.getId());
+            processedBySystem(refund.getId(), "MOCK:" + refund.getId());
         }
     }
 
@@ -179,18 +179,35 @@ public class RefundService {
         var refund = refunds.createForReturn(sellerOrder.getSalesOrderId(), sellerOrderId,
                 returnId, amount, reason, payment.getMethod());
         if ("MOCK_GATEWAY".equals(payment.getMethod())) {
-            processed(refund.getId(), null, "MOCK:" + refund.getId());
+            processedBySystem(refund.getId(), "MOCK:" + refund.getId());
         }
     }
 
     /**
-     * @param adminId who confirmed the transfer; null when the system settles it on its
-     *                own, as it does for the mock gateway. {@code refund.processed_by}
-     *                references {@code user_account}, so a placeholder id such as 0 would
-     *                fail the foreign key and roll the whole cancel back.
+     * Settle an admin-confirmed refund (e.g. external bank transfer).
+     *
+     * @param refundId          the refund to settle
+     * @param adminId           the admin user who completed the transfer
+     * @param transferReference external transfer reference from bank slip
      */
     @Transactional
-    public RefundRecord processed(long refundId, Long adminId, String transferReference) {
+    public RefundRecord processed(long refundId, long adminId, String transferReference) {
+        return processInternal(refundId, adminId, transferReference);
+    }
+
+    /**
+     * Settle a system-managed refund automatically (e.g. mock payment gateway).
+     *
+     * @param refundId          the refund to settle
+     * @param transferReference system-generated reference
+     */
+    @Transactional
+    public RefundRecord processedBySystem(long refundId, String transferReference) {
+        return processInternal(refundId, null, transferReference);
+    }
+
+
+    private RefundRecord processInternal(long refundId, Long adminId, String transferReference) {
         var initial = refunds.find(refundId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.REFUND_NOT_FOUND));
         payments.lockOrder(initial.getSalesOrderId());
@@ -203,6 +220,9 @@ public class RefundService {
             return refund;
         }
         boolean bank = "BANK_TRANSFER".equals(refund.getMethod());
+        if (bank && adminId == null) {
+            throw new ConflictException(ErrorCode.PAYMENT_STATE);
+        }
         if (!(bank ? "PROCESSING" : "APPROVED").equals(refund.getStatus())) {
             throw new ConflictException(ErrorCode.PAYMENT_STATE);
         }
@@ -216,7 +236,12 @@ public class RefundService {
         escrow.refund(hold.getId(), totalRefunded,
                 refund.getReturnRequestId() == null ? "CANCELLED" : full ? "REFUNDED" : "HELD");
         OffsetDateTime now = OffsetDateTime.now(clock);
-        if (attempt != null) transfers.processed(attempt.getId(), adminId, reference, now);
+        if (attempt != null) {
+            if (adminId == null) {
+                throw new ConflictException(ErrorCode.PAYMENT_STATE);
+            }
+            transfers.processed(attempt.getId(), adminId, reference, now);
+        }
         if (refunds.processed(refundId, adminId, reference, now) != 1) {
             throw new ConflictException(ErrorCode.PAYMENT_STATE);
         }
