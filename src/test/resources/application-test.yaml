@@ -1,0 +1,4 @@
+pegasus:
+  payment:
+    # Explicitly enabled by default for test profile
+    mock-enabled: ${PAYMENT_MOCK_ENABLED:true}

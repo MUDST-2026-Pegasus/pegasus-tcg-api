@@ -66,7 +66,7 @@ pegasus:
     # POST /orders/{id}/pay marks an order paid without taking any money, which is
     # only ever wanted on a developer machine or a sandbox. Off unless asked for:
     # on a live deployment it is a way to have cards posted for free.
-    mock-enabled: ${PAYMENT_MOCK_ENABLED:true}
+    mock-enabled: ${PAYMENT_MOCK_ENABLED:false}
 
   pricing:
     # The nightly market run: the day's median per printing and condition, then
