@@ -58,7 +58,7 @@ jobs:
 
       - name: Publish BE test results
         if: always() && hashFiles('build/test-results/test/*.xml') != ''
-        uses: EnricoMi/publish-unit-test-result-action/linux@v2.24.0
+        uses: EnricoMi/publish-unit-test-result-action/linux@v2.25.0
         with:
           files: build/test-results/test/*.xml
           check_name: BE Tests
