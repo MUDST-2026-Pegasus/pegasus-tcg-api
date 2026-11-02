@@ -81,13 +81,14 @@ class MockPaymentSmokeTest {
         @DisplayName("Starting application with no profile (as deployments run) and mock-enabled=true fails at startup")
         void startupFailsWhenMockEnabledWithoutProfile() {
             assertThatThrownBy(() -> {
-                // Closed in case the guard ever lets it start, so the context does not leak.
+                // Command-line args, not builder properties: those are defaults and lose to
+                // application.yaml's ${PAYMENT_MOCK_ENABLED:false}. Closed in case the guard
+                // ever lets it start, so the context does not leak.
                 try (ConfigurableApplicationContext ignored = new SpringApplicationBuilder(PegasusTcgApiApplication.class)
-                        .properties(
-                                "pegasus.payment.mock-enabled=true",
-                                "spring.main.web-application-type=none"
-                        )
-                        .run()) {
+                        .run(
+                                "--pegasus.payment.mock-enabled=true",
+                                "--spring.main.web-application-type=none"
+                        )) {
                     // started: assertThatThrownBy fails
                 }
             })
