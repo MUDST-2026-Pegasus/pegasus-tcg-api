@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi;
+package com.pegasus.pegasustcgapi.controller.payment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -9,7 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.pegasus.pegasustcgapi.controller.payment.MockPaymentController;
+import com.pegasus.pegasustcgapi.PegasusTcgApiApplication;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
