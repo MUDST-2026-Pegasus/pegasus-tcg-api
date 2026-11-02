@@ -58,6 +58,7 @@ Copy `.env.example` rather than committing `.env`. The important values are:
 | `MINIO_PUBLIC_ENDPOINT` | URL put into browser-facing presigned URLs. |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated web origins, default `http://localhost:3000`. |
 | `AUTH_DEV_EXPOSE_TOKENS` | Set `true` only for local password-reset development. |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | Login, register, password reset and change tries per client address per minute; default `30`. |
 
 MinIO's S3 API is at `http://localhost:9000`; its console is at `http://localhost:9001`.
 

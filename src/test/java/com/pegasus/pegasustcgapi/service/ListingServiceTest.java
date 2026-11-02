@@ -42,6 +42,7 @@ import com.pegasus.pegasustcgapi.repository.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.repository.SellerVariantCostRepository;
 import com.pegasus.pegasustcgapi.service.ListingService.PriceChange;
 import com.pegasus.pegasustcgapi.storage.StorageService;
+import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -273,7 +274,7 @@ class ListingServiceTest {
             asVerifiedSeller();
             given(variants.findById(VARIANT)).willReturn(Optional.of(variant(true)));
             willThrow(new ApiException(ErrorCode.FILE_NOT_FOUND)).given(storage)
-                    .requireUploaded("listings/2026/09/front.jpg");
+                    .requireUploadedFor(UploadPurpose.LISTING_IMAGE, "listings/2026/09/front.jpg");
 
             assertThatThrownBy(() -> service.create(USER, JP_FOIL_NM, NO_DETAILS, manual("1290.00"),
                     List.of("listings/2026/09/front.jpg")))

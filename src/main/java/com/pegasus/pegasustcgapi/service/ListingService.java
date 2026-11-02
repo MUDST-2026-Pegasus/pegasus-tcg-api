@@ -353,7 +353,9 @@ public class ListingService {
                 throw new ApiException(ErrorCode.VALIDATION_FAILED,
                         "imageKeys must come from a LISTING_IMAGE upload (" + prefix + "...)");
             }
-            storage.requireUploaded(key);
+            // Size and type as well as presence: the upload URL does not fix either, and a
+            // public listing page hands out a link to whatever was actually stored.
+            storage.requireUploadedFor(UploadPurpose.LISTING_IMAGE, key);
             if (images.keyUsedByAnotherSeller(key, sellerProfileId)) {
                 throw new ConflictException(ErrorCode.LISTING_PHOTO_IN_USE);
             }
