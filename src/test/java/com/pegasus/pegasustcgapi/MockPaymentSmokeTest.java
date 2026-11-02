@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -77,17 +78,22 @@ class MockPaymentSmokeTest {
     class ProductionStartupGuardTests {
 
         @Test
-        @DisplayName("Starting application with prod profile and mock-enabled=true fails at startup")
-        void startupFailsWhenMockEnabledInProd() {
-            assertThatThrownBy(() -> new SpringApplicationBuilder(PegasusTcgApiApplication.class)
-                    .profiles("prod")
-                    .properties(
-                            "pegasus.payment.mock-enabled=true",
-                            "PAYMENT_MOCK_ENABLED=true",
-                            "spring.main.web-application-type=none"
-                    )
-                    .run())
-                    .hasRootCauseInstanceOf(IllegalStateException.class);
+        @DisplayName("Starting application with no profile (as deployments run) and mock-enabled=true fails at startup")
+        void startupFailsWhenMockEnabledWithoutProfile() {
+            assertThatThrownBy(() -> {
+                // Closed in case the guard ever lets it start, so the context does not leak.
+                try (ConfigurableApplicationContext ignored = new SpringApplicationBuilder(PegasusTcgApiApplication.class)
+                        .properties(
+                                "pegasus.payment.mock-enabled=true",
+                                "spring.main.web-application-type=none"
+                        )
+                        .run()) {
+                    // started: assertThatThrownBy fails
+                }
+            })
+                    .hasRootCauseInstanceOf(IllegalStateException.class)
+                    .rootCause()
+                    .hasMessageContaining("CRITICAL SECURITY CONFIGURATION ERROR");
         }
     }
 
@@ -96,6 +102,7 @@ class MockPaymentSmokeTest {
             "pegasus.payment.mock-enabled=true",
             "PAYMENT_MOCK_ENABLED=true"
     })
+    @ActiveProfiles("test")
     @DisplayName("When mock payment is enabled in non-production profile")
     class NonProductionEnabledTests {
 

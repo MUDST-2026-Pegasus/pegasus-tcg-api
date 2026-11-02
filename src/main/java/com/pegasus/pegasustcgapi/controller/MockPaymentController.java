@@ -30,7 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping(ApiPaths.ORDERS)
 @ConditionalOnProperty(name = "pegasus.payment.mock-enabled", havingValue = "true")
-@Profile("!prod & !production")
+@Profile("(local | test) & !prod & !production")
 public class MockPaymentController {
 
     private final OrderLifecycleService orderLifecycleService;
