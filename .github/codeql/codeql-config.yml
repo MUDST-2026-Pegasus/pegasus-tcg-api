@@ -1,0 +1,12 @@
+name: "Pegasus CodeQL Configuration"
+
+# Scope analysis strictly to handwritten application source code
+paths:
+  - src/main/java
+
+# Exclude generated code, build outputs, and test files from CodeQL analysis
+paths-ignore:
+  - build/**
+  - 'build/generated-src/**'
+  - '**/generated-src/**'
+  - 'src/test/**'
