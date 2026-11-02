@@ -3,6 +3,8 @@ package com.pegasus.pegasustcgapi.service;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -164,5 +166,99 @@ class RefundServiceTest {
         verifyNoInteractions(ledger, escrow, transfers);
         verify(refunds, never()).processed(org.mockito.ArgumentMatchers.eq(5L),
                 org.mockito.ArgumentMatchers.anyLong(), any(), any());
+    }
+
+    @Test void adminSettledBankTransferProcessesAttemptAndEscrow() {
+        RefundRecord refund = refund("PROCESSING");
+        refund.setAmount(new BigDecimal("40.00"));
+        RefundTransferAttemptRecord attempt = new RefundTransferAttemptRecord();
+        attempt.setId(8L);
+        EscrowHoldRecord hold = new EscrowHoldRecord();
+        hold.setId(11L);
+        hold.setWalletId(12L);
+        hold.setStatus("HELD");
+        hold.setAmount(new BigDecimal("100.00"));
+        hold.setRefundedAmount(BigDecimal.ZERO);
+
+        when(refunds.find(5L)).thenReturn(Optional.of(refund));
+        when(refunds.lock(5L)).thenReturn(Optional.of(refund));
+        when(transfers.active(5L)).thenReturn(Optional.of(attempt));
+        when(escrow.lock(3L)).thenReturn(Optional.of(hold));
+        when(refunds.processed(eq(5L), eq(9L), eq("BANK-REF-1"), any())).thenReturn(1);
+
+        service.processed(5L, 9L, "BANK-REF-1");
+
+        verify(payments).lockOrder(2L);
+        verify(transfers).processed(eq(8L), eq(9L), eq("BANK-REF-1"), any());
+        verify(refunds).processed(eq(5L), eq(9L), eq("BANK-REF-1"), any());
+        verify(ledger).post(12L, WalletLedgerService.Bucket.PENDING, "REFUND_OUT",
+                WalletLedgerService.Direction.DEBIT, new BigDecimal("40.00"), "REFUND", 5L);
+        verify(escrow).refund(11L, new BigDecimal("40.00"), "CANCELLED");
+    }
+
+    @Test void bankTransferRejectsSystemSettlement() {
+        RefundRecord refund = refund("PROCESSING");
+        refund.setAmount(new BigDecimal("40.00"));
+        when(refunds.find(5L)).thenReturn(Optional.of(refund));
+        when(refunds.lock(5L)).thenReturn(Optional.of(refund));
+
+        assertThatThrownBy(() -> service.processedBySystem(5L, "SYS-REF-1"))
+                .isInstanceOf(ConflictException.class);
+
+        verify(payments).lockOrder(2L);
+        verifyNoInteractions(transfers, escrow, ledger);
+        verify(refunds, never()).processed(anyLong(), any(), any(), any());
+    }
+
+    @Test void systemSettledMockGatewaySucceedsWithoutAdmin() {
+        RefundRecord refund = refund("APPROVED");
+        refund.setMethod("MOCK_GATEWAY");
+        refund.setAmount(new BigDecimal("40.00"));
+        EscrowHoldRecord hold = new EscrowHoldRecord();
+        hold.setId(11L);
+        hold.setWalletId(12L);
+        hold.setStatus("HELD");
+        hold.setAmount(new BigDecimal("100.00"));
+        hold.setRefundedAmount(BigDecimal.ZERO);
+
+        when(refunds.find(5L)).thenReturn(Optional.of(refund));
+        when(refunds.lock(5L)).thenReturn(Optional.of(refund));
+        when(escrow.lock(3L)).thenReturn(Optional.of(hold));
+        when(refunds.processed(eq(5L), isNull(), eq("MOCK:5"), any())).thenReturn(1);
+
+        service.processedBySystem(5L, "MOCK:5");
+
+        verify(payments).lockOrder(2L);
+        verifyNoInteractions(transfers);
+        verify(refunds).processed(eq(5L), isNull(), eq("MOCK:5"), any());
+        verify(ledger).post(12L, WalletLedgerService.Bucket.PENDING, "REFUND_OUT",
+                WalletLedgerService.Direction.DEBIT, new BigDecimal("40.00"), "REFUND", 5L);
+        verify(escrow).refund(11L, new BigDecimal("40.00"), "CANCELLED");
+    }
+
+    @Test void adminSettledMockGatewaySucceedsWithAdmin() {
+        RefundRecord refund = refund("APPROVED");
+        refund.setMethod("MOCK_GATEWAY");
+        refund.setAmount(new BigDecimal("40.00"));
+        EscrowHoldRecord hold = new EscrowHoldRecord();
+        hold.setId(11L);
+        hold.setWalletId(12L);
+        hold.setStatus("HELD");
+        hold.setAmount(new BigDecimal("100.00"));
+        hold.setRefundedAmount(BigDecimal.ZERO);
+
+        when(refunds.find(5L)).thenReturn(Optional.of(refund));
+        when(refunds.lock(5L)).thenReturn(Optional.of(refund));
+        when(escrow.lock(3L)).thenReturn(Optional.of(hold));
+        when(refunds.processed(eq(5L), eq(9L), eq("MOCK:5"), any())).thenReturn(1);
+
+        service.processed(5L, 9L, "MOCK:5");
+
+        verify(payments).lockOrder(2L);
+        verifyNoInteractions(transfers);
+        verify(refunds).processed(eq(5L), eq(9L), eq("MOCK:5"), any());
+        verify(ledger).post(12L, WalletLedgerService.Bucket.PENDING, "REFUND_OUT",
+                WalletLedgerService.Direction.DEBIT, new BigDecimal("40.00"), "REFUND", 5L);
+        verify(escrow).refund(11L, new BigDecimal("40.00"), "CANCELLED");
     }
 }
