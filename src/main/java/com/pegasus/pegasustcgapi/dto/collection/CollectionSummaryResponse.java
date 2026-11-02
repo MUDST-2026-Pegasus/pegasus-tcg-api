@@ -1,6 +1,6 @@
-package com.pegasus.pegasustcgapi.dto;
+package com.pegasus.pegasustcgapi.dto.collection;
 
-import com.pegasus.pegasustcgapi.repository.CollectionItemRepository.Summary;
+import com.pegasus.pegasustcgapi.repository.collection.CollectionItemRepository.Summary;
 import java.math.BigDecimal;
 
 /**

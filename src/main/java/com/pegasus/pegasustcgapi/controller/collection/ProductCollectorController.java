@@ -1,11 +1,11 @@
-package com.pegasus.pegasustcgapi.controller;
+package com.pegasus.pegasustcgapi.controller.collection;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
-import com.pegasus.pegasustcgapi.dto.ProductCollectorResponse;
-import com.pegasus.pegasustcgapi.repository.ProductCollectorRepository;
-import com.pegasus.pegasustcgapi.service.CatalogProductService;
+import com.pegasus.pegasustcgapi.dto.collection.ProductCollectorResponse;
+import com.pegasus.pegasustcgapi.repository.collection.ProductCollectorRepository;
+import com.pegasus.pegasustcgapi.service.catalog.CatalogProductService;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;

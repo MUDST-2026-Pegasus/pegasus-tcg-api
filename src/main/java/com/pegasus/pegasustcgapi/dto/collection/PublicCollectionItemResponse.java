@@ -1,7 +1,7 @@
-package com.pegasus.pegasustcgapi.dto;
+package com.pegasus.pegasustcgapi.dto.collection;
 
-import com.pegasus.pegasustcgapi.model.CardCondition;
-import com.pegasus.pegasustcgapi.model.CollectionItem;
+import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
+import com.pegasus.pegasustcgapi.model.collection.CollectionItem;
 import java.math.BigDecimal;
 
 /**

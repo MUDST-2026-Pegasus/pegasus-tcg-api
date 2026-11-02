@@ -1,7 +1,7 @@
-package com.pegasus.pegasustcgapi.dto;
+package com.pegasus.pegasustcgapi.dto.collection;
 
-import com.pegasus.pegasustcgapi.model.CardCondition;
-import com.pegasus.pegasustcgapi.repository.CollectionItemRepository.CollectionItemFields;
+import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
+import com.pegasus.pegasustcgapi.repository.collection.CollectionItemRepository.CollectionItemFields;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;

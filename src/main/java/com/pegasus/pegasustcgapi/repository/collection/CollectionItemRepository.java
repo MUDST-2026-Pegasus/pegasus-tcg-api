@@ -1,13 +1,13 @@
-package com.pegasus.pegasustcgapi.repository;
+package com.pegasus.pegasustcgapi.repository.collection;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CollectionItem.COLLECTION_ITEM;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.CollectionItemRecord;
-import com.pegasus.pegasustcgapi.model.CardCondition;
-import com.pegasus.pegasustcgapi.model.CollectionItem;
-import com.pegasus.pegasustcgapi.model.CollectionSource;
+import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
+import com.pegasus.pegasustcgapi.model.collection.CollectionItem;
+import com.pegasus.pegasustcgapi.model.collection.CollectionSource;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;

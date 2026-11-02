@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.model;
+package com.pegasus.pegasustcgapi.model.collection;
 
 /** How a card got into someone's collection. */
 public enum CollectionSource {

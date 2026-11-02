@@ -1,7 +1,7 @@
-package com.pegasus.pegasustcgapi.service;
+package com.pegasus.pegasustcgapi.service.collection;
 
 import com.pegasus.pegasustcgapi.port.CollectionPort;
-import com.pegasus.pegasustcgapi.repository.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
 import org.springframework.stereotype.Service;
 
 /**

@@ -1,13 +1,13 @@
-package com.pegasus.pegasustcgapi.controller;
+package com.pegasus.pegasustcgapi.controller.collection;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
-import com.pegasus.pegasustcgapi.dto.CollectionItemRequest;
-import com.pegasus.pegasustcgapi.dto.CollectionItemResponse;
-import com.pegasus.pegasustcgapi.dto.CollectionSummaryResponse;
+import com.pegasus.pegasustcgapi.dto.collection.CollectionItemRequest;
+import com.pegasus.pegasustcgapi.dto.collection.CollectionItemResponse;
+import com.pegasus.pegasustcgapi.dto.collection.CollectionSummaryResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
-import com.pegasus.pegasustcgapi.service.CollectionService;
+import com.pegasus.pegasustcgapi.service.collection.CollectionService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

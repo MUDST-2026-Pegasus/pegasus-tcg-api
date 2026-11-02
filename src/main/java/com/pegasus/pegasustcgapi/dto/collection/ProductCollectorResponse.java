@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.dto;
+package com.pegasus.pegasustcgapi.dto.collection;
 
 /** Public profile fields and the number of visible copies of this product. */
 public record ProductCollectorResponse(

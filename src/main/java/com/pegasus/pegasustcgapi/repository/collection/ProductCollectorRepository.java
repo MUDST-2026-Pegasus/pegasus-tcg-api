@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.repository;
+package com.pegasus.pegasustcgapi.repository.collection;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CollectionItem.COLLECTION_ITEM;
@@ -6,8 +6,8 @@ import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
-import com.pegasus.pegasustcgapi.dto.ProductCollectorResponse;
-import com.pegasus.pegasustcgapi.model.UserStatus;
+import com.pegasus.pegasustcgapi.dto.collection.ProductCollectorResponse;
+import com.pegasus.pegasustcgapi.model.user.UserStatus;
 import java.util.List;
 import org.jooq.Condition;
 import org.jooq.DSLContext;

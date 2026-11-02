@@ -1,4 +1,6 @@
-package com.pegasus.pegasustcgapi.model;
+package com.pegasus.pegasustcgapi.model.collection;
+
+import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;

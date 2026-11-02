@@ -1,7 +1,7 @@
-package com.pegasus.pegasustcgapi.dto;
+package com.pegasus.pegasustcgapi.dto.collection;
 
-import com.pegasus.pegasustcgapi.model.CatalogProduct;
-import com.pegasus.pegasustcgapi.model.CatalogVariant;
+import com.pegasus.pegasustcgapi.model.catalog.CatalogProduct;
+import com.pegasus.pegasustcgapi.model.catalog.CatalogVariant;
 
 /**
  * Which card a collection row is, in enough detail to draw it without asking the

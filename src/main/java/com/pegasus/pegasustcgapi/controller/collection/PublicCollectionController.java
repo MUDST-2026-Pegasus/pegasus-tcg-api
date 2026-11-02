@@ -1,10 +1,10 @@
-package com.pegasus.pegasustcgapi.controller;
+package com.pegasus.pegasustcgapi.controller.collection;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
-import com.pegasus.pegasustcgapi.dto.PublicCollectionItemResponse;
-import com.pegasus.pegasustcgapi.service.CollectionService;
+import com.pegasus.pegasustcgapi.dto.collection.PublicCollectionItemResponse;
+import com.pegasus.pegasustcgapi.service.collection.CollectionService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
