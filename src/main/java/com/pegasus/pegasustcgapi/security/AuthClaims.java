@@ -3,7 +3,7 @@ package com.pegasus.pegasustcgapi.security;
 /** Names of the private claims this API puts in its access tokens. */
 public final class AuthClaims {
 
-    /** List of {@link com.pegasus.pegasustcgapi.model.RoleCode} names. */
+    /** List of {@link com.pegasus.pegasustcgapi.model.user.RoleCode} names. */
     public static final String ROLES = "roles";
     public static final String EMAIL = "email";
     public static final String USERNAME = "username";

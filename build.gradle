@@ -111,12 +111,12 @@ jooq {
 
                 forcedTypes {
                     forcedType {
-                        userType = 'com.pegasus.pegasustcgapi.model.UserStatus'
+                        userType = 'com.pegasus.pegasustcgapi.model.user.UserStatus'
                         enumConverter = true
                         includeTypes = 'user_status'
                     }
                     forcedType {
-                        userType = 'com.pegasus.pegasustcgapi.model.TokenPurpose'
+                        userType = 'com.pegasus.pegasustcgapi.model.auth.TokenPurpose'
                         enumConverter = true
                         includeTypes = 'token_purpose'
                     }

@@ -6,6 +6,22 @@ Base URL when running locally: `http://localhost:8080/api/v1`
 
 The Postman collection contains the same 72 application endpoints: [Pegasus-API](https://godgame.postman.co/workspace/Personal-Workspace~e5d0e575-1d67-4cda-ae96-d28efd26af90/collection/50039359-015a9714-1e65-45ad-a9f6-fcb9efd922e9?action=share&source=copy-link&creator=50039359).
 
+## Java package map
+
+Business code stays in the `controller`, `service`, `repository`, `dto`, and `model` layers. Within each layer, the same domain name identifies the same flow; tests mirror these packages under `src/test/java`. Start with the controller for HTTP input, follow its service for the rules, and then its repository for database access.
+
+| Flow | Start reading at | Related packages |
+| --- | --- | --- |
+| Sign in and session refresh | `controller/auth/AuthController.java` | `auth`, `security` |
+| Catalogue and search | `controller/catalog/CatalogProductController.java` | `catalog`, `pricing` |
+| Listings and stock | `controller/listing/SellerListingController.java` | `listing`, `inventory`, `seller` |
+| Cart and checkout | `controller/cart/CartController.java`, `controller/order/CheckoutController.java` | `cart`, `order`, `promotion`, `shipping` |
+| Payment | `controller/payment/PaymentController.java` | `payment`, `finance/escrow` |
+| Returns and refunds | `controller/aftersales/ReturnController.java`, `controller/finance/refund/RefundController.java` | `aftersales`, `finance/refund` |
+| Wallet, commissions and payouts | `controller/finance/wallet/WalletController.java`, `controller/finance/payout/PayoutController.java` | `finance/wallet`, `finance/commission`, `finance/payout` |
+
+Other business domains are `auction`, `collection`, `home`, `metrics`, `setting`, `upload`, and `user`. Shared API types stay in `common`; application wiring in `config`; HTTP security in `security`; and storage adapters in `storage`. Scheduled tasks and cross-domain ports follow the same domain folders under `job` and `port`; the shared `JobLock` implementation stays in `job`. Generated jOOQ classes remain in `build/generated-src/jooq` and are not moved. The `build.gradle` forced enum mappings point to the new model packages.
+
 ## Requirements
 
 - Java 25 (the Gradle toolchain downloads or uses Java 25)

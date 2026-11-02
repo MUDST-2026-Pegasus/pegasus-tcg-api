@@ -2,8 +2,8 @@ package com.pegasus.pegasustcgapi.support;
 
 import static org.mockito.Mockito.reset;
 
-import com.pegasus.pegasustcgapi.port.InventoryPort;
-import com.pegasus.pegasustcgapi.port.LedgerPort;
+import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
+import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

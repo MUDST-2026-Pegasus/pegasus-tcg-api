@@ -6,9 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.pegasus.pegasustcgapi.config.AuthProperties;
-import com.pegasus.pegasustcgapi.model.AuthUser;
-import com.pegasus.pegasustcgapi.model.RoleCode;
-import com.pegasus.pegasustcgapi.service.JwtService;
+import com.pegasus.pegasustcgapi.model.auth.AuthUser;
+import com.pegasus.pegasustcgapi.model.user.RoleCode;
+import com.pegasus.pegasustcgapi.service.auth.JwtService;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;

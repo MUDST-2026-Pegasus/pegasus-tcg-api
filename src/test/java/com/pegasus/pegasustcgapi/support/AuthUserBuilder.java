@@ -1,8 +1,8 @@
 package com.pegasus.pegasustcgapi.support;
 
-import com.pegasus.pegasustcgapi.model.AuthUser;
-import com.pegasus.pegasustcgapi.model.RoleCode;
-import com.pegasus.pegasustcgapi.model.UserStatus;
+import com.pegasus.pegasustcgapi.model.auth.AuthUser;
+import com.pegasus.pegasustcgapi.model.user.RoleCode;
+import com.pegasus.pegasustcgapi.model.user.UserStatus;
 import java.time.OffsetDateTime;
 import java.util.Set;
 

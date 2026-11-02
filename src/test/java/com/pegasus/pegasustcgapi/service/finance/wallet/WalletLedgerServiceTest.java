@@ -1,0 +1,91 @@
+package com.pegasus.pegasustcgapi.service.finance.wallet;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+import com.pegasus.pegasustcgapi.exception.ConflictException;
+import com.pegasus.pegasustcgapi.port.seller.SellerPort;
+import com.pegasus.pegasustcgapi.repository.finance.wallet.LedgerRepository;
+import com.pegasus.pegasustcgapi.repository.finance.wallet.WalletRepository;
+import com.pegasus.pegasustcgapi.repository.finance.wallet.WalletRepository.Balance;
+import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService.Bucket;
+import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService.Direction;
+import java.math.BigDecimal;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class WalletLedgerServiceTest {
+
+    @Mock WalletRepository wallets;
+    @Mock LedgerRepository ledger;
+    @Mock SellerPort sellers;
+
+    WalletLedgerService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new WalletLedgerService(wallets, ledger, sellers);
+    }
+
+    @Test
+    void movesAvailableToPendingWithoutChangingTotal() {
+        when(wallets.lock(1L)).thenReturn(new Balance(1L,
+                new BigDecimal("100.00"), new BigDecimal("0.00")),
+                new Balance(1L, new BigDecimal("60.00"), new BigDecimal("0.00")));
+
+        service.post(1L, Bucket.AVAILABLE, "ESCROW_HOLD", Direction.DEBIT,
+                new BigDecimal("40.00"), "SELLER_ORDER", 5L);
+        service.post(1L, Bucket.PENDING, "ESCROW_HOLD", Direction.CREDIT,
+                new BigDecimal("40.00"), "SELLER_ORDER", 5L);
+
+        verify(ledger).insert(1L, "ESCROW_HOLD", "DEBIT", new BigDecimal("40.00"),
+                new BigDecimal("60.00"), "SELLER_ORDER", 5L);
+        verify(ledger).insert(1L, "ESCROW_HOLD", "CREDIT", new BigDecimal("40.00"),
+                new BigDecimal("100.00"), "SELLER_ORDER", 5L);
+    }
+
+    @Test
+    void refusesToOverdrawBeforeWritingLedger() {
+        when(wallets.lock(1L)).thenReturn(new Balance(1L,
+                new BigDecimal("10.00"), new BigDecimal("0.00")));
+
+        assertThatThrownBy(() -> service.post(1L, Bucket.AVAILABLE, "PAYOUT_OUT",
+                Direction.DEBIT, new BigDecimal("10.01"), "PAYOUT", 7L))
+                .isInstanceOf(ConflictException.class);
+        verifyNoInteractions(ledger);
+    }
+
+    @Test
+    void pegasusMayRunAvailableBelowZeroForPromotionsButNeverPending() {
+        when(wallets.platformId()).thenReturn(1L);
+        when(wallets.lock(1L)).thenReturn(
+                new Balance(1L, new BigDecimal("39.00"), new BigDecimal("775.94")),
+                new Balance(1L, new BigDecimal("-10.06"), new BigDecimal("775.94")));
+
+        service.post(1L, Bucket.AVAILABLE, "PROMO_SUBSIDY", Direction.DEBIT,
+                new BigDecimal("49.06"), "SELLER_ORDER", 5L);
+        verify(ledger).insert(1L, "PROMO_SUBSIDY", "DEBIT", new BigDecimal("49.06"),
+                new BigDecimal("765.88"), "SELLER_ORDER", 5L);
+
+        assertThatThrownBy(() -> service.post(1L, Bucket.PENDING, "REFUND_OUT", Direction.DEBIT,
+                new BigDecimal("775.95"), "REFUND", 6L))
+                .isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void rejectsZeroAndFractionsOfSatang() {
+        assertThatThrownBy(() -> service.post(1L, Bucket.AVAILABLE, "PAYMENT_IN",
+                Direction.CREDIT, BigDecimal.ZERO, "PAYMENT", 9L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.post(1L, Bucket.AVAILABLE, "PAYMENT_IN",
+                Direction.CREDIT, new BigDecimal("0.001"), "PAYMENT", 9L))
+                .isInstanceOf(ArithmeticException.class);
+        verifyNoInteractions(wallets, ledger);
+    }
+}
