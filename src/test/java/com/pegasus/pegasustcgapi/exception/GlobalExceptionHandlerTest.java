@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.exception;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import java.util.List;
@@ -64,5 +65,35 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_ACCEPTABLE);
         assertThat(response.getBody()).isNull();
+    }
+
+    @Test
+    @DisplayName("constraint violation logs safely when request URI contains CR, LF, and Unicode separators")
+    void dataIntegrityViolationWithCrlfInUri() {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST",
+                "/api/v1/products\r\n2026-11-02 [WARN] forged\u2028separator");
+
+        ResponseEntity<ApiResult<ApiError>> response = handler.handleDataIntegrity(
+                new DataIntegrityViolationException("duplicate key value violates unique constraint"),
+                request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getData().code()).isEqualTo(ErrorCode.DATA_CONFLICT.name());
+    }
+
+    @Test
+    @DisplayName("unexpected exception logs safely when request URI and method contain CR, LF, and Unicode separators")
+    void unexpectedExceptionWithCrlfInUriAndMethod() {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET\r\nINJECT",
+                "/api/v1/unknown\r\n[ERROR] forged\u2029separator");
+
+        ResponseEntity<ApiResult<ApiError>> response = handler.handleUnexpected(
+                new RuntimeException("Simulated unexpected failure"),
+                request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getData().code()).isEqualTo(ErrorCode.INTERNAL_ERROR.name());
     }
 }

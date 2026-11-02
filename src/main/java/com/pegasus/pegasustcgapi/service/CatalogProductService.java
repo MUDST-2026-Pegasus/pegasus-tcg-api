@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service;
 
+import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.common.Slugs;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
@@ -121,7 +122,8 @@ public class CatalogProductService {
                 requested.name(), requested.cardNumber() == null ? "" : requested.cardNumber());
 
         long id = products.insert(withDerived(requested, slug, attributes), createdBy);
-        log.info("Catalogued product {} as id {} ({})", requested.name(), id, slug);
+        log.info("Catalogued product: name='{}' id={} slug='{}'",
+                LogSanitizer.sanitize(requested.name()), id, LogSanitizer.sanitize(slug));
         return require(id);
     }
 
@@ -186,8 +188,9 @@ public class CatalogProductService {
         try {
             storage.delete(imageKey);
         } catch (RuntimeException e) {
-            log.warn("Could not delete image {} of a deleted product; the object is orphaned",
-                    imageKey, e);
+            log.warn("Could not delete image key='{}' of a deleted product; the object is orphaned",
+                    LogSanitizer.sanitize(imageKey), e);
+
         }
     }
 

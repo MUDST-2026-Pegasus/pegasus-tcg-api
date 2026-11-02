@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.exception;
 
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -187,7 +188,10 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResult<ApiError>> handleDataIntegrity(
             DataIntegrityViolationException ex, HttpServletRequest request) {
         // The constraint name can name internals, so it is logged rather than returned.
-        log.warn("Constraint violation on {} {}", request.getMethod(), request.getRequestURI(), ex);
+        log.warn("Constraint violation: method={} uri={}",
+                LogSanitizer.sanitize(request.getMethod()),
+                LogSanitizer.sanitize(request.getRequestURI()),
+                ex);
         return build(ErrorCode.DATA_CONFLICT, ErrorCode.DATA_CONFLICT.defaultMessage(),
                 request, List.of());
     }
@@ -195,7 +199,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResult<ApiError>> handleUnexpected(Exception ex, HttpServletRequest request) {
         // The cause is logged but never returned: it can carry internals.
-        log.error("Unhandled exception on {} {}", request.getMethod(), request.getRequestURI(), ex);
+        log.error("Unhandled exception: method={} uri={}",
+                LogSanitizer.sanitize(request.getMethod()),
+                LogSanitizer.sanitize(request.getRequestURI()),
+                ex);
         return build(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.defaultMessage(),
                 request, List.of());
     }
