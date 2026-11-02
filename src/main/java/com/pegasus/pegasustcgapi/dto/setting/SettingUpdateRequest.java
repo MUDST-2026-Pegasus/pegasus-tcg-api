@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.dto;
+package com.pegasus.pegasustcgapi.dto.setting;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;

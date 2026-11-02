@@ -1,9 +1,9 @@
-package com.pegasus.pegasustcgapi.controller;
+package com.pegasus.pegasustcgapi.controller.metrics;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
-import com.pegasus.pegasustcgapi.dto.AdminMetricsViews.Overview;
-import com.pegasus.pegasustcgapi.service.AdminMetricsService;
+import com.pegasus.pegasustcgapi.dto.metrics.AdminMetricsViews.Overview;
+import com.pegasus.pegasustcgapi.service.metrics.AdminMetricsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;

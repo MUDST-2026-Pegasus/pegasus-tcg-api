@@ -11,8 +11,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
-import com.pegasus.pegasustcgapi.repository.OrderRepository;
-import com.pegasus.pegasustcgapi.service.OrderLifecycleService;
+import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import java.time.Clock;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;

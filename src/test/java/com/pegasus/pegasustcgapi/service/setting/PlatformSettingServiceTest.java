@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.service;
+package com.pegasus.pegasustcgapi.service.setting;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -11,8 +11,8 @@ import static org.mockito.Mockito.verify;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
-import com.pegasus.pegasustcgapi.repository.PlatformSettingRepository;
-import com.pegasus.pegasustcgapi.repository.PlatformSettingRepository.Setting;
+import com.pegasus.pegasustcgapi.repository.setting.PlatformSettingRepository;
+import com.pegasus.pegasustcgapi.repository.setting.PlatformSettingRepository.Setting;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;

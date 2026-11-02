@@ -1,7 +1,7 @@
-package com.pegasus.pegasustcgapi.service;
+package com.pegasus.pegasustcgapi.service.home;
 
-import com.pegasus.pegasustcgapi.dto.HomeBannerResponse;
-import com.pegasus.pegasustcgapi.repository.HomeBannerRepository;
+import com.pegasus.pegasustcgapi.dto.home.HomeBannerResponse;
+import com.pegasus.pegasustcgapi.repository.home.HomeBannerRepository;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.time.Clock;
 import java.time.OffsetDateTime;

@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.repository;
+package com.pegasus.pegasustcgapi.repository.setting;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.PlatformSetting.PLATFORM_SETTING;
 

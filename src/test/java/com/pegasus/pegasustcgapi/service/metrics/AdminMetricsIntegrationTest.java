@@ -1,4 +1,7 @@
-package com.pegasus.pegasustcgapi.service;
+package com.pegasus.pegasustcgapi.service.metrics;
+
+import com.pegasus.pegasustcgapi.service.cart.CartService;
+import com.pegasus.pegasustcgapi.service.order.CheckoutService;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
@@ -6,13 +9,13 @@ import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.pegasus.pegasustcgapi.dto.AdminMetricsViews.GameShare;
-import com.pegasus.pegasustcgapi.dto.AdminMetricsViews.MonthlySales;
-import com.pegasus.pegasustcgapi.dto.AdminMetricsViews.Overview;
-import com.pegasus.pegasustcgapi.dto.AdminMetricsViews.TopSeller;
-import com.pegasus.pegasustcgapi.dto.CartItemRequest;
+import com.pegasus.pegasustcgapi.dto.metrics.AdminMetricsViews.GameShare;
+import com.pegasus.pegasustcgapi.dto.metrics.AdminMetricsViews.MonthlySales;
+import com.pegasus.pegasustcgapi.dto.metrics.AdminMetricsViews.Overview;
+import com.pegasus.pegasustcgapi.dto.metrics.AdminMetricsViews.TopSeller;
+import com.pegasus.pegasustcgapi.dto.cart.CartItemRequest;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
-import com.pegasus.pegasustcgapi.model.CardCondition;
+import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.support.ApiClient;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import com.pegasus.pegasustcgapi.support.TestData.Seller;

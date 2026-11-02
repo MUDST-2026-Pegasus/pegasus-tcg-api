@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.port;
 
-import com.pegasus.pegasustcgapi.model.CardCondition;
-import com.pegasus.pegasustcgapi.model.ListingStatus;
+import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
+import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
 import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.Map;

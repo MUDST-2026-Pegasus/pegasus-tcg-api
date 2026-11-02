@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.dto;
+package com.pegasus.pegasustcgapi.dto.upload;
 
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import jakarta.validation.constraints.NotBlank;

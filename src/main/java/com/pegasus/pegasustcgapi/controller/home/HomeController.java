@@ -1,9 +1,9 @@
-package com.pegasus.pegasustcgapi.controller;
+package com.pegasus.pegasustcgapi.controller.home;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
-import com.pegasus.pegasustcgapi.dto.HomeBannerResponse;
-import com.pegasus.pegasustcgapi.service.HomeBannerService;
+import com.pegasus.pegasustcgapi.dto.home.HomeBannerResponse;
+import com.pegasus.pegasustcgapi.service.home.HomeBannerService;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;

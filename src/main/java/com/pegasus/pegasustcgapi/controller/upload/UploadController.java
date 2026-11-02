@@ -1,11 +1,11 @@
-package com.pegasus.pegasustcgapi.controller;
+package com.pegasus.pegasustcgapi.controller.upload;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
-import com.pegasus.pegasustcgapi.dto.PresignUploadRequest;
-import com.pegasus.pegasustcgapi.dto.PresignUploadResponse;
+import com.pegasus.pegasustcgapi.dto.upload.PresignUploadRequest;
+import com.pegasus.pegasustcgapi.dto.upload.PresignUploadResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
-import com.pegasus.pegasustcgapi.service.UploadService;
+import com.pegasus.pegasustcgapi.service.upload.UploadService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;

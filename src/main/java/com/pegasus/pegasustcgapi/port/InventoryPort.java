@@ -1,6 +1,6 @@
 package com.pegasus.pegasustcgapi.port;
 
-import com.pegasus.pegasustcgapi.model.CardCondition;
+import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;

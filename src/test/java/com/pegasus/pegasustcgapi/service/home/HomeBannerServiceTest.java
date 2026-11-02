@@ -1,11 +1,11 @@
-package com.pegasus.pegasustcgapi.service;
+package com.pegasus.pegasustcgapi.service.home;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 
-import com.pegasus.pegasustcgapi.dto.HomeBannerResponse;
-import com.pegasus.pegasustcgapi.model.HomeBanner;
-import com.pegasus.pegasustcgapi.repository.HomeBannerRepository;
+import com.pegasus.pegasustcgapi.dto.home.HomeBannerResponse;
+import com.pegasus.pegasustcgapi.model.home.HomeBanner;
+import com.pegasus.pegasustcgapi.repository.home.HomeBannerRepository;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.time.Clock;
 import java.time.Instant;

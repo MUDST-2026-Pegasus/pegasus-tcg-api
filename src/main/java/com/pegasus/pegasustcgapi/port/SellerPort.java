@@ -1,6 +1,6 @@
 package com.pegasus.pegasustcgapi.port;
 
-import com.pegasus.pegasustcgapi.model.SellerProfile;
+import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
 
 /**
  * What the listing module needs to know about sellers, and nothing more. The

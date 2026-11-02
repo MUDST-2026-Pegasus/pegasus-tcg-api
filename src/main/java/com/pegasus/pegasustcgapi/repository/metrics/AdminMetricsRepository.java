@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.repository;
+package com.pegasus.pegasustcgapi.repository.metrics;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
@@ -11,7 +11,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
-import com.pegasus.pegasustcgapi.model.SellerOrderStatus;
+import com.pegasus.pegasustcgapi.model.order.SellerOrderStatus;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;

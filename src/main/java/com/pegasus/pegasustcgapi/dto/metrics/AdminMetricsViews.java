@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.dto;
+package com.pegasus.pegasustcgapi.dto.metrics;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;

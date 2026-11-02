@@ -1,11 +1,11 @@
-package com.pegasus.pegasustcgapi.controller;
+package com.pegasus.pegasustcgapi.controller.setting;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
-import com.pegasus.pegasustcgapi.dto.SettingUpdateRequest;
-import com.pegasus.pegasustcgapi.repository.PlatformSettingRepository.Setting;
+import com.pegasus.pegasustcgapi.dto.setting.SettingUpdateRequest;
+import com.pegasus.pegasustcgapi.repository.setting.PlatformSettingRepository.Setting;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
-import com.pegasus.pegasustcgapi.service.PlatformSettingService;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;

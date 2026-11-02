@@ -1,9 +1,9 @@
-package com.pegasus.pegasustcgapi.service;
+package com.pegasus.pegasustcgapi.service.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.pegasus.pegasustcgapi.dto.AdminMetricsViews.GameShare;
-import com.pegasus.pegasustcgapi.repository.AdminMetricsRepository.GameSales;
+import com.pegasus.pegasustcgapi.dto.metrics.AdminMetricsViews.GameShare;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminMetricsRepository.GameSales;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;

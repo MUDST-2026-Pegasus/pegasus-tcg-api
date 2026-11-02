@@ -1,9 +1,9 @@
 package com.pegasus.pegasustcgapi.support;
 
-import com.pegasus.pegasustcgapi.service.AddressService;
-import com.pegasus.pegasustcgapi.service.JwtService;
-import com.pegasus.pegasustcgapi.service.ListingService;
-import com.pegasus.pegasustcgapi.service.ListingUnitService;
+import com.pegasus.pegasustcgapi.service.user.AddressService;
+import com.pegasus.pegasustcgapi.service.auth.JwtService;
+import com.pegasus.pegasustcgapi.service.listing.ListingService;
+import com.pegasus.pegasustcgapi.service.listing.ListingUnitService;
 import org.jooq.DSLContext;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;

@@ -1,6 +1,6 @@
 package com.pegasus.pegasustcgapi.job;
 
-import com.pegasus.pegasustcgapi.service.MarketPricingService;
+import com.pegasus.pegasustcgapi.service.pricing.MarketPricingService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 

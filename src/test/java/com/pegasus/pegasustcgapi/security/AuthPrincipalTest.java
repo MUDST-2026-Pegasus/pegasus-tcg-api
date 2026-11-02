@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
-import com.pegasus.pegasustcgapi.model.RoleCode;
+import com.pegasus.pegasustcgapi.model.user.RoleCode;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;

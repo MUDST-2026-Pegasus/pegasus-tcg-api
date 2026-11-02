@@ -1,9 +1,9 @@
-package com.pegasus.pegasustcgapi.repository;
+package com.pegasus.pegasustcgapi.repository.home;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.HomeBanner.HOME_BANNER;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.HomeBannerRecord;
-import com.pegasus.pegasustcgapi.model.HomeBanner;
+import com.pegasus.pegasustcgapi.model.home.HomeBanner;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.jooq.DSLContext;

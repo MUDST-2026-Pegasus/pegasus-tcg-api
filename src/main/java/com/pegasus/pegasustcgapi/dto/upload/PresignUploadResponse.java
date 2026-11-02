@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.dto;
+package com.pegasus.pegasustcgapi.dto.upload;
 
 /**
  * Permission to upload one file, for a few minutes.

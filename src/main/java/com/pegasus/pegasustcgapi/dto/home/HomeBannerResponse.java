@@ -1,6 +1,6 @@
-package com.pegasus.pegasustcgapi.dto;
+package com.pegasus.pegasustcgapi.dto.home;
 
-import com.pegasus.pegasustcgapi.model.HomeBanner;
+import com.pegasus.pegasustcgapi.model.home.HomeBanner;
 
 /**
  * A home page slide, ready to draw.

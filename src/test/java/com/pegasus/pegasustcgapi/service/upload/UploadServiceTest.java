@@ -1,4 +1,6 @@
-package com.pegasus.pegasustcgapi.service;
+package com.pegasus.pegasustcgapi.service.upload;
+
+import com.pegasus.pegasustcgapi.service.user.RoleService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -7,12 +9,12 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verifyNoInteractions;
 
-import com.pegasus.pegasustcgapi.dto.PresignUploadRequest;
-import com.pegasus.pegasustcgapi.dto.PresignUploadResponse;
+import com.pegasus.pegasustcgapi.dto.upload.PresignUploadRequest;
+import com.pegasus.pegasustcgapi.dto.upload.PresignUploadResponse;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.ForbiddenException;
-import com.pegasus.pegasustcgapi.model.RoleCode;
+import com.pegasus.pegasustcgapi.model.user.RoleCode;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;

@@ -1,6 +1,6 @@
 package com.pegasus.pegasustcgapi.job;
 
-import com.pegasus.pegasustcgapi.repository.CartRepository;
+import com.pegasus.pegasustcgapi.repository.cart.CartRepository;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import org.slf4j.Logger;

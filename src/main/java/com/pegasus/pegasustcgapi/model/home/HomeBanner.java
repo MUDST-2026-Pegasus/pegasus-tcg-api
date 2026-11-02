@@ -1,4 +1,4 @@
-package com.pegasus.pegasustcgapi.model;
+package com.pegasus.pegasustcgapi.model.home;
 
 import java.time.OffsetDateTime;
 

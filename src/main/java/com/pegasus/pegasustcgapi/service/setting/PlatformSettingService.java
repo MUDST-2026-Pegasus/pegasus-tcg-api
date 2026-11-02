@@ -1,10 +1,10 @@
-package com.pegasus.pegasustcgapi.service;
+package com.pegasus.pegasustcgapi.service.setting;
 
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
-import com.pegasus.pegasustcgapi.repository.PlatformSettingRepository.Setting;
-import com.pegasus.pegasustcgapi.repository.PlatformSettingRepository;
+import com.pegasus.pegasustcgapi.repository.setting.PlatformSettingRepository.Setting;
+import com.pegasus.pegasustcgapi.repository.setting.PlatformSettingRepository;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;

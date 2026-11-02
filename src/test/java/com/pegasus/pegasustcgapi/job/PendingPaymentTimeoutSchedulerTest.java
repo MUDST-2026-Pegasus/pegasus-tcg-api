@@ -12,9 +12,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
-import com.pegasus.pegasustcgapi.repository.OrderRepository;
-import com.pegasus.pegasustcgapi.service.OrderLifecycleService;
-import com.pegasus.pegasustcgapi.service.PlatformSettingService;
+import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
