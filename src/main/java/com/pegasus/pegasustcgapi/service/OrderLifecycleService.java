@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service;
 
+import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.dto.AppliedPromotion;
@@ -228,7 +229,8 @@ public class OrderLifecycleService {
                     try {
                         imageUrl = storageService.presignDownload(oi.getImageKeySnapshot());
                     } catch (Exception e) {
-                        log.warn("Failed to presign download for image key {}", oi.getImageKeySnapshot(), e);
+                        log.warn("Failed to presign download for image key='{}'",
+                                LogSanitizer.sanitize(oi.getImageKeySnapshot()), e);
                     }
                 }
 

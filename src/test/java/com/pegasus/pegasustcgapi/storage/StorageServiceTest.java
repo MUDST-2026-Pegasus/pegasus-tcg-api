@@ -167,4 +167,26 @@ class StorageServiceTest {
         assertThat(serviceWithPublicRead(true).presignDownload("payments/2026/09/slip.png"))
                 .contains("X-Amz-Signature");
     }
+
+    @Test
+    @DisplayName("readUrl logs outside-public warning safely when key contains CRLF and Unicode separators")
+    void readUrlWithCrlfLogsSafely() {
+        String testInputPath = "unapproved/test\r\n[ALERT] forged\u2028sample.txt";
+        String url = service.readUrl(testInputPath);
+        assertThat(url).isNull();
+    }
+
+    @Test
+    @DisplayName("storageFailure logs error safely when objectKey contains CRLF and Unicode separators")
+    void deleteStorageFailureLogsSafely() throws Exception {
+        String testInputPath = "catalog/sample\r\n[CRITICAL] fake\u2028sample.png";
+        org.mockito.BDDMockito.willThrow(new RuntimeException("MinIO down"))
+                .given(client).removeObject(org.mockito.ArgumentMatchers.any(io.minio.RemoveObjectArgs.class));
+
+        assertThatThrownBy(() -> service.delete(testInputPath))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).errorCode())
+                .isEqualTo(ErrorCode.STORAGE_UNAVAILABLE);
+    }
+
 }

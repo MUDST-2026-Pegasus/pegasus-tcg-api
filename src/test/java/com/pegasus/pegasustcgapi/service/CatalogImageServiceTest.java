@@ -189,4 +189,22 @@ class CatalogImageServiceTest {
 
         verify(storage, never()).requireUploadedFor(any(), anyString());
     }
+
+    @Test
+    @DisplayName("add logs image key safely when it contains CRLF and Unicode separators")
+    void addWithCrlfInImageKeyLogsSafely() {
+        String testInputPath = "catalog/art\r\n[WARN] forged\u2028sample.png";
+        given(storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, testInputPath))
+                .willReturn(new StoredObject(testInputPath, 1000L, "image/png"));
+        given(images.keyInUse(testInputPath)).willReturn(false);
+        given(images.hasAny(PRODUCT_ID)).willReturn(false);
+        given(images.insert(eq(PRODUCT_ID), any())).willReturn(101L);
+        given(images.findById(101L)).willReturn(Optional.of(image(101L, true)));
+        given(storage.presignDownload(any())).willReturn("https://example.com/image.png");
+
+        ImageFields fields = new ImageFields(null, testInputPath, "Alt Art", (short) 0, false);
+        CatalogImageResponse response = service.add(PRODUCT_ID, fields);
+        assertThat(response).isNotNull();
+    }
+
 }

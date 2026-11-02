@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service;
 
+import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.common.Slugs;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
@@ -82,7 +83,8 @@ public class GameService {
                 slug, blankToNull(requested.logoUrl()), requested.displayOrder(), requested.active());
 
         short id = games.insert(fields, createdBy);
-        log.info("Created game {} ({}) as id {}", fields.name(), code, id);
+        log.info("Created game: name='{}' code='{}' id={}",
+                LogSanitizer.sanitize(fields.name()), LogSanitizer.sanitize(code), id);
         return require(id);
     }
 

@@ -305,4 +305,24 @@ class CatalogProductServiceTest {
 
         verify(products, never()).delete(anyLong());
     }
+
+    @Test
+    @DisplayName("create logs product name safely when it contains CRLF and Unicode separators")
+    void createWithCrlfInNameLogsSafely() {
+        given(games.attributesOf(POKEMON)).willReturn(List.of());
+        given(taxonomy.requireCategory(201)).willReturn(singlesOf(POKEMON));
+        given(taxonomy.requireCardSet(301)).willReturn(
+                new CardSet(301, POKEMON, "SV8A", "Terastal Festival", null, null, null, null));
+        given(products.slugTaken(anyString())).willReturn(false);
+        given(products.insert(any(), eq(9L))).willReturn(501L);
+        given(products.findById(501L)).willReturn(Optional.of(pikachu()));
+
+        ProductFields malicious = new ProductFields(POKEMON, 201, 301, ProductType.SINGLE_CARD,
+                "Charizard\r\n2026-11-02 [WARN] forged\u2028line",
+                null, null, "001", "rare", null, Map.of(), true);
+
+        CatalogProduct created = service.create(malicious, 9L);
+        assertThat(created).isNotNull();
+    }
+
 }
