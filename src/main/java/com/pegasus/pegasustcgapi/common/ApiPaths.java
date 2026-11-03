@@ -38,6 +38,14 @@ public final class ApiPaths {
     public static final String ME_PROMOTIONS = API_V1 + "/me/promotions";
     /** The signed-in seller's own orders. */
     public static final String SELLERS_ME_ORDERS = SELLERS_ME + "/orders";
+    /** Auctions anyone can browse; bidding, buy-now and checkout sit under the same path but need sign-in. */
+    public static final String AUCTIONS = API_V1 + "/auctions";
+    /** Every auction the signed-in buyer has bid on ("การประมูลของฉัน" in the account). */
+    public static final String ME_AUCTIONS = API_V1 + "/me/auctions";
+    /** The signed-in seller's own auctions. */
+    public static final String SELLERS_ME_AUCTIONS = SELLERS_ME + "/auctions";
+    /** Every auction on the platform, and the users barred from bidding. */
+    public static final String ADMIN_AUCTIONS = ADMIN + "/auctions";
 
     private ApiPaths() {
     }

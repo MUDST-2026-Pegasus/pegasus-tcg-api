@@ -1,0 +1,141 @@
+package com.pegasus.pegasustcgapi.controller.auth;
+
+import com.pegasus.pegasustcgapi.dto.auth.AuthResponse;
+import com.pegasus.pegasustcgapi.dto.auth.LoginRequest;
+import com.pegasus.pegasustcgapi.dto.auth.RegisterRequest;
+import com.pegasus.pegasustcgapi.dto.user.UserResponse;
+import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.security.ClientInfo;
+import com.pegasus.pegasustcgapi.security.RefreshCookie;
+import com.pegasus.pegasustcgapi.exception.ErrorCode;
+import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
+import com.pegasus.pegasustcgapi.service.auth.AuthService;
+import com.pegasus.pegasustcgapi.common.ApiPaths;
+import com.pegasus.pegasustcgapi.common.ApiResult;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@Tag(name = "Authentication", description = "User registration, login, token refresh, and session management")
+@RestController
+@RequestMapping(ApiPaths.AUTH)
+public class AuthController {
+
+    private final AuthService authService;
+    private final RefreshCookie refreshCookie;
+
+    public AuthController(AuthService authService, RefreshCookie refreshCookie) {
+        this.authService = authService;
+        this.refreshCookie = refreshCookie;
+    }
+
+    @Operation(summary = "Register new account", description = "Returns an access token and sets the refresh token in an HttpOnly cookie.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Account successfully created"),
+            @ApiResponse(responseCode = "400", description = "Invalid request payload or validation failed"),
+            @ApiResponse(responseCode = "409", description = "Username or email already in use")
+    })
+    @PostMapping("/register")
+    public ResponseEntity<ApiResult<AuthResponse>> register(
+            @Valid @RequestBody RegisterRequest request, HttpServletRequest http, HttpServletResponse servletResponse) {
+
+        AuthResponse response = authService.register(request, ClientInfo.from(http));
+        refreshCookie.set(servletResponse, response.tokens().refreshToken());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResult.success("Account created", response));
+    }
+
+    @Operation(summary = "Sign in to account", description = "Returns an access token and sets the refresh token in an HttpOnly cookie.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Successfully signed in"),
+            @ApiResponse(responseCode = "400", description = "Request payload failed validation"),
+            @ApiResponse(responseCode = "401", description = "Invalid email or password"),
+            @ApiResponse(responseCode = "403", description = "Account is locked, suspended, or deactivated")
+    })
+    @PostMapping("/login")
+    public ApiResult<AuthResponse> login(
+            @Valid @RequestBody LoginRequest request, HttpServletRequest http, HttpServletResponse servletResponse) {
+        AuthResponse response = authService.login(request, ClientInfo.from(http));
+        refreshCookie.set(servletResponse, response.tokens().refreshToken());
+        return ApiResult.success("Signed in", response);
+    }
+
+    /** Rotates a refresh token, allowing a short retry if the first response was lost. */
+    @Operation(summary = "Refresh access token", description = "Rotates the HttpOnly refresh cookie and returns a new access token. Requires an allowed Origin and JSON content type.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Token pair refreshed"),
+            @ApiResponse(responseCode = "401", description = "Refresh cookie is missing, invalid, expired, or already used"),
+            @ApiResponse(responseCode = "403", description = "Origin is not allowed or content type is not JSON")
+    })
+    @PostMapping("/refresh")
+    public ApiResult<AuthResponse> refresh(HttpServletRequest http, HttpServletResponse servletResponse) {
+        try {
+            String token = refreshCookie.read(http);
+            if (token == null || token.isBlank()) throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
+            AuthResponse response = authService.refresh(token, ClientInfo.from(http));
+            refreshCookie.set(servletResponse, response.tokens().refreshToken(), response.tokens().refreshExpiresIn());
+            return ApiResult.success("Token refreshed", response);
+        } catch (UnauthorizedException exception) {
+            refreshCookie.clear(servletResponse);
+            throw exception;
+        }
+    }
+
+    /** Ends this session. Succeeds even for a token that was already dead. */
+    @Operation(summary = "Sign out of current session", description = "Revokes the refresh cookie and clears it. Requires an allowed Origin and JSON content type.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Successfully signed out and refresh cookie cleared"),
+            @ApiResponse(responseCode = "403", description = "Origin is not allowed or content type is not JSON")
+    })
+    @PostMapping("/logout")
+    public ApiResult<Void> logout(HttpServletRequest http, HttpServletResponse servletResponse) {
+        try {
+            String token = refreshCookie.read(http);
+            if (token != null && !token.isBlank()) authService.logout(token);
+        } finally {
+            refreshCookie.clear(servletResponse);
+        }
+        return ApiResult.success("Signed out", null);
+    }
+
+    /** Ends every session of the signed-in user, this one included. */
+    @Operation(summary = "Sign out of all sessions", description = "Revokes all refresh tokens belonging to the authenticated user and clears the refresh cookie.",
+            security = @SecurityRequirement(name = "BearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Signed out of all sessions"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    @PostMapping("/logout-all")
+    public ApiResult<Void> logoutAll(AuthPrincipal principal, HttpServletResponse servletResponse) {
+        try {
+            authService.logoutAll(principal.userId());
+        } finally {
+            refreshCookie.clear(servletResponse);
+        }
+        return ApiResult.success("Signed out of all sessions", null);
+    }
+
+    /** The signed-in account, read fresh from the database rather than from the token. */
+    @Operation(summary = "Get current profile", description = "Returns profile information for the authenticated user, fetched live from the database.",
+            security = @SecurityRequirement(name = "BearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Profile retrieved"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
+    @GetMapping("/me")
+    public ApiResult<UserResponse> me(AuthPrincipal principal) {
+        return ApiResult.success(authService.currentUser(principal.userId()));
+    }
+}

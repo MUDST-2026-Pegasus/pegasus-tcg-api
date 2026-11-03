@@ -1,0 +1,248 @@
+package com.pegasus.pegasustcgapi.service.catalog;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyShort;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
+import com.pegasus.pegasustcgapi.exception.ApiException;
+import com.pegasus.pegasustcgapi.exception.ConflictException;
+import com.pegasus.pegasustcgapi.exception.ErrorCode;
+import com.pegasus.pegasustcgapi.exception.NotFoundException;
+import com.pegasus.pegasustcgapi.model.catalog.AttributeDataType;
+import com.pegasus.pegasustcgapi.model.catalog.Game;
+import com.pegasus.pegasustcgapi.model.catalog.GameAttribute;
+import com.pegasus.pegasustcgapi.repository.catalog.GameAttributeRepository;
+import com.pegasus.pegasustcgapi.repository.catalog.GameAttributeRepository.AttributeFields;
+import com.pegasus.pegasustcgapi.repository.catalog.GameRepository;
+import com.pegasus.pegasustcgapi.repository.catalog.GameRepository.GameFields;
+import com.pegasus.pegasustcgapi.storage.StorageService;
+import com.pegasus.pegasustcgapi.storage.UploadPurpose;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class GameServiceTest {
+
+    private static final short POKEMON = 1;
+
+    @Mock
+    private GameRepository games;
+
+    @Mock
+    private GameAttributeRepository attributes;
+
+    @Mock
+    private StorageService storage;
+
+    private GameService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new GameService(games, attributes, storage);
+    }
+
+    private static Game pokemon() {
+        return new Game(POKEMON, "POKEMON", "Pokemon TCG", "โปเกมอนการ์ด", "pokemon-tcg",
+                null, (short) 1, true, 9L, OffsetDateTime.now());
+    }
+
+    private static GameFields withLogo(String logo) {
+        return new GameFields("POKEMON", "Pokemon TCG", null, null, logo, (short) 1, true);
+    }
+
+    @Test
+    @DisplayName("an uploaded logo has to be a finished catalogue upload, so a private file cannot go public")
+    void uploadedLogoMustBeACatalogUpload() {
+        String bankBook = "verifications/2026/09/bank-book.jpg";
+        given(storage.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, bankBook))
+                .willThrow(new ApiException(ErrorCode.VALIDATION_FAILED, "The key must come from a CATALOG_IMAGE upload"));
+
+        assertThatThrownBy(() -> service.create(withLogo(bankBook), 9L))
+                .isInstanceOf(ApiException.class);
+
+        verify(games, never()).insert(any(), any());
+    }
+
+    @Test
+    @DisplayName("a pasted logo URL, or the logo the game already has, needs no upload")
+    void pastedOrUnchangedLogoIsNotChecked() {
+        Game seeded = new Game(POKEMON, "POKEMON", "Pokemon TCG", null, "pokemon-tcg",
+                "seed/games/pokemon.png", (short) 1, true, 9L, OffsetDateTime.now());
+        given(games.findById(POKEMON)).willReturn(Optional.of(seeded));
+        given(games.codeTaken("POKEMON", POKEMON)).willReturn(false);
+
+        service.update(POKEMON, withLogo("seed/games/pokemon.png"));
+        service.update(POKEMON, withLogo("https://example.com/pokemon.png"));
+
+        verify(storage, never()).requireUploadedFor(any(), anyString());
+    }
+
+    private static AttributeFields hp() {
+        return new AttributeFields("hp", "HP", AttributeDataType.NUMBER, List.of(),
+                true, false, (short) 1);
+    }
+
+    @Test
+    @DisplayName("a new game gets a folded code and a slug built from its name")
+    void createNormalisesCodeAndBuildsSlug() {
+        given(games.codeTaken(anyString(), eq(null))).willReturn(false);
+        given(games.slugTaken(anyString())).willReturn(false);
+        given(games.insert(any(), eq(9L))).willReturn(POKEMON);
+        given(games.findById(POKEMON)).willReturn(Optional.of(pokemon()));
+
+        service.create(new GameFields(" pokemon ", " Pokemon TCG ", null, null, null, (short) 1, true), 9L);
+
+        ArgumentCaptor<GameFields> saved = ArgumentCaptor.forClass(GameFields.class);
+        verify(games).insert(saved.capture(), eq(9L));
+        assertThat(saved.getValue().code()).isEqualTo("POKEMON");
+        assertThat(saved.getValue().name()).isEqualTo("Pokemon TCG");
+        assertThat(saved.getValue().slug()).isEqualTo("pokemon-tcg");
+    }
+
+    @Test
+    @DisplayName("a code another game already holds is a conflict, not a second row")
+    void duplicateCodeIsRejected() {
+        given(games.codeTaken("POKEMON", null)).willReturn(true);
+
+        assertThatThrownBy(() -> service.create(
+                new GameFields("POKEMON", "Pokemon TCG", null, null, null, (short) 0, true), 9L))
+                .isInstanceOf(ConflictException.class)
+                .extracting(e -> ((ConflictException) e).errorCode())
+                .isEqualTo(ErrorCode.GAME_CODE_ALREADY_USED);
+
+        verify(games, never()).insert(any(), any());
+    }
+
+    @Test
+    @DisplayName("editing a game leaves its slug alone, because links point at it")
+    void updateDoesNotTouchSlug() {
+        given(games.findById(POKEMON)).willReturn(Optional.of(pokemon()));
+        given(games.codeTaken("POKEMON", POKEMON)).willReturn(false);
+
+        service.update(POKEMON, new GameFields("pokemon", "Pokemon TCG JP", null, "new-slug", null,
+                (short) 2, false));
+
+        ArgumentCaptor<GameFields> saved = ArgumentCaptor.forClass(GameFields.class);
+        verify(games).update(eq(POKEMON), saved.capture());
+        assertThat(saved.getValue().slug()).isNull();
+        assertThat(saved.getValue().active()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a retired game is not found publicly, but admins still read it")
+    void retiredGameIsHiddenFromPublicReads() {
+        Game retired = new Game(POKEMON, "POKEMON", "Pokemon TCG", null, "pokemon-tcg",
+                null, (short) 1, false, 9L, OffsetDateTime.now());
+        given(games.findById(POKEMON)).willReturn(Optional.of(retired));
+
+        assertThatThrownBy(() -> service.requireActive(POKEMON))
+                .isInstanceOf(NotFoundException.class)
+                .extracting(e -> ((NotFoundException) e).errorCode())
+                .isEqualTo(ErrorCode.GAME_NOT_FOUND);
+
+        assertThat(service.require(POKEMON).active()).isFalse();
+    }
+
+    @Test
+    @DisplayName("an unknown game is 404 rather than an empty list of attributes")
+    void attributesOfUnknownGame() {
+        given(games.findById(POKEMON)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.attributesOf(POKEMON))
+                .isInstanceOf(NotFoundException.class)
+                .extracting(e -> ((NotFoundException) e).errorCode())
+                .isEqualTo(ErrorCode.GAME_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("an attribute key is stored folded and must be free within the game")
+    void attributeKeyMustBeFree() {
+        given(games.findById(POKEMON)).willReturn(Optional.of(pokemon()));
+        given(attributes.keyTaken(POKEMON, "hp", null)).willReturn(true);
+
+        AttributeFields upperCaseKey = new AttributeFields("HP", "HP", AttributeDataType.NUMBER,
+                List.of(), true, false, (short) 1);
+
+        assertThatThrownBy(() -> service.addAttribute(POKEMON, upperCaseKey))
+                .isInstanceOf(ConflictException.class)
+                .extracting(e -> ((ConflictException) e).errorCode())
+                .isEqualTo(ErrorCode.ATTRIBUTE_KEY_ALREADY_USED);
+    }
+
+    @Test
+    @DisplayName("an ENUM attribute without options is refused before the database says so")
+    void enumNeedsOptions() {
+        given(games.findById(POKEMON)).willReturn(Optional.of(pokemon()));
+
+        AttributeFields noOptions = new AttributeFields("card_type", "Type",
+                AttributeDataType.ENUM, List.of(), true, false, (short) 1);
+
+        assertThatThrownBy(() -> service.addAttribute(POKEMON, noOptions))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).errorCode())
+                .isEqualTo(ErrorCode.INVALID_ATTRIBUTE_DEFINITION);
+
+        verify(attributes, never()).insert(anyShort(), any());
+    }
+
+    @Test
+    @DisplayName("only an ENUM may carry options")
+    void nonEnumMustNotCarryOptions() {
+        given(games.findById(POKEMON)).willReturn(Optional.of(pokemon()));
+
+        AttributeFields numberWithOptions = new AttributeFields("hp", "HP",
+                AttributeDataType.NUMBER, List.of("100", "200"), true, false, (short) 1);
+
+        assertThatThrownBy(() -> service.addAttribute(POKEMON, numberWithOptions))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).errorCode())
+                .isEqualTo(ErrorCode.INVALID_ATTRIBUTE_DEFINITION);
+    }
+
+    @Test
+    @DisplayName("an attribute belonging to another game is not found through this one")
+    void attributeOfAnotherGameIsNotFound() {
+        GameAttribute magicAttribute = new GameAttribute(55, (short) 2, "mana_cost", "Mana cost",
+                AttributeDataType.NUMBER, List.of(), true, false, (short) 1);
+
+        given(attributes.findById(55)).willReturn(Optional.of(magicAttribute));
+
+        assertThatThrownBy(() -> service.updateAttribute(POKEMON, 55, hp()))
+                .isInstanceOf(NotFoundException.class)
+                .extracting(e -> ((NotFoundException) e).errorCode())
+                .isEqualTo(ErrorCode.ATTRIBUTE_NOT_FOUND);
+
+        verify(attributes, never()).update(anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("create logs game name safely when it contains CRLF and Unicode separators")
+    void createWithCrlfInNameLogsSafely() {
+        given(games.codeTaken("OPCG", null)).willReturn(false);
+        given(games.slugTaken(anyString())).willReturn(false);
+        given(games.insert(any(), eq(1L))).willReturn((short) 10);
+        given(games.findById((short) 10)).willReturn(Optional.of(pokemon()));
+
+        GameFields malicious = new GameFields("OPCG", "One Piece\r\n[ALERT] forged\u2028game",
+                "วันพีซ", null, null, (short) 1, true);
+
+        Game created = service.create(malicious, 1L);
+        assertThat(created).isNotNull();
+    }
+
+}

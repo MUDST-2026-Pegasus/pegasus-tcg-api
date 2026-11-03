@@ -47,7 +47,7 @@ dependencies {
     implementation 'io.minio:minio:9.0.3'
 
     // OpenAPI 3 / Swagger UI
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0'
 
     runtimeOnly 'org.flywaydb:flyway-database-postgresql'
     runtimeOnly 'org.postgresql:postgresql'
@@ -111,12 +111,12 @@ jooq {
 
                 forcedTypes {
                     forcedType {
-                        userType = 'com.pegasus.pegasustcgapi.model.UserStatus'
+                        userType = 'com.pegasus.pegasustcgapi.model.user.UserStatus'
                         enumConverter = true
                         includeTypes = 'user_status'
                     }
                     forcedType {
-                        userType = 'com.pegasus.pegasustcgapi.model.TokenPurpose'
+                        userType = 'com.pegasus.pegasustcgapi.model.auth.TokenPurpose'
                         enumConverter = true
                         includeTypes = 'token_purpose'
                     }
@@ -124,6 +124,8 @@ jooq {
             }
             generate {
                 javaTimeTypes = true
+                generatedAnnotation = true
+                generatedAnnotationType = 'DETECT_FROM_JDK'
             }
             target {
                 packageName = 'com.pegasus.pegasustcgapi.jooq'

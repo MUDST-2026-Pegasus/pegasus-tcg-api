@@ -1,6 +1,6 @@
 package com.pegasus.pegasustcgapi.security;
 
-import com.pegasus.pegasustcgapi.model.RoleCode;
+import com.pegasus.pegasustcgapi.model.user.RoleCode;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
 import java.util.EnumSet;

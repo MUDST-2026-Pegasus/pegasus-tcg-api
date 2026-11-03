@@ -1,10 +1,10 @@
 package com.pegasus.pegasustcgapi.support;
 
-import com.pegasus.pegasustcgapi.model.Promotion;
-import com.pegasus.pegasustcgapi.model.Promotion.DiscountType;
-import com.pegasus.pegasustcgapi.model.Promotion.OwnerType;
-import com.pegasus.pegasustcgapi.model.Promotion.ScopeType;
-import com.pegasus.pegasustcgapi.model.Promotion.Visibility;
+import com.pegasus.pegasustcgapi.model.promotion.Promotion;
+import com.pegasus.pegasustcgapi.model.promotion.Promotion.DiscountType;
+import com.pegasus.pegasustcgapi.model.promotion.Promotion.OwnerType;
+import com.pegasus.pegasustcgapi.model.promotion.Promotion.ScopeType;
+import com.pegasus.pegasustcgapi.model.promotion.Promotion.Visibility;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;

@@ -10,6 +10,7 @@
 -- fails, this is rolled back with it and the database is left as it was.
 
 TRUNCATE TABLE
+    promotion_claim, promotion_redemption, promotion,
     refund_transfer_attempt, refund, return_item, return_request,
     seller_review, seller_rating_summary, collection_item, wishlist_item,
     commission_charge, escrow_hold, ledger_entry, payout, commission_rule,

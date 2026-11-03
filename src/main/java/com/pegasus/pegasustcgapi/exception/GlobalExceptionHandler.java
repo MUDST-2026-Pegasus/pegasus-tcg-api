@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.exception;
 
 import com.pegasus.pegasustcgapi.common.ApiResult;
+import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -17,6 +18,7 @@ import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -67,9 +69,25 @@ public class GlobalExceptionHandler {
                 violations);
     }
 
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiResult<ApiError>> handleConstraintViolation(
+            ConstraintViolationException ex, HttpServletRequest request) {
+
+        List<ApiError.FieldViolation> violations = ex.getConstraintViolations().stream()
+                .map(v -> new ApiError.FieldViolation(v.getPropertyPath().toString(), v.getMessage()))
+                .toList();
+
+        return build(
+                ErrorCode.VALIDATION_FAILED,
+                ErrorCode.VALIDATION_FAILED.defaultMessage(),
+                request,
+                violations);
+    }
+
+
+
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleUnreadable(
-            HttpMessageNotReadableException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleUnreadable(HttpServletRequest request) {
         return build(ErrorCode.MALFORMED_REQUEST, ErrorCode.MALFORMED_REQUEST.defaultMessage(),
                 request, List.of());
     }
@@ -79,15 +97,13 @@ public class GlobalExceptionHandler {
      * dispatcher. They only reach here when thrown from inside a controller or service.
      */
     @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleAuthentication(
-            AuthenticationException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleAuthentication(HttpServletRequest request) {
         return build(ErrorCode.UNAUTHENTICATED, ErrorCode.UNAUTHENTICATED.defaultMessage(),
                 request, List.of());
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleAccessDenied(
-            AccessDeniedException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleAccessDenied(HttpServletRequest request) {
         return build(ErrorCode.ACCESS_DENIED, ErrorCode.ACCESS_DENIED.defaultMessage(),
                 request, List.of());
     }
@@ -125,8 +141,7 @@ public class GlobalExceptionHandler {
      * usual way to get here. Without this it was a 500.
      */
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleUnsupportedMediaType(
-            HttpMediaTypeNotSupportedException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleUnsupportedMediaType(HttpServletRequest request) {
         return build(ErrorCode.UNSUPPORTED_CONTENT_TYPE, ErrorCode.UNSUPPORTED_CONTENT_TYPE.defaultMessage(),
                 request, List.of());
     }
@@ -139,22 +154,19 @@ public class GlobalExceptionHandler {
      * second time and ended up as a 401 from the error page.
      */
     @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleNotAcceptable(
-            HttpMediaTypeNotAcceptableException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleNotAcceptable() {
         return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).build();
     }
 
     /** Without this an unmapped path would fall through to the catch-all below as a 500. */
     @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleNoResource(
-            NoResourceFoundException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleNoResource(HttpServletRequest request) {
         return build(ErrorCode.RESOURCE_NOT_FOUND, ErrorCode.RESOURCE_NOT_FOUND.defaultMessage(),
                 request, List.of());
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ApiResult<ApiError>> handleMethodNotSupported(
-            HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
+    public ResponseEntity<ApiResult<ApiError>> handleMethodNotSupported(HttpServletRequest request) {
         return build(ErrorCode.METHOD_NOT_ALLOWED, ErrorCode.METHOD_NOT_ALLOWED.defaultMessage(),
                 request, List.of());
     }
@@ -169,7 +181,10 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResult<ApiError>> handleDataIntegrity(
             DataIntegrityViolationException ex, HttpServletRequest request) {
         // The constraint name can name internals, so it is logged rather than returned.
-        log.warn("Constraint violation on {} {}", request.getMethod(), request.getRequestURI(), ex);
+        log.warn("Constraint violation: method={} uri={}",
+                LogSanitizer.sanitize(request.getMethod()),
+                LogSanitizer.sanitize(request.getRequestURI()),
+                ex);
         return build(ErrorCode.DATA_CONFLICT, ErrorCode.DATA_CONFLICT.defaultMessage(),
                 request, List.of());
     }
@@ -177,7 +192,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResult<ApiError>> handleUnexpected(Exception ex, HttpServletRequest request) {
         // The cause is logged but never returned: it can carry internals.
-        log.error("Unhandled exception on {} {}", request.getMethod(), request.getRequestURI(), ex);
+        log.error("Unhandled exception: method={} uri={}",
+                LogSanitizer.sanitize(request.getMethod()),
+                LogSanitizer.sanitize(request.getRequestURI()),
+                ex);
         return build(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.defaultMessage(),
                 request, List.of());
     }

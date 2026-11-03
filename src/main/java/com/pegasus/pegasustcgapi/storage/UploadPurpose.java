@@ -1,6 +1,6 @@
 package com.pegasus.pegasustcgapi.storage;
 
-import com.pegasus.pegasustcgapi.model.RoleCode;
+import com.pegasus.pegasustcgapi.model.user.RoleCode;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;

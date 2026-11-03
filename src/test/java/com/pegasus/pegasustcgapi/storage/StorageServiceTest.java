@@ -4,20 +4,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
+import io.minio.GetObjectArgs;
+import io.minio.GetObjectResponse;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -44,12 +54,29 @@ class StorageServiceTest {
         return new StorageService(client, client, properties);
     }
 
+    private static byte[] validPngBytes() throws Exception {
+        BufferedImage image = new BufferedImage(10, 10, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", baos);
+        return baos.toByteArray();
+    }
+
     /** What MinIO reports for the object under {@link #KEY}. */
     private void stored(long sizeBytes, String contentType) throws Exception {
+        storedWithBytes(sizeBytes, contentType, validPngBytes());
+    }
+
+    private void storedWithBytes(long sizeBytes, String contentType, byte[] bytes) throws Exception {
         StatObjectResponse stat = mock(StatObjectResponse.class);
         given(stat.size()).willReturn(sizeBytes);
         given(stat.contentType()).willReturn(contentType);
         given(client.statObject(any(StatObjectArgs.class))).willReturn(stat);
+
+        if (bytes != null) {
+            GetObjectResponse response = new GetObjectResponse(
+                    new okhttp3.Headers.Builder().build(), "pegasus", "", KEY, new ByteArrayInputStream(bytes));
+            lenient().when(client.getObject(any(GetObjectArgs.class))).thenReturn(response);
+        }
     }
 
     @Test
@@ -109,12 +136,54 @@ class StorageServiceTest {
     }
 
     @Test
-    @DisplayName("a stored key is signed before it goes to a browser")
+    @DisplayName("an upload with HTML bytes disguised as PNG is refused even with image/png metadata")
+    void maliciousHtmlDisguisedAsImageIsRefused() throws Exception {
+        byte[] html = "<script>alert('xss')</script>".getBytes(StandardCharsets.UTF_8);
+        storedWithBytes(html.length, "image/png", html);
+
+        assertThatThrownBy(() -> service.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, KEY))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).errorCode())
+                .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
+    }
+
+    @Test
+    @DisplayName("an upload with corrupted PNG bytes is refused by the decoder")
+    void corruptedPngIsRefused() throws Exception {
+        byte[] badPng = new byte[] { (byte) 0x89, 'P', 'N', 'G', 1, 2, 3, 4, 5 };
+        storedWithBytes(badPng.length, "image/png", badPng);
+
+        assertThatThrownBy(() -> service.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, KEY))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).errorCode())
+                .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
+    }
+
+    @Test
+    @DisplayName("an upload with declared type mismatching detected format is refused")
+    void declaredMimeMismatchIsRefused() throws Exception {
+        // Upload valid PNG bytes, but declared metadata says image/jpeg
+        storedWithBytes(100, "image/jpeg", validPngBytes());
+
+        assertThatThrownBy(() -> service.requireUploadedFor(UploadPurpose.CATALOG_IMAGE, KEY))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).errorCode())
+                .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
+    }
+
+    @Test
+    @DisplayName("a stored key is signed before it goes to a browser, including response-content-type")
     void keyIsSignedForReading() throws Exception {
         given(client.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
-                .willReturn("http://localhost:9000/pegasus/" + KEY + "?X-Amz-Signature=abc");
+                .willReturn("http://localhost:9000/pegasus/" + KEY + "?X-Amz-Signature=abc&response-content-type=image%2Fpng");
 
-        assertThat(service.readUrl(KEY)).startsWith("http://localhost:9000/pegasus/" + KEY);
+        String url = service.readUrl(KEY);
+        assertThat(url).startsWith("http://localhost:9000/pegasus/" + KEY);
+
+        ArgumentCaptor<GetPresignedObjectUrlArgs> captor = ArgumentCaptor.forClass(GetPresignedObjectUrlArgs.class);
+        verify(client).getPresignedObjectUrl(captor.capture());
+        GetPresignedObjectUrlArgs args = captor.getValue();
+        assertThat(args.extraQueryParams().get("response-content-type")).contains("image/png");
     }
 
     @Test
@@ -167,4 +236,26 @@ class StorageServiceTest {
         assertThat(serviceWithPublicRead(true).presignDownload("payments/2026/09/slip.png"))
                 .contains("X-Amz-Signature");
     }
+
+    @Test
+    @DisplayName("readUrl logs outside-public warning safely when key contains CRLF and Unicode separators")
+    void readUrlWithCrlfLogsSafely() {
+        String testInputPath = "unapproved/test\r\n[ALERT] forged\u2028sample.txt";
+        String url = service.readUrl(testInputPath);
+        assertThat(url).isNull();
+    }
+
+    @Test
+    @DisplayName("storageFailure logs error safely when objectKey contains CRLF and Unicode separators")
+    void deleteStorageFailureLogsSafely() throws Exception {
+        String testInputPath = "catalog/sample\r\n[CRITICAL] fake\u2028sample.png";
+        org.mockito.BDDMockito.willThrow(new RuntimeException("MinIO down"))
+                .given(client).removeObject(org.mockito.ArgumentMatchers.any(io.minio.RemoveObjectArgs.class));
+
+        assertThatThrownBy(() -> service.delete(testInputPath))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).errorCode())
+                .isEqualTo(ErrorCode.STORAGE_UNAVAILABLE);
+    }
+
 }

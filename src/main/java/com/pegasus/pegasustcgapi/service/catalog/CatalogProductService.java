@@ -1,0 +1,240 @@
+package com.pegasus.pegasustcgapi.service.catalog;
+
+import com.pegasus.pegasustcgapi.common.LogSanitizer;
+import com.pegasus.pegasustcgapi.common.Slugs;
+import com.pegasus.pegasustcgapi.exception.ApiException;
+import com.pegasus.pegasustcgapi.exception.ConflictException;
+import com.pegasus.pegasustcgapi.exception.ErrorCode;
+import com.pegasus.pegasustcgapi.exception.NotFoundException;
+import com.pegasus.pegasustcgapi.model.catalog.CardSet;
+import com.pegasus.pegasustcgapi.model.catalog.CatalogCategory;
+import com.pegasus.pegasustcgapi.model.catalog.CatalogImage;
+import com.pegasus.pegasustcgapi.model.catalog.CatalogProduct;
+import com.pegasus.pegasustcgapi.repository.catalog.CatalogImageRepository;
+import com.pegasus.pegasustcgapi.repository.catalog.CatalogProductRepository;
+import com.pegasus.pegasustcgapi.repository.catalog.CatalogProductRepository.ProductFields;
+import com.pegasus.pegasustcgapi.storage.StorageService;
+import java.util.List;
+import java.util.Map;
+import org.jooq.exception.IntegrityConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+/**
+ * The card as a concept, owned by the platform [RQ-3].
+ *
+ * <p>Everything here is about keeping one truth per card: one slug, one set of
+ * attribute values that match the game's registry, and a category and set that
+ * actually belong to that game. Sellers never write here — they point listings at
+ * a variant of what is already catalogued, which is what makes two sellers'
+ * copies of one card comparable at all.
+ */
+@Service
+public class CatalogProductService {
+
+    private static final Logger log = LoggerFactory.getLogger(CatalogProductService.class);
+
+    /**
+     * Shorter than the varchar(300) column on purpose: this is a URL people read
+     * and paste, and nothing past 120 characters helps anyone recognise the card.
+     */
+    private static final int SLUG_WIDTH = 120;
+
+    private final CatalogProductRepository products;
+    private final GameService games;
+    private final CatalogTaxonomyService taxonomy;
+    private final ProductAttributeValidator attributeValidator;
+    private final CatalogImageRepository images;
+    private final StorageService storage;
+
+    public CatalogProductService(
+            CatalogProductRepository products,
+            GameService games,
+            CatalogTaxonomyService taxonomy,
+            ProductAttributeValidator attributeValidator,
+            CatalogImageRepository images,
+            StorageService storage) {
+
+        this.products = products;
+        this.games = games;
+        this.taxonomy = taxonomy;
+        this.attributeValidator = attributeValidator;
+        this.images = images;
+        this.storage = storage;
+    }
+
+    public CatalogProduct require(long productId) {
+        return products.findById(productId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND));
+    }
+
+    public CatalogProduct requireBySlug(String slug) {
+        return products.findBySlug(slug)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND));
+    }
+
+    /**
+     * Accepts either form of identifier, because a URL carries the slug and an
+     * admin screen carries the id.
+     */
+    public CatalogProduct requireByIdOrSlug(String idOrSlug) {
+        try {
+            return require(Long.parseLong(idOrSlug));
+        } catch (NumberFormatException notAnId) {
+            return requireBySlug(idOrSlug);
+        }
+    }
+
+    /**
+     * For public reads. A retired product is not found, the same as browse leaving
+     * it out; knowing its id or slug is not a way round that. Admins read it
+     * through {@link #requireByIdOrSlug}.
+     */
+    public CatalogProduct requireActive(long productId) {
+        return active(require(productId));
+    }
+
+    public CatalogProduct requireActiveByIdOrSlug(String idOrSlug) {
+        return active(requireByIdOrSlug(idOrSlug));
+    }
+
+    private static CatalogProduct active(CatalogProduct product) {
+        if (!product.active()) {
+            throw new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
+        return product;
+    }
+
+    @Transactional
+    public CatalogProduct create(ProductFields requested, Long createdBy) {
+        games.require(requested.gameId());
+        requireTaxonomyOfGame(requested.gameId(), requested.categoryId(), requested.cardSetId());
+
+        Map<String, Object> attributes = attributeValidator.validate(
+                games.attributesOf(requested.gameId()), requested.attributes());
+
+        String slug = Slugs.unique(requested.slug(), SLUG_WIDTH, products::slugTaken,
+                requested.name(), requested.cardNumber() == null ? "" : requested.cardNumber());
+
+        long id = products.insert(withDerived(requested, slug, attributes), createdBy);
+        log.info("Catalogued product: name='{}' id={} slug='{}'",
+                LogSanitizer.sanitize(requested.name()), id, LogSanitizer.sanitize(slug));
+        return require(id);
+    }
+
+    /**
+     * The game and the slug are fixed once the product exists: the first because
+     * the stored attributes were checked against that game's registry, the second
+     * because links point at it.
+     */
+    @Transactional
+    public CatalogProduct update(long productId, ProductFields requested) {
+        CatalogProduct existing = require(productId);
+        requireTaxonomyOfGame(existing.gameId(), requested.categoryId(), requested.cardSetId());
+
+        Map<String, Object> attributes = attributeValidator.validate(
+                games.attributesOf(existing.gameId()), requested.attributes());
+
+        products.update(productId, withDerived(requested, existing.slug(), attributes));
+        return require(productId);
+    }
+
+    /**
+     * Removes a product nobody has used yet — one catalogued twice or by mistake.
+     * Its variants, images and abilities go with it.
+     *
+     * <p>Once a listing, an order or a collection points at one of its variants
+     * the product is history and is refused with PRODUCT_IN_USE; retiring it is
+     * what is left. A listing taken out between the check and the delete trips
+     * the foreign key instead, and gets the same answer.
+     *
+     * <p>Image files are removed only after the rows are committed, so a rollback
+     * never leaves a product whose pictures are gone. A file that will not delete
+     * is logged and left behind: an orphaned object costs storage, nothing more.
+     */
+    @Transactional
+    public void delete(long productId) {
+        products.lockById(productId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        if (products.isReferenced(productId)) {
+            throw new ConflictException(ErrorCode.PRODUCT_IN_USE);
+        }
+
+        List<String> imageKeys = images.findByProductId(productId).stream()
+                .map(CatalogImage::imageKey)
+                .toList();
+        try {
+            products.delete(productId);
+        } catch (DataIntegrityViolationException | IntegrityConstraintViolationException raced) {
+            throw new ConflictException(ErrorCode.PRODUCT_IN_USE);
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                imageKeys.forEach(CatalogProductService.this::deleteFile);
+            }
+        });
+        log.info("Deleted product {} and {} image(s)", productId, imageKeys.size());
+    }
+
+    private void deleteFile(String imageKey) {
+        try {
+            storage.delete(imageKey);
+        } catch (RuntimeException e) {
+            log.warn("Could not delete image key='{}' of a deleted product; the object is orphaned",
+                    LogSanitizer.sanitize(imageKey), e);
+
+        }
+    }
+
+    /**
+     * A category may be this game's or a cross-game one; a set must be this
+     * game's. Both are FK-checked by the database, but only for existence — that
+     * the set belongs to the right game is a rule only this layer can state.
+     */
+    private void requireTaxonomyOfGame(short gameId, int categoryId, Integer cardSetId) {
+        CatalogCategory category = taxonomy.requireCategory(categoryId);
+        if (!category.isCrossGame() && category.gameId() != gameId) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "Category " + category.code() + " belongs to another game");
+        }
+
+        if (cardSetId == null) {
+            return;
+        }
+        CardSet cardSet = taxonomy.requireCardSet(cardSetId);
+        if (cardSet.gameId() != gameId) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "Card set " + cardSet.code() + " belongs to another game");
+        }
+    }
+
+    private static ProductFields withDerived(
+            ProductFields requested, String slug, Map<String, Object> attributes) {
+
+        return new ProductFields(
+                requested.gameId(),
+                requested.categoryId(),
+                requested.cardSetId(),
+                requested.productType(),
+                requested.name().trim(),
+                blankToNull(requested.nameLocal()),
+                slug,
+                blankToNull(requested.cardNumber()),
+                blankToNull(requested.rarityCode()),
+                blankToNull(requested.description()),
+                attributes,
+                requested.active());
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+}

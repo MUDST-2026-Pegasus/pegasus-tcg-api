@@ -2,7 +2,7 @@ package com.pegasus.pegasustcgapi.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.pegasus.pegasustcgapi.model.RoleCode;
+import com.pegasus.pegasustcgapi.model.user.RoleCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
