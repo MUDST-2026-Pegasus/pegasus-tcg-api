@@ -217,8 +217,7 @@ jobs:
       cancel-in-progress: false
     env:
       GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
-      # main deploys to prod (Argo CD), develop to local (applied by hand).
-      OVERLAY: ${{ github.ref_name == 'main' && 'prod' || 'local' }}
+      OVERLAY: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
     steps:
       - name: Check gitops token
         run: ': "${GITOPS_TOKEN:?Set the GITOPS_TOKEN repository secret}"'
@@ -226,7 +225,7 @@ jobs:
       - name: Checkout gitops repo
         uses: actions/checkout@v7
         with:
-          repository: MUDST-2026-Pegasus/pegasus-tcg-devops
+          repository: MUDST-2026-Pegasus/pegasus-tcg-gitops
           ref: main
           token: ${{ secrets.GITOPS_TOKEN }}
 
