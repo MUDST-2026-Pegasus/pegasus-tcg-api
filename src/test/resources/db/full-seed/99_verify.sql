@@ -75,7 +75,19 @@ BEGIN
      WHERE s.rating_count <> (SELECT count(*) FROM seller_review r WHERE r.seller_profile_id = s.seller_profile_id AND r.is_visible);
     IF bad > 0 THEN RAISE EXCEPTION 'verify: % rating summaries are stale', bad; END IF;
 
-    -- 9. Every table has something in it.
+    -- 9. Discount codes: the counters match their rows, and a shop code's
+    -- redemption is the shop discount on its part of the order.
+    SELECT count(*) INTO bad FROM promotion p
+     WHERE p.claimed_count <> (SELECT count(*) FROM promotion_claim c WHERE c.promotion_id = p.id)
+        OR p.used_count <> (SELECT count(*) FROM promotion_redemption r
+                             WHERE r.promotion_id = p.id AND r.status IN ('RESERVED', 'CONSUMED'));
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: % promotion(s) have stale claimed/used counts', bad; END IF;
+    SELECT count(*) INTO bad FROM promotion_redemption r JOIN promotion p ON p.id = r.promotion_id
+      JOIN seller_order so ON so.id = r.seller_order_id
+     WHERE p.owner_type = 'SELLER' AND r.amount <> so.seller_discount_amount;
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: % shop-code redemption(s) differ from the shop discount', bad; END IF;
+
+    -- 10. Every table has something in it.
     FOR t IN SELECT c.relname FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
               WHERE ns.nspname = 'public' AND c.relkind = 'r' AND c.relname <> 'flyway_schema_history'
               ORDER BY c.relname LOOP

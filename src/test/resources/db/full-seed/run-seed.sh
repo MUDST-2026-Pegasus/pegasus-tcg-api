@@ -26,7 +26,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
     [ "$reset" = 1 ] || cat "$here/00_guard.sql"
     cat "$here/00_reset.sql" "$here/01_setup.sql" "$here/02_accounts.sql" "$here/03_catalog.sql" \
         "$here/04_engine.sql" "$here/05_market.sql" "$here/05_offers.sql" "$here/06_orders.sql" \
-        "$here/07_extras.sql" "$here/07_collectors.sql"
+        "$here/07_extras.sql" "$here/07_collectors.sql" "$here/08_promotions.sql"
     echo '\o'
     cat "$here/99_verify.sql"
     echo 'COMMIT;'
