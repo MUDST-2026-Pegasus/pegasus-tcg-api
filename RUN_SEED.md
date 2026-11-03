@@ -156,6 +156,27 @@ All 328 pictures are in MinIO.
 
 > บัญชีเหล่านี้มีไว้ทดสอบในเครื่องเท่านั้น ห้ามใช้รหัสผ่านนี้กับระบบจริง
 
+### โค้ดส่วนลด (TCG-575)
+
+วันที่ทั้งหมดนับจากวันที่รัน seed ส่วน `PEGASUS10` / `MINMIN50` ไม่มีใน seed เพราะ e2e สร้างเอง
+
+| โค้ด | ของใคร | ใช้ทดสอบ |
+| --- | --- | --- |
+| `WELCOME100` | Pegasus | หน้าแรกลำดับ 1 · ลด ฿100 ขั้นต่ำ ฿1,000 · แจก 500 ใบ (`collector_mai`, `ploy_collects` เก็บแล้ว) |
+| `PEGASUS15` | Pegasus | หน้าแรกลำดับ 2 · 15% สูงสุด ฿300 ขั้นต่ำ ฿1,500 |
+| `FREESHIP` | Pegasus | หน้าแรกลำดับ 3 · ส่งฟรีร้านละไม่เกิน ฿60 ขั้นต่ำ ฿500 |
+| `FLASH30` | Pegasus | หน้าแรกลำดับ 4 · แจก 1 ใบ `demo_buyer` เก็บไปแล้ว → คนอื่นเห็น "หมดแล้ว" |
+| `NEWBIE50` | Pegasus | เฉพาะผู้ซื้อใหม่ |
+| `POKEMON10` | Pegasus | 10% เฉพาะเกม Pokemon TCG |
+| `VIP200` | Pegasus | PRIVATE + ต้องเก็บก่อนใช้ (`demo_buyer` เก็บแล้ว) · คนอื่นพิมพ์ใช้ → `PROMO_NOT_CLAIMED` |
+| `SUMMER25` | Pegasus | หยุดชั่วคราว |
+| `SOON10` | Pegasus | ยังไม่เริ่ม (เริ่มอีก 5 วัน) |
+| `OLDDEAL20` | Pegasus | หมดอายุแล้ว |
+| `KINGDOM50` | `card_kingdom_th` | ให้กดเก็บที่หน้าร้าน · ลด ฿50 ขั้นต่ำ ฿500 |
+| `KINGDOM10P` | `card_kingdom_th` | PRIVATE 10% สูงสุด ฿150 |
+| `CORNER5` | `tcg_corner` | 5% · ใช้กับออเดอร์ที่หมดเวลาชำระของ `ploy_collects` แล้วคืนสิทธิ์ (RELEASED) |
+| `CORNER100` | `tcg_corner` | Pegasus หยุดพร้อมเหตุผล → ร้านเปิดเองไม่ได้ |
+
 ---
 
 ## 5. ข้อควรรู้
