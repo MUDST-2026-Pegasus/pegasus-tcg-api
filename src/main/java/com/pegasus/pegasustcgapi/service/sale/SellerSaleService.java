@@ -465,20 +465,33 @@ public class SellerSaleService {
                 mine = SalePriceResolver.price(sale, f, new SaleListing(r.rowSalePrice(), null, 0))
                         .map(Resolved::salePrice).orElse(null);
                 Optional<PriceSale> best = Optional.empty();
-                BigDecimal bestPrice = null;
                 for (PriceSale p : pegasus) {
                     Optional<Resolved> got = SalePriceResolver.price(p, f,
                             platformRows.get(new SaleListingKey(p.id(), f.listingId())));
-                    if (got.isPresent() && (bestPrice == null || got.get().salePrice().compareTo(bestPrice) < 0)) {
-                        best = Optional.of(p);
-                        bestPrice = got.get().salePrice();
+                    if (got.isPresent()) {
+                        if (best.isEmpty()) {
+                            best = Optional.of(p);
+                        } else {
+                            PriceSale currentBest = best.get();
+                            Optional<Resolved> currentBestResolved = SalePriceResolver.price(currentBest, f,
+                                    platformRows.get(new SaleListingKey(currentBest.id(), f.listingId())));
+                            if (currentBestResolved.isEmpty()
+                                    || got.get().salePrice().compareTo(currentBestResolved.get().salePrice()) < 0) {
+                                best = Optional.of(p);
+                            }
+                        }
                     }
                 }
                 if (best.isPresent()) {
                     PriceSale p = best.get();
-                    platform = new PlatformPrice(p.id(), p.name(), p.slug(), bestPrice, p.startsAt(), p.effectiveEnd());
-                    // The lowest price wins; on a tie Pegasus's campaign does.
-                    winner = mine == null || bestPrice.compareTo(mine) <= 0 ? Winner.PLATFORM : Winner.THIS_SALE;
+                    Optional<Resolved> resolvedBest = SalePriceResolver.price(p, f,
+                            platformRows.get(new SaleListingKey(p.id(), f.listingId())));
+                    if (resolvedBest.isPresent()) {
+                        BigDecimal bestPrice = resolvedBest.get().salePrice();
+                        platform = new PlatformPrice(p.id(), p.name(), p.slug(), bestPrice, p.startsAt(), p.effectiveEnd());
+                        // The lowest price wins; on a tie Pegasus's campaign does.
+                        winner = mine == null || bestPrice.compareTo(mine) <= 0 ? Winner.PLATFORM : Winner.THIS_SALE;
+                    }
                 }
             }
             items.add(new SaleItem(r.listingId(), r.productName(), r.condition(), r.listPrice(), mine, platform,
