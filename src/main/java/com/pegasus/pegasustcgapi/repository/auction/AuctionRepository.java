@@ -163,6 +163,48 @@ public class AuctionRepository {
                 .execute() == 1;
     }
 
+    public List<Long> findExpiredLiveAuctionIds(OffsetDateTime cutoff, int limit) {
+        return dsl.select(AUCTION.ID)
+                .from(AUCTION)
+                .where(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()))
+                .and(AUCTION.ENDS_AT.le(cutoff))
+                .orderBy(AUCTION.ENDS_AT.asc(), AUCTION.ID.asc())
+                .limit(limit)
+                .fetch(AUCTION.ID);
+    }
+
+    public boolean recordAuctionWon(
+            long auctionId,
+            long winnerId,
+            BigDecimal winningAmount,
+            OffsetDateTime closedAt,
+            OffsetDateTime paymentDueAt) {
+        return dsl.update(AUCTION)
+                .set(AUCTION.STATUS, AuctionStatus.AWAITING_PAYMENT.name())
+                .set(AUCTION.WINNER_ID, winnerId)
+                .set(AUCTION.WINNING_AMOUNT, winningAmount)
+                .set(AUCTION.CLOSED_AT, closedAt)
+                .set(AUCTION.PAYMENT_DUE_AT, paymentDueAt)
+                .set(AUCTION.VERSION, AUCTION.VERSION.plus(1))
+                .set(AUCTION.UPDATED_AT, closedAt)
+                .where(AUCTION.ID.eq(auctionId))
+                .and(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()))
+                .and(AUCTION.BID_COUNT.gt(0))
+                .execute() == 1;
+    }
+
+    public boolean recordAuctionUnsold(long auctionId, OffsetDateTime closedAt) {
+        return dsl.update(AUCTION)
+                .set(AUCTION.STATUS, AuctionStatus.UNSOLD.name())
+                .set(AUCTION.CLOSED_AT, closedAt)
+                .set(AUCTION.VERSION, AUCTION.VERSION.plus(1))
+                .set(AUCTION.UPDATED_AT, closedAt)
+                .where(AUCTION.ID.eq(auctionId))
+                .and(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()))
+                .and(AUCTION.BID_COUNT.eq(0))
+                .execute() == 1;
+    }
+
     public Optional<Auction> findOpenAuctionByListingUnit(long listingUnitId) {
         return dsl.selectFrom(AUCTION)
                 .where(AUCTION.LISTING_UNIT_ID.eq(listingUnitId))
