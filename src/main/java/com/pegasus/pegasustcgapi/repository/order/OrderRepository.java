@@ -572,6 +572,21 @@ public class OrderRepository {
                 .fetchMap(SELLER_PROFILE.ID, r -> r.value2());
     }
 
+    public record ReorderProductMetadata(String productSlug, String rarity) {}
+
+    public Map<Long, ReorderProductMetadata> findReorderProductMetadata(Collection<Long> catalogVariantIds) {
+        if (catalogVariantIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(CATALOG_VARIANT.ID, CATALOG_PRODUCT.SLUG, CATALOG_PRODUCT.RARITY_CODE)
+                .from(CATALOG_VARIANT)
+                .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                .where(CATALOG_VARIANT.ID.in(catalogVariantIds))
+                .fetchMap(CATALOG_VARIANT.ID, r -> new ReorderProductMetadata(
+                        r.get(CATALOG_PRODUCT.SLUG),
+                        r.get(CATALOG_PRODUCT.RARITY_CODE)));
+    }
+
     public ShipmentRecord insertShipment(
             long sellerOrderId,
             String carrierCode,

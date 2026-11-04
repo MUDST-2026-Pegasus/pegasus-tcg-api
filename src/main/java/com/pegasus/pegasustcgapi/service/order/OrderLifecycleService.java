@@ -12,16 +12,8 @@ import com.pegasus.pegasustcgapi.dto.order.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.order.OrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.order.OrderItemDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.order.OrderStatusHistoryResponse;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse.ReorderAlternativeConditionResponse;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse.ReorderCurrentListingResponse;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse.ReorderItemResponse;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse.ReorderItemStatus;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse.ReorderSellerOrderResponse;
+import com.pegasus.pegasustcgapi.dto.order.ReorderItemsResponse;
 import com.pegasus.pegasustcgapi.exception.ForbiddenException;
-import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
-import com.pegasus.pegasustcgapi.model.listing.Listing;
-import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipmentResponse;
@@ -102,7 +94,6 @@ public class OrderLifecycleService {
     private final CollectionPort collectionPort;
     private final Clock clock;
     private final StorageService storageService;
-    private final ListingRepository listingRepository;
     private CheckoutPromotionService checkoutPromotions;
 
     @Autowired
@@ -114,7 +105,6 @@ public class OrderLifecycleService {
             LedgerPort ledgerPort,
             CollectionPort collectionPort,
             Clock clock,
-            ListingRepository listingRepository,
             @Autowired(required = false) StorageService storageService) {
         this.orderRepository = orderRepository;
         this.sellerPort = sellerPort;
@@ -123,7 +113,6 @@ public class OrderLifecycleService {
         this.ledgerPort = ledgerPort;
         this.collectionPort = collectionPort;
         this.clock = clock != null ? clock : Clock.systemUTC();
-        this.listingRepository = listingRepository;
         this.storageService = storageService;
     }
 
@@ -134,10 +123,9 @@ public class OrderLifecycleService {
             InventoryPort inventoryPort,
             LedgerPort ledgerPort,
             CollectionPort collectionPort,
-            Clock clock,
-            ListingRepository listingRepository) {
+            Clock clock) {
         this(orderRepository, sellerPort, platformSettingService,
-                inventoryPort, ledgerPort, collectionPort, clock, listingRepository, null);
+                inventoryPort, ledgerPort, collectionPort, clock, null);
     }
 
     // ==========================================
@@ -166,67 +154,61 @@ public class OrderLifecycleService {
     }
 
     @Transactional(readOnly = true)
-    public ReorderPreviewResponse getReorderPreview(AuthPrincipal principal, long orderId) {
+    public ReorderItemsResponse getReorderItems(AuthPrincipal principal, long orderId) {
         requireAuthenticated(principal);
+        return getReorderItems(orderId, principal.userId());
+    }
 
-        SalesOrderRecord order = orderRepository.findSalesOrderByIdAndBuyerId(orderId, principal.userId())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-
-        if (!SellerOrderStatus.COMPLETED.name().equals(order.getStatus())) {
-            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Only completed orders can be reordered");
+    @Transactional(readOnly = true)
+    public ReorderItemsResponse getReorderItems(Long orderId, Long buyerId) {
+        if (orderId == null || buyerId == null) {
+            throw new NotFoundException(ErrorCode.ORDER_NOT_FOUND);
         }
 
-        List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(order.getId()).stream()
-                .filter(so -> !SellerOrderStatus.CANCELLED.name().equals(so.getStatus()))
-                .toList();
+        SalesOrderRecord order = orderRepository.findSalesOrderByIdAndBuyerId(orderId, buyerId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+
+        if (!SellerOrderStatus.COMPLETED.name().equalsIgnoreCase(order.getStatus())) {
+            throw new BadRequestException(ErrorCode.INVALID_ORDER_STATUS, "Only completed orders can be reordered");
+        }
+
+        List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(order.getId());
         if (sellerOrders.isEmpty()) {
-            return new ReorderPreviewResponse(order.getId(), List.of());
+            return new ReorderItemsResponse(order.getId(), order.getOrderNumber(), List.of());
         }
 
         List<Long> sellerOrderIds = sellerOrders.stream().map(SellerOrderRecord::getId).toList();
         Map<Long, List<OrderItemRecord>> itemsBySellerOrder = orderRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
 
         List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
-        Map<Long, ListingRepository.SellerStanding> standings = listingRepository.findSellerStandings(profileIds);
+        Map<Long, String> sellerNames = orderRepository.findSellerNamesByProfileIds(profileIds);
 
-        List<Long> availableProfileIds = profileIds.stream()
-                .filter(pid -> standings.get(pid) != null && standings.get(pid).sellerAvailable())
-                .toList();
-
-        List<Long> variantIds = sellerOrders.stream()
-                .filter(so -> availableProfileIds.contains(so.getSellerProfileId()))
+        List<OrderItemRecord> allOrderItems = sellerOrders.stream()
+                .filter(so -> so.getStatus() == null || !SellerOrderStatus.CANCELLED.name().equalsIgnoreCase(so.getStatus()))
                 .flatMap(so -> itemsBySellerOrder.getOrDefault(so.getId(), List.of()).stream())
-                .map(OrderItemRecord::getCatalogVariantId)
-                .distinct()
                 .toList();
 
-        List<Listing> activeListings = (!availableProfileIds.isEmpty() && !variantIds.isEmpty())
-                ? listingRepository.findActiveListingsForReorder(availableProfileIds, variantIds)
-                : List.of();
-
-        record SellerVariantKey(long sellerProfileId, long catalogVariantId) {}
-        Map<SellerVariantKey, List<Listing>> listingsByKey = activeListings.stream()
-                .collect(Collectors.groupingBy(l -> new SellerVariantKey(l.sellerProfileId(), l.catalogVariantId())));
-
-        List<Long> originalListingIds = itemsBySellerOrder.values().stream()
-                .flatMap(List::stream)
-                .map(OrderItemRecord::getListingId)
+        List<Long> variantIds = allOrderItems.stream()
+                .map(OrderItemRecord::getCatalogVariantId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
-        Map<Long, ListingRepository.ListingGrading> originalGradings = listingRepository.findGradingByListingIds(originalListingIds);
 
-        List<ReorderSellerOrderResponse> sellerOrderResponses = sellerOrders.stream().map(so -> {
-            ListingRepository.SellerStanding standing = standings.get(so.getSellerProfileId());
-            boolean vacation = standing != null && standing.vacationMode();
-            boolean available = standing != null && standing.sellerAvailable();
-            String sellerName = standing != null ? standing.sellerName() : "";
+        Map<Long, OrderRepository.ReorderProductMetadata> metadataMap = variantIds.isEmpty()
+                ? Map.of()
+                : orderRepository.findReorderProductMetadata(variantIds);
 
-            List<OrderItemRecord> items = itemsBySellerOrder.getOrDefault(so.getId(), List.of());
-            List<ReorderItemResponse> itemResponses = items.stream().map(oi -> {
-                String originalCondition = oi.getConditionSnapshot();
-                BigDecimal originalPrice = oi.getUnitPrice();
-                int originalQuantity = oi.getQuantity();
+        List<ReorderItemsResponse.ReorderItemDto> items = new ArrayList<>();
+        for (SellerOrderRecord so : sellerOrders) {
+            if (so.getStatus() != null && SellerOrderStatus.CANCELLED.name().equalsIgnoreCase(so.getStatus())) {
+                continue;
+            }
+            String sellerName = sellerNames.get(so.getSellerProfileId());
+            List<OrderItemRecord> orderItems = itemsBySellerOrder.getOrDefault(so.getId(), List.of());
+            for (OrderItemRecord oi : orderItems) {
+                OrderRepository.ReorderProductMetadata meta = metadataMap.get(oi.getCatalogVariantId());
+                String productSlug = meta != null ? meta.productSlug() : null;
+                String rarity = meta != null ? meta.rarity() : null;
 
                 String imageUrl = null;
                 if (storageService != null && oi.getImageKeySnapshot() != null && !oi.getImageKeySnapshot().isBlank()) {
@@ -238,112 +220,23 @@ public class OrderLifecycleService {
                     }
                 }
 
-                ReorderCurrentListingResponse currentListing = null;
-                List<ReorderAlternativeConditionResponse> alternativeConditions = List.of();
-                ReorderItemStatus status;
-
-                if (!available) {
-                    status = ReorderItemStatus.OUT_OF_STOCK;
-                } else {
-                    ListingRepository.ListingGrading origGrading = oi.getListingId() != null
-                            ? originalGradings.get(oi.getListingId())
-                            : null;
-                    boolean isGraded = origGrading != null && origGrading.isGraded();
-                    String origGradingCompany = isGraded ? origGrading.gradingCompany() : null;
-                    BigDecimal origGradeValue = isGraded ? origGrading.gradeValue() : null;
-
-                    List<Listing> allCandidates = listingsByKey.getOrDefault(
-                            new SellerVariantKey(so.getSellerProfileId(), oi.getCatalogVariantId()), List.of());
-
-                    // Graded isolation: raw cards only match raw listings; graded cards only match identical company & grade
-                    List<Listing> candidates = allCandidates.stream()
-                            .filter(l -> {
-                                boolean candidateIsGraded = l.gradingCompany() != null && !l.gradingCompany().isBlank();
-                                if (!isGraded) {
-                                    return !candidateIsGraded;
-                                } else {
-                                    return candidateIsGraded
-                                            && l.gradingCompany().equalsIgnoreCase(origGradingCompany)
-                                            && Objects.equals(l.gradeValue(), origGradeValue);
-                                }
-                            })
-                            .toList();
-
-                    List<Listing> matchingConditionCandidates = candidates.stream()
-                            .filter(l -> l.condition() != null && l.condition().name().equalsIgnoreCase(originalCondition))
-                            .toList();
-
-                    Listing selectedListing = null;
-                    // First priority: original order_item.listing_id if still active with stock
-                    if (oi.getListingId() != null) {
-                        long origListingId = oi.getListingId();
-                        selectedListing = matchingConditionCandidates.stream()
-                                .filter(l -> l.id() == origListingId)
-                                .findFirst()
-                                .orElse(null);
-                    }
-                    // Second priority: lowest price
-                    if (selectedListing == null && !matchingConditionCandidates.isEmpty()) {
-                        selectedListing = matchingConditionCandidates.stream()
-                                .min(Comparator.comparing(Listing::price).thenComparingLong(Listing::id))
-                                .orElse(null);
-                    }
-
-                    final Long selectedListingId = selectedListing != null ? selectedListing.id() : null;
-
-                    // Alternative conditions: all other active candidate listings from the same seller (including other prices/conditions)
-                    alternativeConditions = candidates.stream()
-                            .filter(l -> selectedListingId == null || l.id() != selectedListingId)
-                            .sorted(Comparator.comparingInt((Listing l) -> l.condition() == null ? Integer.MAX_VALUE : l.condition().ordinal())
-                                    .thenComparing(Listing::price)
-                                    .thenComparingLong(Listing::id))
-                            .map(l -> new ReorderAlternativeConditionResponse(
-                                    l.id(),
-                                    l.condition() != null ? l.condition().name() : "",
-                                    l.price(),
-                                    l.quantityAvailable()))
-                            .toList();
-
-                    if (selectedListing != null) {
-                        boolean priceChanged = selectedListing.price().compareTo(originalPrice) != 0;
-                        currentListing = new ReorderCurrentListingResponse(
-                                selectedListing.id(),
-                                selectedListing.condition().name(),
-                                selectedListing.price(),
-                                priceChanged,
-                                selectedListing.quantityAvailable(),
-                                true);
-                        status = priceChanged ? ReorderItemStatus.AVAILABLE_PRICE_CHANGED : ReorderItemStatus.AVAILABLE;
-                    } else {
-                        status = alternativeConditions.isEmpty()
-                                ? ReorderItemStatus.OUT_OF_STOCK
-                                : ReorderItemStatus.ALTERNATIVE_AVAILABLE;
-                    }
-                }
-
-                return new ReorderItemResponse(
+                items.add(new ReorderItemsResponse.ReorderItemDto(
                         oi.getId(),
                         oi.getCatalogVariantId(),
+                        productSlug,
                         oi.getProductNameSnapshot(),
                         oi.getVariantLabelSnapshot(),
-                        originalCondition,
-                        originalPrice,
-                        originalQuantity,
+                        rarity,
                         imageUrl,
-                        currentListing,
-                        alternativeConditions,
-                        status);
-            }).toList();
+                        oi.getConditionSnapshot(),
+                        oi.getUnitPrice(),
+                        oi.getQuantity(),
+                        sellerName
+                ));
+            }
+        }
 
-            return new ReorderSellerOrderResponse(
-                    so.getSellerProfileId(),
-                    sellerName,
-                    available,
-                    vacation,
-                    itemResponses);
-        }).toList();
-
-        return new ReorderPreviewResponse(order.getId(), sellerOrderResponses);
+        return new ReorderItemsResponse(order.getId(), order.getOrderNumber(), items);
     }
 
     @Transactional

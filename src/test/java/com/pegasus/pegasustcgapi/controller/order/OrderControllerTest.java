@@ -13,6 +13,8 @@ import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.order.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.order.OrderDetailsResponse;
+import com.pegasus.pegasustcgapi.dto.order.ReorderItemsResponse;
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.GlobalExceptionHandler;
@@ -164,5 +166,56 @@ class OrderControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders/{id}/reorder-items returns 200 on success")
+    void getReorderItems_Success() throws Exception {
+        ReorderItemsResponse response = new ReorderItemsResponse(
+                1L,
+                "ORD-1",
+                List.of(new ReorderItemsResponse.ReorderItemDto(
+                        10L, 20L, "charizard-ex", "Charizard EX", "EN / Foil", "SAR",
+                        "https://example.com/img.png", "NM", new BigDecimal("150.00"), 1, "Card Kingdom"
+                ))
+        );
+        given(orderLifecycleService.getReorderItems(eq(1L), eq(42L)))
+                .willReturn(response);
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/1/reorder-items"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.orderId").value(1))
+                .andExpect(jsonPath("$.data.orderNumber").value("ORD-1"))
+                .andExpect(jsonPath("$.data.items[0].orderItemId").value(10))
+                .andExpect(jsonPath("$.data.items[0].catalogVariantId").value(20))
+                .andExpect(jsonPath("$.data.items[0].productSlug").value("charizard-ex"))
+                .andExpect(jsonPath("$.data.items[0].productName").value("Charizard EX"))
+                .andExpect(jsonPath("$.data.items[0].rarity").value("SAR"))
+                .andExpect(jsonPath("$.data.items[0].originalSellerName").value("Card Kingdom"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders/{id}/reorder-items returns 404 when order not found")
+    void getReorderItems_NotFound() throws Exception {
+        given(orderLifecycleService.getReorderItems(eq(999L), eq(42L)))
+                .willThrow(new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/999/reorder-items"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value("ORDER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders/{id}/reorder-items returns 400 when order not completed")
+    void getReorderItems_NotCompleted() throws Exception {
+        given(orderLifecycleService.getReorderItems(eq(1L), eq(42L)))
+                .willThrow(new BadRequestException(ErrorCode.INVALID_ORDER_STATUS, "Only completed orders can be reordered"));
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/1/reorder-items"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value("INVALID_ORDER_STATUS"));
     }
 }

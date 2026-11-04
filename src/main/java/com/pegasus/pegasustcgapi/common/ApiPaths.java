@@ -31,6 +31,8 @@ public final class ApiPaths {
     public static final String CHECKOUT = API_V1 + "/checkout";
     /** The signed-in buyer's orders. */
     public static final String ORDERS = API_V1 + "/orders";
+    /** Reorder items from a completed sales order. */
+    public static final String ORDERS_REORDER_ITEMS = ORDERS + "/{orderId}/reorder-items";
     public static final String PAYMENTS = API_V1 + "/payments";
     /** Discount codes a buyer can see or collect: the home strip, a code's terms, claiming one. */
     public static final String PROMOTIONS = API_V1 + "/promotions";
