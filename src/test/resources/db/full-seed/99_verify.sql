@@ -41,7 +41,7 @@ BEGIN
      WHERE c.total_quantity <> (SELECT count(*) FROM listing_unit u
                                  WHERE u.seller_profile_id = c.seller_profile_id AND u.catalog_variant_id = c.catalog_variant_id
                                    AND u.condition_code = c.condition_code
-                                   AND u.status IN ('IN_STOCK', 'LISTED', 'RESERVED', 'RETURNED'))
+                                   AND u.status IN ('IN_STOCK', 'LISTED', 'RESERVED', 'ON_AUCTION', 'RETURNED'))
         OR c.total_quantity <> (SELECT coalesce(sum(m.quantity_delta), 0) FROM inventory_movement m
                                  WHERE m.seller_profile_id = c.seller_profile_id AND m.catalog_variant_id = c.catalog_variant_id
                                    AND m.condition_code = c.condition_code);

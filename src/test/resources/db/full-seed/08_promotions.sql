@@ -28,7 +28,7 @@ SELECT v.code, v.name, v.description, v.owner_type,
          true, false, 500, 1, 10::numeric, -30::numeric, NULL::numeric, NULL::text, NULL::text),
         ('PEGASUS15', 'ลด 15% สูงสุด ฿300', 'ลด 15% เมื่อซื้อครบ ฿1,500 สูงสุด ฿300', 'PLATFORM', NULL,
          'PERCENT', 15, 300, 1500, NULL, 'PUBLIC', false, 1000, 1,
-         true, false, NULL, 2, 5, -25, NULL, NULL, NULL),
+         true, true, NULL, 2, 5, -25, NULL, NULL, NULL),
         ('FREESHIP', 'ส่งฟรี สูงสุด ฿60 ต่อร้าน', 'ลดค่าส่งได้ร้านละไม่เกิน ฿60 เมื่อซื้อครบ ฿500', 'PLATFORM', NULL,
          'FREE_SHIPPING', 0, 60, 500, NULL, 'PUBLIC', false, NULL, 2,
          true, false, NULL, 3, 7, -21, NULL, NULL, NULL),
@@ -79,7 +79,7 @@ INSERT INTO promotion_claim (promotion_id, user_id, source, claimed_at)
 SELECT p.id, pg_temp.uid(v.username), v.source, pg_temp.ago(v.days)
   FROM (VALUES ('WELCOME100', 'collector_mai', 'HOME',         4),
                ('WELCOME100', 'ploy_collects', 'HOME',         2),
-               ('PEGASUS15',  'collector_mai', 'HOME',         1),
+               ('PEGASUS15',  'ploy_collects', 'HOME',         1),
                ('FLASH30',    'demo_buyer',    'HOME',         1.5),
                ('VIP200',     'demo_buyer',    'WALLET_INPUT', 3),
                ('KINGDOM50',  'collector_mai', 'STORE',        2),
@@ -126,5 +126,20 @@ BEGIN
                                       created_at, updated_at)
     SELECT p.id, o.buyer_id, o.sales_order_id, o.seller_order_id, off, 'RELEASED', o.created_at, o.expired_at
       FROM promotion p WHERE p.code = 'CORNER5';
+END;
+$$;
+
+-- Figma PRM-B1/C1 basket fixture for collector_mai
+DO $$
+BEGIN
+    UPDATE listing SET price = 450 WHERE id = pg_temp.lid('tc-char006-nm');
+    UPDATE listing SET price = 380 WHERE id = pg_temp.lid('tc-char006-lp');
+    UPDATE listing SET price = 2400 WHERE id = pg_temp.lid('po-megbox');
+
+    DELETE FROM cart_item WHERE cart_id = (SELECT id FROM cart WHERE user_id = pg_temp.uid('collector_mai'));
+    INSERT INTO cart_item (cart_id, listing_id, quantity, unit_price_at_add, added_at, updated_at)
+    VALUES ((SELECT id FROM cart WHERE user_id = pg_temp.uid('collector_mai')), pg_temp.lid('tc-char006-nm'), 1, 450, now(), now()),
+           ((SELECT id FROM cart WHERE user_id = pg_temp.uid('collector_mai')), pg_temp.lid('tc-char006-lp'), 1, 380, now(), now()),
+           ((SELECT id FROM cart WHERE user_id = pg_temp.uid('collector_mai')), pg_temp.lid('po-megbox'), 1, 2400, now(), now());
 END;
 $$;
