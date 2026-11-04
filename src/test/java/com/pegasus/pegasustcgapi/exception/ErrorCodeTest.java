@@ -88,4 +88,19 @@ class ErrorCodeTest {
         assertThat(ErrorCode.PROMO_CODE_TAKEN.status()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(ErrorCode.PROMO_IN_USE.status()).isEqualTo(HttpStatus.CONFLICT);
     }
+
+    @Test
+    @DisplayName("verifies sale error codes and HTTP statuses")
+    void saleErrorCodesMatchExpectedHttpStatus() {
+        assertThat(ErrorCode.SALE_NOT_FOUND.status()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        assertThat(ErrorCode.SALE_INVALID.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ErrorCode.SALE_BUYER_LIMIT_REACHED.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        assertThat(ErrorCode.SALE_OVERLAP.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.SALE_PRICE_LOCKED.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.SALE_IN_USE.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.SALE_QUOTA_REACHED.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.SALE_PAUSED.status()).isEqualTo(HttpStatus.CONFLICT);
+    }
 }
