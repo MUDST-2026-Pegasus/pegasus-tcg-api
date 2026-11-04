@@ -65,15 +65,15 @@ public class AdminSaleRepository {
     private static final SellerProfile SHOP = SELLER_PROFILE.as("shop");
 
     /** Orders that count as paid for the KPI row; refunded and cancelled ones do not. */
-    private static final List<String> PAID = List.of("PAID", "PARTIALLY_COMPLETED", "COMPLETED");
+    static final List<String> PAID = List.of("PAID", "PARTIALLY_COMPLETED", "COMPLETED");
 
-    private static final Field<Long> SOLD_UNITS = DSL.field(
+    static final Field<Long> SOLD_UNITS = DSL.field(
             DSL.select(DSL.coalesce(DSL.sum(ORDER_ITEM.QUANTITY), 0).cast(SQLDataType.BIGINT))
                     .from(ORDER_ITEM)
                     .where(ORDER_ITEM.SALE_ID.eq(PRICE_SALE.ID)))
             .as("sold_units");
 
-    private static final Field<Long> LISTING_COUNT = DSL.field(
+    static final Field<Long> LISTING_COUNT = DSL.field(
             DSL.selectCount().from(LISTING_SALE_PRICE).where(LISTING_SALE_PRICE.SALE_ID.eq(PRICE_SALE.ID))
                     .asField().cast(SQLDataType.BIGINT))
             .as("listing_count");
