@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.repository.sale;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.PriceSale.PRICE_SALE;
 import static com.pegasus.pegasustcgapi.jooq.tables.PriceSaleListing.PRICE_SALE_LISTING;
 
@@ -20,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /** Reads and writes {@code price_sale} and {@code price_sale_listing} [TCG-676]. */
@@ -59,7 +61,91 @@ public class PriceSaleRepository {
 
     /** Throws {@code DuplicateKeyException} when the slug is taken. */
     public long insert(NewPriceSale s) {
-        PriceSaleRecord r = dsl.newRecord(PRICE_SALE);
+        PriceSaleRecord r = apply(dsl.newRecord(PRICE_SALE), s);
+        r.setCreatedBy(s.createdBy());
+        return dsl.insertInto(PRICE_SALE)
+                .set(r)
+                .returningResult(PRICE_SALE.ID)
+                .fetchSingle(PRICE_SALE.ID);
+    }
+
+    /**
+     * Rewrites every editable column and bumps {@code version}. Owner, counters,
+     * pause, early end and creator are not touched. Throws {@code DuplicateKeyException}
+     * on a taken slug.
+     */
+    public void update(long id, NewPriceSale s) {
+        PriceSaleRecord r = apply(dsl.newRecord(PRICE_SALE), s);
+        r.reset(PRICE_SALE.OWNER_TYPE);
+        r.reset(PRICE_SALE.SELLER_PROFILE_ID);
+        dsl.update(PRICE_SALE)
+                .set(r)
+                .set(PRICE_SALE.VERSION, PRICE_SALE.VERSION.plus(1))
+                .where(PRICE_SALE.ID.eq(id))
+                .execute();
+    }
+
+    /** Only for a sale no order has used; the order_item FK refuses the rest. */
+    public boolean delete(long id) {
+        return dsl.deleteFrom(PRICE_SALE).where(PRICE_SALE.ID.eq(id)).execute() > 0;
+    }
+
+    /** The row locked until the transaction ends, so an edit cannot race another. */
+    public Optional<PriceSale> lockById(long id) {
+        return dsl.selectFrom(PRICE_SALE)
+                .where(PRICE_SALE.ID.eq(id))
+                .forUpdate()
+                .fetchOptional()
+                .map(PriceSaleRepository::toSale);
+    }
+
+    /** Whether any order line was ever sold at this sale's price. */
+    public boolean hasOrders(long id) {
+        return dsl.fetchExists(ORDER_ITEM, ORDER_ITEM.SALE_ID.eq(id));
+    }
+
+    public boolean slugExists(String slug) {
+        return dsl.fetchExists(PRICE_SALE, PRICE_SALE.SLUG.eq(slug));
+    }
+
+    public int nextHomeSort() {
+        Integer last = dsl.select(DSL.max(PRICE_SALE.HOME_SORT))
+                .from(PRICE_SALE)
+                .where(PRICE_SALE.FEATURED_ON_HOME.isTrue())
+                .fetchOne(0, Integer.class);
+        return last == null ? 0 : last + 1;
+    }
+
+    /**
+     * Makes {@code orderedIds} the whole home page: position i gets
+     * {@code home_sort = i}, every other featured sale is taken off.
+     */
+    public void replaceHomeOrder(List<Long> orderedIds) {
+        dsl.update(PRICE_SALE)
+                .set(PRICE_SALE.FEATURED_ON_HOME, false)
+                .setNull(PRICE_SALE.HOME_SORT)
+                .where(PRICE_SALE.FEATURED_ON_HOME.isTrue())
+                .and(PRICE_SALE.ID.notIn(orderedIds))
+                .execute();
+        for (int i = 0; i < orderedIds.size(); i++) {
+            dsl.update(PRICE_SALE)
+                    .set(PRICE_SALE.FEATURED_ON_HOME, true)
+                    .set(PRICE_SALE.HOME_SORT, i)
+                    .where(PRICE_SALE.ID.eq(orderedIds.get(i)))
+                    .execute();
+        }
+    }
+
+    /** Ids of the sales on the home page, in display order. */
+    public List<Long> findHomeOrder() {
+        return dsl.select(PRICE_SALE.ID)
+                .from(PRICE_SALE)
+                .where(PRICE_SALE.FEATURED_ON_HOME.isTrue())
+                .orderBy(PRICE_SALE.HOME_SORT.asc().nullsLast(), PRICE_SALE.ID.asc())
+                .fetch(PRICE_SALE.ID);
+    }
+
+    private static PriceSaleRecord apply(PriceSaleRecord r, NewPriceSale s) {
         r.setName(s.name());
         r.setSlug(s.slug());
         r.setOwnerType(s.ownerType().name());
@@ -80,11 +166,7 @@ public class PriceSaleRepository {
         r.setHomeSort(s.homeSort());
         r.setStartsAt(s.startsAt());
         r.setEndsAt(s.endsAt());
-        r.setCreatedBy(s.createdBy());
-        return dsl.insertInto(PRICE_SALE)
-                .set(r)
-                .returningResult(PRICE_SALE.ID)
-                .fetchSingle(PRICE_SALE.ID);
+        return r;
     }
 
     public Optional<PriceSale> findById(long id) {
