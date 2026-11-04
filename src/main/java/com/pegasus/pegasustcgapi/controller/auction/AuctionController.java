@@ -15,6 +15,7 @@ import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.MyTab;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Sort;
 import com.pegasus.pegasustcgapi.dto.order.CheckoutResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.service.auction.AuctionBrowseService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -50,9 +51,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class AuctionController {
 
+    private final AuctionBrowseService auctionBrowseService;
     private final Clock clock;
 
-    public AuctionController(Clock clock) {
+    public AuctionController(AuctionBrowseService auctionBrowseService, Clock clock) {
+        this.auctionBrowseService = auctionBrowseService;
         this.clock = clock;
     }
 
@@ -67,11 +70,13 @@ public class AuctionController {
     public ApiResult<AuctionPage> list(
             @RequestParam(required = false) Filter filter,
             @RequestParam(required = false) Short gameId,
+            @RequestParam(required = false) Long sellerId,
+            @RequestParam(required = false) Long variantId,
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "ENDING_SOON") Sort sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ApiResult.success(AuctionSamples.auctionPage(now(), page, size));
+        return ApiResult.success(auctionBrowseService.list(filter, gameId, sellerId, variantId, q, sort, page, size));
     }
 
     @Operation(summary = "Get one auction",
@@ -83,7 +88,7 @@ public class AuctionController {
     })
     @GetMapping(ApiPaths.AUCTIONS + "/{id}")
     public ApiResult<AuctionDetail> get(@PathVariable long id, Optional<AuthPrincipal> principal) {
-        return ApiResult.success(AuctionSamples.auctionDetail(id, now(), principal.isPresent()));
+        return ApiResult.success(auctionBrowseService.get(id, principal.map(AuthPrincipal::userId).orElse(null)));
     }
 
     @Operation(summary = "Every bid on an auction", description = "Newest first; bidders are masked.")
@@ -92,7 +97,7 @@ public class AuctionController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             Optional<AuthPrincipal> principal) {
-        return ApiResult.success(AuctionSamples.bidHistory(now(), page, size));
+        return ApiResult.success(auctionBrowseService.bids(id, page, size, principal.map(AuthPrincipal::userId).orElse(null)));
     }
 
     @Operation(summary = "Place a bid",

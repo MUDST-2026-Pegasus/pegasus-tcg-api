@@ -7,7 +7,13 @@ import static com.pegasus.pegasustcgapi.jooq.tables.BidderStrike.BIDDER_STRIKE;
 import static com.pegasus.pegasustcgapi.jooq.tables.BiddingBan.BIDDING_BAN;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerRatingSummary.SELLER_RATING_SUMMARY;
+import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
+import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Filter;
+import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Sort;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.Kpis;
 import com.pegasus.pegasustcgapi.jooq.tables.records.AuctionBidRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.AuctionOfferRecord;
@@ -26,12 +32,14 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.OrderField;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
- * Shared reads and writes for auctions, bids, runner-up offers, strikes and bans [TCG-614].
+ * Shared reads and writes for auctions, bids, runner-up offers, strikes and bans [TCG-614, TCG-615, TCG-616].
  *
  * <p>Only the building blocks every auction card needs live here, so BE-2 to BE-11 do
  * not each write their own. Business rules (who may bid, when an auction closes, what
@@ -115,6 +123,11 @@ public class AuctionRepository {
     public Optional<Auction> lockById(long id) {
         return dsl.selectFrom(AUCTION).where(AUCTION.ID.eq(id)).forUpdate().fetchOptional()
                 .map(AuctionRepository::toAuction);
+    }
+
+    /** Alias for lockById */
+    public Optional<Auction> lock(long id) {
+        return lockById(id);
     }
 
     /**
@@ -267,6 +280,125 @@ public class AuctionRepository {
                 soldLast30Days != null ? soldLast30Days : BigDecimal.ZERO, closedLast30Days, null);
     }
 
+    // ---------- public catalog [TCG-616] ----------
+
+    public record PublicAuctionQuery(
+            Filter filter,
+            String query,
+            Short gameId,
+            Long sellerId,
+            Long catalogVariantId,
+            Sort sort,
+            int limit,
+            int offset,
+            OffsetDateTime now) {
+    }
+
+    public Condition buildPublicConditions(PublicAuctionQuery query) {
+        Condition cond = AUCTION.STATUS.eq(AuctionStatus.LIVE.name());
+
+        if (query.filter() != null) {
+            switch (query.filter()) {
+                case ENDING_SOON -> cond = cond.and(AUCTION.ENDS_AT.le(query.now().plusHours(1)).and(AUCTION.ENDS_AT.gt(query.now())));
+                case BUY_NOW -> cond = cond.and(AUCTION.BUY_NOW_PRICE.isNotNull()).and(AUCTION.BID_COUNT.eq(0));
+                case NO_BIDS -> cond = cond.and(AUCTION.BID_COUNT.eq(0));
+                case NEW -> cond = cond.and(AUCTION.STARTED_AT.ge(query.now().minusHours(24)));
+            }
+        }
+
+        if (query.gameId() != null) {
+            cond = cond.and(DSL.exists(
+                    DSL.selectOne()
+                            .from(CATALOG_VARIANT)
+                            .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                            .where(CATALOG_VARIANT.ID.eq(AUCTION.CATALOG_VARIANT_ID))
+                            .and(CATALOG_PRODUCT.GAME_ID.eq(query.gameId()))));
+        }
+
+        if (query.sellerId() != null) {
+            cond = cond.and(AUCTION.SELLER_PROFILE_ID.eq(query.sellerId()));
+        }
+
+        if (query.catalogVariantId() != null) {
+            cond = cond.and(AUCTION.CATALOG_VARIANT_ID.eq(query.catalogVariantId()));
+        }
+
+        if (query.query() != null && !query.query().isBlank()) {
+            String q = query.query().trim();
+            cond = cond.and(AUCTION.AUCTION_NUMBER.containsIgnoreCase(q)
+                    .or(DSL.exists(
+                            DSL.selectOne()
+                                    .from(CATALOG_VARIANT)
+                                    .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                                    .where(CATALOG_VARIANT.ID.eq(AUCTION.CATALOG_VARIANT_ID))
+                                    .and(CATALOG_PRODUCT.NAME.containsIgnoreCase(q)))));
+        }
+
+        return cond;
+    }
+
+    public OrderField<?>[] buildSortOrder(Sort sort) {
+        Sort s = sort != null ? sort : Sort.ENDING_SOON;
+        return switch (s) {
+            case ENDING_SOON -> new OrderField<?>[]{AUCTION.ENDS_AT.asc(), AUCTION.ID.asc()};
+            case NEWEST -> new OrderField<?>[]{AUCTION.STARTED_AT.desc(), AUCTION.ID.desc()};
+            case PRICE_ASC -> new OrderField<?>[]{AUCTION.CURRENT_PRICE.asc(), AUCTION.ENDS_AT.asc()};
+            case PRICE_DESC -> new OrderField<?>[]{AUCTION.CURRENT_PRICE.desc(), AUCTION.ENDS_AT.asc()};
+            case MOST_BIDS -> new OrderField<?>[]{AUCTION.BID_COUNT.desc(), AUCTION.CURRENT_PRICE.desc()};
+        };
+    }
+
+    public List<Auction> findPublicCatalog(PublicAuctionQuery query) {
+        return dsl.selectFrom(AUCTION)
+                .where(buildPublicConditions(query))
+                .orderBy(buildSortOrder(query.sort()))
+                .limit(query.limit())
+                .offset(query.offset())
+                .fetch(AuctionRepository::toAuction);
+    }
+
+    public long countPublicCatalog(PublicAuctionQuery query) {
+        return dsl.fetchCount(AUCTION, buildPublicConditions(query));
+    }
+
+    public Map<Filter, Long> publicFilterCounts(OffsetDateTime now) {
+        Map<Filter, Long> counts = new EnumMap<>(Filter.class);
+        var baseCond = AUCTION.STATUS.eq(AuctionStatus.LIVE.name());
+        counts.put(Filter.ENDING_SOON, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.ENDS_AT.le(now.plusHours(1)).and(AUCTION.ENDS_AT.gt(now)))));
+        counts.put(Filter.BUY_NOW, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.BUY_NOW_PRICE.isNotNull()).and(AUCTION.BID_COUNT.eq(0))));
+        counts.put(Filter.NO_BIDS, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.BID_COUNT.eq(0))));
+        counts.put(Filter.NEW, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.STARTED_AT.ge(now.minusHours(24)))));
+        return counts;
+    }
+
+    public long countLiveAuctions(OffsetDateTime now) {
+        return dsl.fetchCount(AUCTION, AUCTION.STATUS.eq(AuctionStatus.LIVE.name()));
+    }
+
+    public Optional<Long> findLeadingBidderId(long auctionId) {
+        return dsl.select(AUCTION_BID.BIDDER_ID)
+                .from(AUCTION_BID)
+                .join(AUCTION).on(AUCTION.LEADING_BID_ID.eq(AUCTION_BID.ID))
+                .where(AUCTION.ID.eq(auctionId))
+                .and(AUCTION_BID.STATUS.eq(BidStatus.ACTIVE.name()))
+                .fetchOptional(0, Long.class);
+    }
+
+    public Optional<BigDecimal> findMaxBidByUser(long auctionId, long userId) {
+        return dsl.select(DSL.max(AUCTION_BID.AMOUNT))
+                .from(AUCTION_BID)
+                .where(AUCTION_BID.AUCTION_ID.eq(auctionId))
+                .and(AUCTION_BID.BIDDER_ID.eq(userId))
+                .and(AUCTION_BID.STATUS.eq(BidStatus.ACTIVE.name()))
+                .fetchOptional(0, BigDecimal.class);
+    }
+
+    public long getSellerCompletedSalesCount(long sellerProfileId) {
+        return dsl.fetchCount(SELLER_ORDER,
+                SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId)
+                        .and(SELLER_ORDER.STATUS.ne("CANCELLED")));
+    }
+
     // ---------- bids ----------
 
     /** Throws {@code DuplicateKeyException} when the same idempotency key was already used on this auction. */
@@ -279,6 +411,10 @@ public class AuctionRepository {
                 .set(AUCTION_BID.IDEMPOTENCY_KEY, idempotencyKey)
                 .returningResult(AUCTION_BID.ID)
                 .fetchSingle(AUCTION_BID.ID);
+    }
+
+    public Optional<AuctionBid> findBidById(long id) {
+        return dsl.selectFrom(AUCTION_BID).where(AUCTION_BID.ID.eq(id)).fetchOptional().map(AuctionRepository::toBid);
     }
 
     public Optional<AuctionBid> findBidByIdempotencyKey(long auctionId, String idempotencyKey) {
@@ -365,6 +501,39 @@ public class AuctionRepository {
                         .and(BIDDING_BAN.LIFTED_AT.isNull())
                         .and(BIDDING_BAN.BANNED_UNTIL.gt(now)))
                 .fetchOptional(0, OffsetDateTime.class);
+    }
+
+    public record SellerInfo(String shopName, String username, BigDecimal rating) {}
+
+    public Optional<SellerInfo> findSellerInfo(long sellerProfileId) {
+        var row = dsl.select(
+                USER_ACCOUNT.DISPLAY_NAME,
+                USER_ACCOUNT.USERNAME,
+                SELLER_RATING_SUMMARY.RATING_AVG)
+                .from(SELLER_PROFILE)
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .leftJoin(SELLER_RATING_SUMMARY).on(SELLER_RATING_SUMMARY.SELLER_PROFILE_ID.eq(SELLER_PROFILE.ID))
+                .where(SELLER_PROFILE.ID.eq(sellerProfileId))
+                .fetchOne();
+
+        if (row == null) {
+            return Optional.empty();
+        }
+        String shopName = row.get(USER_ACCOUNT.DISPLAY_NAME) != null ? row.get(USER_ACCOUNT.DISPLAY_NAME)
+                : (row.get(USER_ACCOUNT.USERNAME) != null ? row.get(USER_ACCOUNT.USERNAME) : "Shop");
+        String username = row.get(USER_ACCOUNT.USERNAME) != null ? row.get(USER_ACCOUNT.USERNAME) : "seller";
+        BigDecimal rating = row.get(SELLER_RATING_SUMMARY.RATING_AVG);
+        return Optional.of(new SellerInfo(shopName, username, rating));
+    }
+
+    public Map<Long, String> findUsernames(java.util.Set<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return java.util.Map.of();
+        }
+        return dsl.select(USER_ACCOUNT.ID, USER_ACCOUNT.USERNAME)
+                .from(USER_ACCOUNT)
+                .where(USER_ACCOUNT.ID.in(userIds))
+                .fetchMap(USER_ACCOUNT.ID, USER_ACCOUNT.USERNAME);
     }
 
     // ---------- mapping ----------
