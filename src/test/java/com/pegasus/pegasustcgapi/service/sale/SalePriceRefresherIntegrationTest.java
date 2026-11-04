@@ -25,6 +25,7 @@ import com.pegasus.pegasustcgapi.support.TestData.Seller;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,7 +58,8 @@ class SalePriceRefresherIntegrationTest extends PostgresIntegrationTest {
 
     @Test
     void aSaleStartsAndEndsOnTime() {
-        OffsetDateTime now = OffsetDateTime.now(clock);
+        // Postgres keeps microseconds; a Linux clock has nanoseconds that would not survive the round trip.
+        OffsetDateTime now = OffsetDateTime.now(clock).truncatedTo(ChronoUnit.MICROS);
         long saleId = platformSale("10", now.plusHours(1), now.plusHours(2));
 
         refresher.refreshAll();
