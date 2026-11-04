@@ -26,6 +26,8 @@ import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogVariantRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingImageRepository;
 import com.pegasus.pegasustcgapi.repository.pricing.ListingPriceHistoryRepository;
+import com.pegasus.pegasustcgapi.service.sale.SalePriceLock;
+import com.pegasus.pegasustcgapi.service.sale.SalePriceRefresher;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.Details;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.Pricing;
@@ -77,6 +79,8 @@ public class ListingService {
     private final ListingCardRenderer cards;
     private final StorageService storage;
     private final SellerVariantCostRepository costs;
+    private final SalePriceLock saleLock;
+    private final SalePriceRefresher salePrices;
     private final Clock clock;
 
     public ListingService(
@@ -89,6 +93,8 @@ public class ListingService {
             ListingCardRenderer cards,
             StorageService storage,
             SellerVariantCostRepository costs,
+            SalePriceLock saleLock,
+            SalePriceRefresher salePrices,
             Clock clock) {
 
         this.sellers = sellers;
@@ -100,6 +106,8 @@ public class ListingService {
         this.cards = cards;
         this.storage = storage;
         this.costs = costs;
+        this.saleLock = saleLock;
+        this.salePrices = salePrices;
         this.clock = clock;
     }
 
@@ -211,10 +219,12 @@ public class ListingService {
         BigDecimal price = change.price() != null ? change.price() : listing.price();
         Pricing pricing = new Pricing(change.mode(), price, change.offsetPercent(), change.floor(), change.ceiling());
         requirePricingConsistent(pricing);
+        saleLock.requireAllowed(listing.id(), listing.price(), price);
 
         listings.updatePricing(listing.id(), pricing);
         if (price.compareTo(listing.price()) != 0) {
             priceHistory.insert(listing.id(), listing.price(), price, change.mode(), userId, "set by seller");
+            salePrices.refreshListings(List.of(listing.id()));
         }
         return render(require(seller, listing.id()));
     }
@@ -251,6 +261,7 @@ public class ListingService {
             throw new ConflictException(ErrorCode.LISTING_STATUS_TRANSITION,
                     "The listing changed while this request was on its way; reload it and try again");
         }
+        salePrices.refreshListings(List.of(listing.id()));
         return render(require(seller, listing.id()));
     }
 
@@ -274,6 +285,7 @@ public class ListingService {
         if (!listings.softDelete(listing.id(), OffsetDateTime.now(clock))) {
             throw new ConflictException(ErrorCode.LISTING_HAS_RESERVATIONS);
         }
+        salePrices.refreshListings(List.of(listing.id()));
     }
 
     // ---------- moves ----------
