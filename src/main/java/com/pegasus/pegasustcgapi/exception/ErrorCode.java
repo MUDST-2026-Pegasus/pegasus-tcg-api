@@ -51,6 +51,7 @@ public enum ErrorCode {
     REVIEW_NOT_FOUND(HttpStatus.NOT_FOUND, "Review not found"),
     RETURN_NOT_FOUND(HttpStatus.NOT_FOUND, "Return request not found"),
     PROMO_NOT_FOUND(HttpStatus.NOT_FOUND, "Discount code not found"),
+    SALE_NOT_FOUND(HttpStatus.NOT_FOUND, "Sale not found"),
     AUCTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Auction not found"),
 
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email address is already registered"),
@@ -115,6 +116,11 @@ public enum ErrorCode {
     NO_SECOND_BIDDER(HttpStatus.CONFLICT, "No other bidder to offer the card to"),
     OFFER_EXPIRED(HttpStatus.CONFLICT, "This offer is no longer open"),
     PROMO_CLAIM_FULL(HttpStatus.CONFLICT, "All of this discount code has been handed out"),
+    SALE_OVERLAP(HttpStatus.CONFLICT, "Another sale of this shop already covers these listings at that time"),
+    SALE_PRICE_LOCKED(HttpStatus.CONFLICT, "This listing is in a sale, so its price cannot go up until the sale ends"),
+    SALE_IN_USE(HttpStatus.CONFLICT, "This sale has orders and cannot be deleted"),
+    SALE_QUOTA_REACHED(HttpStatus.CONFLICT, "No cards are left at the sale price"),
+    SALE_PAUSED(HttpStatus.CONFLICT, "This sale is paused"),
 
     INVALID_ATTRIBUTE_DEFINITION(HttpStatus.BAD_REQUEST, "Attribute definition is not usable"),
     INVALID_PRODUCT_ATTRIBUTES(HttpStatus.BAD_REQUEST, "Product attributes do not match this game"),
@@ -136,6 +142,8 @@ public enum ErrorCode {
     PROMO_WRONG_SELLER(HttpStatus.BAD_REQUEST, "This shop code does not belong to a shop in the order"),
     PROMO_ALREADY_APPLIED(HttpStatus.BAD_REQUEST, "A code of this kind is already applied to the order"),
     PROMO_NOT_CLAIMED(HttpStatus.BAD_REQUEST, "Collect this discount code before using it"),
+    SALE_INVALID(HttpStatus.BAD_REQUEST, "Sale settings are invalid"),
+    SALE_BUYER_LIMIT_REACHED(HttpStatus.BAD_REQUEST, "You have already bought as many as this sale allows"),
     NO_SHIPPING_ADDRESS(HttpStatus.BAD_REQUEST, "Add a shipping address before bidding"),
     AUCTION_END_TOO_SOON(HttpStatus.BAD_REQUEST, "The closing time must be at least 1 hour from now"),
     AUCTION_END_TOO_FAR(HttpStatus.BAD_REQUEST, "The closing time must be within 30 days from now"),

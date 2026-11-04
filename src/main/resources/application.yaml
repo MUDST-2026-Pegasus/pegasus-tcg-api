@@ -56,6 +56,10 @@ pegasus:
     # whether a typed discount code exists (promo-preview, claim-by-code, terms).
     rate-limit-per-minute: ${PROMO_RATE_LIMIT_PER_MINUTE:30}
 
+  sale:
+    # Works out every listing's sale price again, so sales start and end on time [TCG-676].
+    refresh-cron: ${SALE_REFRESH_CRON:0 * * * * *}
+
   order:
     # Escrow auto-release sweep: completes sub-orders the buyer never confirmed.
     auto-release-cron: ${ORDER_AUTO_RELEASE_CRON:0 */5 * * * *}

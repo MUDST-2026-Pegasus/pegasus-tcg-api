@@ -41,6 +41,8 @@ import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.SellerList
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.repository.inventory.SellerVariantCostRepository;
 import com.pegasus.pegasustcgapi.service.listing.ListingService.PriceChange;
+import com.pegasus.pegasustcgapi.service.sale.SalePriceLock;
+import com.pegasus.pegasustcgapi.service.sale.SalePriceRefresher;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.math.BigDecimal;
@@ -99,12 +101,18 @@ class ListingServiceTest {
     @Mock
     private SellerVariantCostRepository costs;
 
+    @Mock
+    private SalePriceLock saleLock;
+
+    @Mock
+    private SalePriceRefresher salePrices;
+
     private ListingService service;
 
     @BeforeEach
     void setUp() {
         service = new ListingService(sellers, listings, units, images, priceHistory, variants, cards, storage, costs,
-                FIXED);
+                saleLock, salePrices, FIXED);
     }
 
     // ---------- fixtures ----------
