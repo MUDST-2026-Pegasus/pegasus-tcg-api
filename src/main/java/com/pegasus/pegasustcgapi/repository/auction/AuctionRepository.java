@@ -413,6 +413,41 @@ public class AuctionRepository {
                 .fetchSingle(AUCTION_BID.ID);
     }
 
+    /**
+     * Records a newly placed bid onto the auction: updates current_price, leading_bid_id,
+     * bid_count, bidder_count (if new), ends_at & extension_count (if anti-sniping extended),
+     * and bumps version.
+     */
+    public void recordBid(
+            long auctionId,
+            long bidId,
+            BigDecimal amount,
+            boolean isNewBidder,
+            OffsetDateTime firstBidAt,
+            OffsetDateTime endsAt,
+            boolean extended,
+            OffsetDateTime now) {
+        var step = dsl.update(AUCTION)
+                .set(AUCTION.CURRENT_PRICE, amount)
+                .set(AUCTION.LEADING_BID_ID, bidId)
+                .set(AUCTION.BID_COUNT, AUCTION.BID_COUNT.plus(1))
+                .set(AUCTION.VERSION, AUCTION.VERSION.plus(1))
+                .set(AUCTION.UPDATED_AT, now);
+
+        if (isNewBidder) {
+            step.set(AUCTION.BIDDER_COUNT, AUCTION.BIDDER_COUNT.plus(1));
+        }
+        if (firstBidAt != null) {
+            step.set(AUCTION.FIRST_BID_AT, firstBidAt);
+        }
+        if (extended) {
+            step.set(AUCTION.ENDS_AT, endsAt);
+            step.set(AUCTION.EXTENSION_COUNT, AUCTION.EXTENSION_COUNT.plus(1));
+        }
+
+        step.where(AUCTION.ID.eq(auctionId)).execute();
+    }
+
     public Optional<AuctionBid> findBidById(long id) {
         return dsl.selectFrom(AUCTION_BID).where(AUCTION_BID.ID.eq(id)).fetchOptional().map(AuctionRepository::toBid);
     }

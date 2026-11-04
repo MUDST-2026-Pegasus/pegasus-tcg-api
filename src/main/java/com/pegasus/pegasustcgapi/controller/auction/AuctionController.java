@@ -15,6 +15,7 @@ import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.MyTab;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Sort;
 import com.pegasus.pegasustcgapi.dto.order.CheckoutResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.service.auction.AuctionBidService;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBrowseService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -52,10 +53,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuctionController {
 
     private final AuctionBrowseService auctionBrowseService;
+    private final AuctionBidService auctionBidService;
     private final Clock clock;
 
-    public AuctionController(AuctionBrowseService auctionBrowseService, Clock clock) {
+    public AuctionController(AuctionBrowseService auctionBrowseService, AuctionBidService auctionBidService, Clock clock) {
         this.auctionBrowseService = auctionBrowseService;
+        this.auctionBidService = auctionBidService;
         this.clock = clock;
     }
 
@@ -114,10 +117,13 @@ public class AuctionController {
                     + "and details.currentPrice (also when someone bid first)")
     })
     @PostMapping(ApiPaths.AUCTIONS + "/{id}/bids")
-    public ResponseEntity<ApiResult<BidPlaced>> placeBid(@PathVariable long id,
+    public ResponseEntity<ApiResult<BidPlaced>> placeBid(
+            @PathVariable long id,
+            @Parameter(description = "Optional idempotency key to prevent double-bidding")
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody PlaceBid request, AuthPrincipal principal) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResult.success(AuctionSamples.bidPlaced(id, request.amount(), now())));
+        BidPlaced placed = auctionBidService.placeBid(id, principal.userId(), request.amount(), idempotencyKey);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResult.success(placed));
     }
 
     @Operation(summary = "Buy now",
