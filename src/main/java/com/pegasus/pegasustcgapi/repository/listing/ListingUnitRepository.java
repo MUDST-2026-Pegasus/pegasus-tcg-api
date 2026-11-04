@@ -29,7 +29,7 @@ import org.springframework.stereotype.Repository;
  *
  * <p>Every write here fires two triggers. One refuses a card joining a listing
  * of another printing, condition or seller. The other recounts the listing's
- * {@code quantity_*} — and takes that listing's row lock to do it. That is why
+ * {@code quantity_*} - and takes that listing's row lock to do it. That is why
  * cards are always locked before their listing in this module, never after: a
  * transaction that held a listing and then waited for one of its cards would
  * deadlock against a checkout holding the card and waiting for the listing.
@@ -58,6 +58,15 @@ public class ListingUnitRepository {
                 .map(ListingUnitRepository::toUnit);
     }
 
+    public Optional<ListingUnit> findOfSeller(long unitId, long sellerProfileId) {
+        return dsl.selectFrom(LISTING_UNIT)
+                .where(LISTING_UNIT.ID.eq(unitId))
+                .and(LISTING_UNIT.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .and(LISTING_UNIT.DELETED_AT.isNull())
+                .fetchOptional()
+                .map(ListingUnitRepository::toUnit);
+    }
+
     /** Same, held to the end of the transaction. */
     public Optional<ListingUnit> lockOfSeller(UUID publicUid, long sellerProfileId) {
         return dsl.selectFrom(LISTING_UNIT)
@@ -67,6 +76,36 @@ public class ListingUnitRepository {
                 .forUpdate()
                 .fetchOptional()
                 .map(ListingUnitRepository::toUnit);
+    }
+
+    public Optional<ListingUnit> lockOfSeller(long unitId, long sellerProfileId) {
+        return dsl.selectFrom(LISTING_UNIT)
+                .where(LISTING_UNIT.ID.eq(unitId))
+                .and(LISTING_UNIT.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .and(LISTING_UNIT.DELETED_AT.isNull())
+                .forUpdate()
+                .fetchOptional()
+                .map(ListingUnitRepository::toUnit);
+    }
+
+    public boolean moveToAuction(long unitId) {
+        return dsl.update(LISTING_UNIT)
+                .set(LISTING_UNIT.STATUS, ListingUnitStatus.ON_AUCTION.name())
+                .set(LISTING_UNIT.LISTING_ID, (Long) null)
+                .where(LISTING_UNIT.ID.eq(unitId))
+                .and(LISTING_UNIT.STATUS.in(ListingUnitStatus.IN_STOCK.name(), ListingUnitStatus.LISTED.name()))
+                .and(LISTING_UNIT.DELETED_AT.isNull())
+                .execute() > 0;
+    }
+
+    public boolean revertFromAuction(long unitId) {
+        return dsl.update(LISTING_UNIT)
+                .set(LISTING_UNIT.STATUS, ListingUnitStatus.IN_STOCK.name())
+                .set(LISTING_UNIT.LISTING_ID, (Long) null)
+                .where(LISTING_UNIT.ID.eq(unitId))
+                .and(LISTING_UNIT.STATUS.eq(ListingUnitStatus.ON_AUCTION.name()))
+                .and(LISTING_UNIT.DELETED_AT.isNull())
+                .execute() > 0;
     }
 
     public List<ListingUnit> findPage(UnitQuery query) {
@@ -294,7 +333,7 @@ public class ListingUnitRepository {
         return condition;
     }
 
-    static ListingUnit toUnit(ListingUnitRecord r) {
+    public static ListingUnit toUnit(ListingUnitRecord r) {
         return new ListingUnit(
                 r.getId(),
                 r.getPublicUid(),

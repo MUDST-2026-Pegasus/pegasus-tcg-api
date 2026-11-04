@@ -5,7 +5,10 @@ import static com.pegasus.pegasustcgapi.jooq.tables.AuctionBid.AUCTION_BID;
 import static com.pegasus.pegasustcgapi.jooq.tables.AuctionOffer.AUCTION_OFFER;
 import static com.pegasus.pegasustcgapi.jooq.tables.BidderStrike.BIDDER_STRIKE;
 import static com.pegasus.pegasustcgapi.jooq.tables.BiddingBan.BIDDING_BAN;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 
+import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.Kpis;
 import com.pegasus.pegasustcgapi.jooq.tables.records.AuctionBidRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.AuctionOfferRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.AuctionRecord;
@@ -19,7 +22,9 @@ import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -123,6 +128,143 @@ public class AuctionRepository {
                 .set(AUCTION.VERSION, AUCTION.VERSION.plus(1))
                 .where(AUCTION.ID.eq(id).and(AUCTION.STATUS.eq(from.name())))
                 .execute() == 1;
+    }
+
+    public Optional<Auction> findOpenAuctionByListingUnit(long listingUnitId) {
+        return dsl.selectFrom(AUCTION)
+                .where(AUCTION.LISTING_UNIT_ID.eq(listingUnitId))
+                .and(AUCTION.STATUS.in(
+                        AuctionStatus.LIVE.name(),
+                        AuctionStatus.AWAITING_PAYMENT.name(),
+                        AuctionStatus.AWAITING_SELLER_DECISION.name(),
+                        AuctionStatus.OFFERED_TO_SECOND.name()))
+                .fetchOptional()
+                .map(AuctionRepository::toAuction);
+    }
+
+    public boolean updateSettings(long id, long sellerProfileId, BigDecimal buyNowPrice, String sellerNote, OffsetDateTime now) {
+        return dsl.update(AUCTION)
+                .set(AUCTION.BUY_NOW_PRICE, buyNowPrice)
+                .set(AUCTION.SELLER_NOTE, sellerNote)
+                .set(AUCTION.SELLER_NOTE_UPDATED_AT, now)
+                .set(AUCTION.VERSION, AUCTION.VERSION.plus(1))
+                .where(AUCTION.ID.eq(id))
+                .and(AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .and(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()))
+                .and(AUCTION.BID_COUNT.eq(0))
+                .execute() == 1;
+    }
+
+    public boolean cancel(long id, long sellerProfileId, OffsetDateTime now) {
+        return dsl.update(AUCTION)
+                .set(AUCTION.STATUS, AuctionStatus.CANCELLED.name())
+                .set(AUCTION.CANCELLED_AT, now)
+                .set(AUCTION.VERSION, AUCTION.VERSION.plus(1))
+                .where(AUCTION.ID.eq(id))
+                .and(AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .and(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()))
+                .and(AUCTION.BID_COUNT.eq(0))
+                .execute() == 1;
+    }
+
+    public record SellerAuctionFilter(
+            long sellerProfileId,
+            AuctionStatus status,
+            String query,
+            int limit,
+            int offset) {
+    }
+
+    public List<Auction> findBySeller(SellerAuctionFilter filter) {
+        var cond = AUCTION.SELLER_PROFILE_ID.eq(filter.sellerProfileId());
+        if (filter.status() != null) {
+            cond = cond.and(AUCTION.STATUS.eq(filter.status().name()));
+        }
+        if (filter.query() != null && !filter.query().isBlank()) {
+            String q = filter.query().trim();
+            cond = cond.and(AUCTION.AUCTION_NUMBER.containsIgnoreCase(q)
+                    .or(DSL.exists(
+                            DSL.selectOne()
+                                    .from(CATALOG_VARIANT)
+                                    .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                                    .where(CATALOG_VARIANT.ID.eq(AUCTION.CATALOG_VARIANT_ID))
+                                    .and(CATALOG_PRODUCT.NAME.containsIgnoreCase(q)))));
+        }
+        return dsl.selectFrom(AUCTION)
+                .where(cond)
+                .orderBy(AUCTION.CREATED_AT.desc(), AUCTION.ID.desc())
+                .limit(filter.limit())
+                .offset(filter.offset())
+                .fetch(AuctionRepository::toAuction);
+    }
+
+    public long countBySeller(long sellerProfileId, AuctionStatus status, String query) {
+        var cond = AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId);
+        if (status != null) {
+            cond = cond.and(AUCTION.STATUS.eq(status.name()));
+        }
+        if (query != null && !query.isBlank()) {
+            String q = query.trim();
+            cond = cond.and(AUCTION.AUCTION_NUMBER.containsIgnoreCase(q)
+                    .or(DSL.exists(
+                            DSL.selectOne()
+                                    .from(CATALOG_VARIANT)
+                                    .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                                    .where(CATALOG_VARIANT.ID.eq(AUCTION.CATALOG_VARIANT_ID))
+                                    .and(CATALOG_PRODUCT.NAME.containsIgnoreCase(q)))));
+        }
+        return dsl.fetchCount(AUCTION, cond);
+    }
+
+    public Map<AuctionStatus, Long> statusCounts(long sellerProfileId) {
+        Map<AuctionStatus, Long> counts = new EnumMap<>(AuctionStatus.class);
+        for (AuctionStatus s : AuctionStatus.values()) {
+            counts.put(s, 0L);
+        }
+        dsl.select(AUCTION.STATUS, DSL.count())
+                .from(AUCTION)
+                .where(AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .groupBy(AUCTION.STATUS)
+                .fetch()
+                .forEach(r -> {
+                    try {
+                        AuctionStatus st = AuctionStatus.valueOf(r.get(AUCTION.STATUS));
+                        counts.put(st, r.get(1, Long.class));
+                    } catch (Exception ignored) {
+                    }
+                });
+        return counts;
+    }
+
+    public Kpis calculateKpis(long sellerProfileId, OffsetDateTime now) {
+        long liveCount = dsl.fetchCount(AUCTION,
+                AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId).and(AUCTION.STATUS.eq(AuctionStatus.LIVE.name())));
+        long liveWithBids = dsl.fetchCount(AUCTION,
+                AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
+                        .and(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()))
+                        .and(AUCTION.BID_COUNT.gt(0)));
+        long awaitingPaymentCount = dsl.fetchCount(AUCTION,
+                AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
+                        .and(AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name())));
+        OffsetDateTime nextPaymentDueAt = dsl.select(DSL.min(AUCTION.PAYMENT_DUE_AT))
+                .from(AUCTION)
+                .where(AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
+                        .and(AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name())))
+                .fetchOptional(0, OffsetDateTime.class)
+                .orElse(null);
+        OffsetDateTime thirtyDaysAgo = now.minusDays(30);
+        BigDecimal soldLast30Days = dsl.select(DSL.coalesce(DSL.sum(AUCTION.WINNING_AMOUNT), BigDecimal.ZERO))
+                .from(AUCTION)
+                .where(AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
+                        .and(AUCTION.STATUS.eq(AuctionStatus.SOLD.name()))
+                        .and(AUCTION.CLOSED_AT.ge(thirtyDaysAgo)))
+                .fetchOne(0, BigDecimal.class);
+        long closedLast30Days = dsl.fetchCount(AUCTION,
+                AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
+                        .and(AUCTION.STATUS.in(AuctionStatus.SOLD.name(), AuctionStatus.UNSOLD.name()))
+                        .and(AUCTION.CLOSED_AT.ge(thirtyDaysAgo)));
+        return new Kpis(liveCount, liveWithBids, awaitingPaymentCount, nextPaymentDueAt,
+                soldLast30Days != null ? soldLast30Days : BigDecimal.ZERO, closedLast30Days, null);
     }
 
     // ---------- bids ----------
