@@ -62,7 +62,7 @@ SELECT u.id, r.id, u.created_at, CASE WHEN r.code = 'BUYER' THEN NULL ELSE pg_te
         ('grand_line_cards', 'BUYER'), ('grand_line_cards', 'SELLER'),
         ('kanto_cards', 'BUYER'), ('kanto_cards', 'SELLER'),
         ('banned_trader', 'BUYER'), ('banned_trader', 'SELLER'),
-        ('newbie_shop', 'BUYER'), ('pack_rippers', 'BUYER'), ('shady_cards', 'BUYER'),
+        ('newbie_shop', 'BUYER'), ('newbie_shop', 'SELLER'), ('pack_rippers', 'BUYER'), ('shady_cards', 'BUYER'),
         ('collector_mai', 'BUYER'), ('deckbuilder_ton', 'BUYER'), ('demo_buyer', 'BUYER'),
         ('ploy_collects', 'BUYER'), ('nattapong_tcg', 'BUYER'), ('locked_user', 'BUYER'),
         ('suspended_user', 'BUYER'), ('deactivated_user', 'BUYER')

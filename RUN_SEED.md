@@ -201,3 +201,12 @@ All 328 pictures are in MinIO.
 | `password authentication failed` ตอนรัน Gradle หรือ API | พอร์ต 5432 ชนกับ PostgreSQL ในเครื่อง ตั้ง `DB_PORT=5436` และแก้ `DB_URL` ใน `.env` ให้ใช้พอร์ตเดียวกัน |
 | เว็บไม่มีรูป หรือเห็นรูป "ยังโหลดรูปไม่สำเร็จ" | รัน seed อีกรอบ (ไม่ใส่ `--skip-images`) และเช็ก `MINIO_PUBLIC_ENDPOINT=http://localhost:9000` ใน `.env` |
 | ล็อกอินแล้วข้อมูลแปลก ๆ | ออกจากระบบหรือล้างข้อมูลเว็บไซต์ แล้วล็อกอินใหม่ |
+
+
+## TCG-565 and auction seed checks
+
+The full seed also loads 09_auctions.sql so every TCG-614 auction table has fixture data. An auctioned unit remains part of seller stock; 99_verify.sql counts ON_AUCTION alongside other on-hand unit states. After loading the seed, run the standalone financial reconciliation with:
+
+```sh
+psql -X -v ON_ERROR_STOP=1 -f scripts/db/verify-financial-ledger.sql
+```
