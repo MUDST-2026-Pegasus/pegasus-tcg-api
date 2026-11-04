@@ -9,6 +9,7 @@ public enum ErrorCode {
     MALFORMED_REQUEST(HttpStatus.BAD_REQUEST, "Request could not be read"),
     UNSUPPORTED_CONTENT_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Send the request body as application/json"),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "HTTP method is not supported here"),
+    INVALID_ORDER_STATUS(HttpStatus.BAD_REQUEST, "Only completed orders can be reordered"),
 
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect"),
     UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Authentication is required"),

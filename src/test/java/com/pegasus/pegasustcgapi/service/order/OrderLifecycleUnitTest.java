@@ -19,21 +19,12 @@ import com.pegasus.pegasustcgapi.dto.order.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.order.OrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipOrderRequest;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse.ReorderAlternativeConditionResponse;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse.ReorderCurrentListingResponse;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse.ReorderItemResponse;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse.ReorderItemStatus;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse.ReorderSellerOrderResponse;
+import com.pegasus.pegasustcgapi.dto.order.ReorderItemsResponse;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ForbiddenException;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
-import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
-import com.pegasus.pegasustcgapi.model.listing.Listing;
-import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
-import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.jooq.tables.records.OrderItemRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
@@ -91,9 +82,6 @@ class OrderLifecycleUnitTest {
 
     @Mock
     private CollectionPort collectionPort;
-
-    @Mock
-    private ListingRepository listingRepository;
 
     @InjectMocks
     private OrderLifecycleService service;
@@ -570,25 +558,30 @@ class OrderLifecycleUnitTest {
     }
 
     @Nested
-    @DisplayName("Reorder Preview Tests")
-    class ReorderPreviewTests {
+    @DisplayName("Reorder Items Tests")
+    class ReorderItemsTests {
 
         @Test
         @DisplayName("Unauthenticated principal throws UNAUTHENTICATED")
         void unauthenticated_ThrowsUnauthorizedException() {
-            assertThatThrownBy(() -> service.getReorderPreview(null, 1L))
+            assertThatThrownBy(() -> service.getReorderItems(null, 1L))
                     .isInstanceOf(UnauthorizedException.class)
                     .satisfies(e -> assertThat(((UnauthorizedException) e).errorCode())
                             .isEqualTo(ErrorCode.UNAUTHENTICATED));
         }
 
         @Test
-        @DisplayName("Order not found throws ORDER_NOT_FOUND")
+        @DisplayName("Order not found throws ORDER_NOT_FOUND (404)")
         void orderNotFound_ThrowsNotFoundException() {
             when(orderRepository.findSalesOrderByIdAndBuyerId(999L, buyerPrincipal.userId()))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.getReorderPreview(buyerPrincipal, 999L))
+            assertThatThrownBy(() -> service.getReorderItems(buyerPrincipal, 999L))
+                    .isInstanceOf(NotFoundException.class)
+                    .satisfies(e -> assertThat(((NotFoundException) e).errorCode())
+                            .isEqualTo(ErrorCode.ORDER_NOT_FOUND));
+
+            assertThatThrownBy(() -> service.getReorderItems(999L, buyerPrincipal.userId()))
                     .isInstanceOf(NotFoundException.class)
                     .satisfies(e -> assertThat(((NotFoundException) e).errorCode())
                             .isEqualTo(ErrorCode.ORDER_NOT_FOUND));
@@ -600,393 +593,147 @@ class OrderLifecycleUnitTest {
             when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId()))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.getReorderPreview(buyerPrincipal, 1L))
+            assertThatThrownBy(() -> service.getReorderItems(buyerPrincipal, 1L))
+                    .isInstanceOf(NotFoundException.class)
+                    .satisfies(e -> assertThat(((NotFoundException) e).errorCode())
+                            .isEqualTo(ErrorCode.ORDER_NOT_FOUND));
+
+            assertThatThrownBy(() -> service.getReorderItems(1L, buyerPrincipal.userId()))
                     .isInstanceOf(NotFoundException.class)
                     .satisfies(e -> assertThat(((NotFoundException) e).errorCode())
                             .isEqualTo(ErrorCode.ORDER_NOT_FOUND));
         }
 
-        @Test
-        @DisplayName("Non-completed order throws VALIDATION_FAILED")
-        void nonCompletedOrder_ThrowsBadRequestException() {
+        @ParameterizedTest
+        @ValueSource(strings = {"PENDING", "PENDING_PAYMENT", "PAID", "IN_TRANSIT", "SHIPPED", "CANCELLED"})
+        @DisplayName("Non-completed order throws BadRequestException (400)")
+        void nonCompletedOrder_ThrowsBadRequestException(String nonCompletedStatus) {
             SalesOrderRecord order = mock(SalesOrderRecord.class);
             when(order.getId()).thenReturn(1L);
             when(order.getBuyerId()).thenReturn(buyerPrincipal.userId());
-            when(order.getStatus()).thenReturn("PAID");
+            when(order.getStatus()).thenReturn(nonCompletedStatus);
             when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(order));
 
-            assertThatThrownBy(() -> service.getReorderPreview(buyerPrincipal, 1L))
+            assertThatThrownBy(() -> service.getReorderItems(buyerPrincipal, 1L))
                     .isInstanceOf(BadRequestException.class)
                     .satisfies(e -> assertThat(((BadRequestException) e).errorCode())
-                            .isEqualTo(ErrorCode.VALIDATION_FAILED));
+                            .isEqualTo(ErrorCode.INVALID_ORDER_STATUS));
+
+            assertThatThrownBy(() -> service.getReorderItems(1L, buyerPrincipal.userId()))
+                    .isInstanceOf(BadRequestException.class)
+                    .satisfies(e -> assertThat(((BadRequestException) e).errorCode())
+                            .isEqualTo(ErrorCode.INVALID_ORDER_STATUS));
         }
 
         @Test
-        @DisplayName("Completed order with available matching listing and alternative conditions")
-        void completedOrder_AvailableAndAlternativeConditions() {
+        @DisplayName("Returns 200 OK with list of items and catalogVariantId when order is COMPLETED and belongs to buyer")
+        void completedOrder_ReturnsReorderItemsSuccessfully() {
             long orderId = 100L;
-            long sellerProfileId = 12L;
             long sellerOrderId = 200L;
+            long sellerProfileId = 10L;
             long variantId = 55L;
+            long orderItemId = 300L;
 
-            SalesOrderRecord order = mock(SalesOrderRecord.class);
-            when(order.getId()).thenReturn(orderId);
-            when(order.getBuyerId()).thenReturn(buyerPrincipal.userId());
-            when(order.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSalesOrderByIdAndBuyerId(orderId, buyerPrincipal.userId())).thenReturn(Optional.of(order));
+            SalesOrderRecord order = mockSalesOrder(orderId, "COMPLETED");
+            when(orderRepository.findSalesOrderByIdAndBuyerId(orderId, buyerPrincipal.userId()))
+                    .thenReturn(Optional.of(order));
 
-            SellerOrderRecord sellerOrder = mock(SellerOrderRecord.class);
-            when(sellerOrder.getId()).thenReturn(sellerOrderId);
-            when(sellerOrder.getSalesOrderId()).thenReturn(orderId);
-            when(sellerOrder.getSellerProfileId()).thenReturn(sellerProfileId);
-            when(sellerOrder.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSellerOrdersBySalesOrderId(orderId)).thenReturn(List.of(sellerOrder));
+            SellerOrderRecord so = mock(SellerOrderRecord.class);
+            when(so.getId()).thenReturn(sellerOrderId);
+            when(so.getSalesOrderId()).thenReturn(orderId);
+            when(so.getSellerProfileId()).thenReturn(sellerProfileId);
+            when(so.getStatus()).thenReturn("COMPLETED");
+            when(orderRepository.findSellerOrdersBySalesOrderId(orderId)).thenReturn(List.of(so));
 
             OrderItemRecord item = mock(OrderItemRecord.class);
-            when(item.getId()).thenReturn(450L);
+            when(item.getId()).thenReturn(orderItemId);
+            when(item.getSellerOrderId()).thenReturn(sellerOrderId);
             when(item.getCatalogVariantId()).thenReturn(variantId);
-            when(item.getProductNameSnapshot()).thenReturn("Bio-Broly (SR)");
-            when(item.getVariantLabelSnapshot()).thenReturn("JP / FOIL");
-            when(item.getConditionSnapshot()).thenReturn("DMG");
-            when(item.getUnitPrice()).thenReturn(new BigDecimal("8000.00"));
-            when(item.getQuantity()).thenReturn(1);
-            when(item.getListingId()).thenReturn(2045L);
-            when(orderRepository.findOrderItemsBySellerOrderIds(List.of(sellerOrderId)))
-                    .thenReturn(Map.of(sellerOrderId, List.of(item)));
-
-            when(listingRepository.findSellerStandings(List.of(sellerProfileId)))
-                    .thenReturn(Map.of(sellerProfileId, new ListingRepository.SellerStanding(
-                            sellerProfileId, "Card Kingdom TH", false, true)));
-
-            Listing dmgListing = new Listing(2045L, sellerProfileId, variantId, CardCondition.DMG, null, null,
-                    new BigDecimal("8200.00"), "THB", null, null, null, null, null, 5, 0, 3, ListingStatus.ACTIVE, null, null, 1, null, null, null);
-            Listing nmListing = new Listing(2048L, sellerProfileId, variantId, CardCondition.NM, null, null,
-                    new BigDecimal("9500.00"), "THB", null, null, null, null, null, 5, 0, 2, ListingStatus.ACTIVE, null, null, 1, null, null, null);
-
-            when(listingRepository.findActiveListingsForReorder(List.of(sellerProfileId), List.of(variantId)))
-                    .thenReturn(List.of(dmgListing, nmListing));
-
-            ReorderPreviewResponse response = service.getReorderPreview(buyerPrincipal, orderId);
-
-            assertThat(response.orderId()).isEqualTo(orderId);
-            assertThat(response.sellerOrders()).hasSize(1);
-
-            ReorderSellerOrderResponse soResp = response.sellerOrders().getFirst();
-            assertThat(soResp.sellerProfileId()).isEqualTo(sellerProfileId);
-            assertThat(soResp.sellerName()).isEqualTo("Card Kingdom TH");
-            assertThat(soResp.sellerAvailable()).isTrue();
-            assertThat(soResp.vacationMode()).isFalse();
-
-            assertThat(soResp.items()).hasSize(1);
-            ReorderItemResponse itemResp = soResp.items().getFirst();
-            assertThat(itemResp.originalOrderItemId()).isEqualTo(450L);
-            assertThat(itemResp.catalogVariantId()).isEqualTo(variantId);
-            assertThat(itemResp.originalCondition()).isEqualTo("DMG");
-            assertThat(itemResp.originalPrice()).isEqualByComparingTo("8000.00");
-            assertThat(itemResp.status()).isEqualTo(ReorderItemStatus.AVAILABLE_PRICE_CHANGED);
-
-            assertThat(itemResp.currentListing()).isNotNull();
-            assertThat(itemResp.currentListing().listingId()).isEqualTo(2045L);
-            assertThat(itemResp.currentListing().price()).isEqualByComparingTo("8200.00");
-            assertThat(itemResp.currentListing().priceChanged()).isTrue();
-            assertThat(itemResp.currentListing().isAvailable()).isTrue();
-            assertThat(itemResp.currentListing().quantityAvailable()).isEqualTo(3);
-
-            assertThat(itemResp.alternativeConditions()).hasSize(1);
-            ReorderAlternativeConditionResponse alt = itemResp.alternativeConditions().getFirst();
-            assertThat(alt.listingId()).isEqualTo(2048L);
-            assertThat(alt.condition()).isEqualTo("NM");
-            assertThat(alt.price()).isEqualByComparingTo("9500.00");
-            assertThat(alt.quantityAvailable()).isEqualTo(2);
-        }
-
-        @Test
-        @DisplayName("Original condition sold out returns ALTERNATIVE_AVAILABLE")
-        void originalConditionSoldOut_ReturnsAlternativeAvailable() {
-            long orderId = 101L;
-            long sellerProfileId = 12L;
-            long sellerOrderId = 201L;
-            long variantId = 55L;
-
-            SalesOrderRecord order = mock(SalesOrderRecord.class);
-            when(order.getId()).thenReturn(orderId);
-            when(order.getBuyerId()).thenReturn(buyerPrincipal.userId());
-            when(order.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSalesOrderByIdAndBuyerId(orderId, buyerPrincipal.userId())).thenReturn(Optional.of(order));
-
-            SellerOrderRecord sellerOrder = mock(SellerOrderRecord.class);
-            when(sellerOrder.getId()).thenReturn(sellerOrderId);
-            when(sellerOrder.getSalesOrderId()).thenReturn(orderId);
-            when(sellerOrder.getSellerProfileId()).thenReturn(sellerProfileId);
-            when(sellerOrder.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSellerOrdersBySalesOrderId(orderId)).thenReturn(List.of(sellerOrder));
-
-            OrderItemRecord item = mock(OrderItemRecord.class);
-            when(item.getId()).thenReturn(451L);
-            when(item.getCatalogVariantId()).thenReturn(variantId);
-            when(item.getConditionSnapshot()).thenReturn("DMG");
-            when(item.getUnitPrice()).thenReturn(new BigDecimal("8000.00"));
-            when(item.getQuantity()).thenReturn(1);
-            when(orderRepository.findOrderItemsBySellerOrderIds(List.of(sellerOrderId)))
-                    .thenReturn(Map.of(sellerOrderId, List.of(item)));
-
-            when(listingRepository.findSellerStandings(List.of(sellerProfileId)))
-                    .thenReturn(Map.of(sellerProfileId, new ListingRepository.SellerStanding(
-                            sellerProfileId, "Card Kingdom TH", false, true)));
-
-            Listing nmListing = new Listing(2048L, sellerProfileId, variantId, CardCondition.NM, null, null,
-                    new BigDecimal("9500.00"), "THB", null, null, null, null, null, 5, 0, 2, ListingStatus.ACTIVE, null, null, 1, null, null, null);
-
-            when(listingRepository.findActiveListingsForReorder(List.of(sellerProfileId), List.of(variantId)))
-                    .thenReturn(List.of(nmListing));
-
-            ReorderPreviewResponse response = service.getReorderPreview(buyerPrincipal, orderId);
-
-            ReorderItemResponse itemResp = response.sellerOrders().getFirst().items().getFirst();
-            assertThat(itemResp.currentListing()).isNull();
-            assertThat(itemResp.alternativeConditions()).hasSize(1);
-            assertThat(itemResp.status()).isEqualTo(ReorderItemStatus.ALTERNATIVE_AVAILABLE);
-        }
-
-        @Test
-        @DisplayName("Seller on vacation returns sellerAvailable=false and OUT_OF_STOCK")
-        void sellerOnVacation_ReturnsUnavailableAndOutOfStock() {
-            long orderId = 102L;
-            long sellerProfileId = 12L;
-            long sellerOrderId = 202L;
-            long variantId = 55L;
-
-            SalesOrderRecord order = mock(SalesOrderRecord.class);
-            when(order.getId()).thenReturn(orderId);
-            when(order.getBuyerId()).thenReturn(buyerPrincipal.userId());
-            when(order.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSalesOrderByIdAndBuyerId(orderId, buyerPrincipal.userId())).thenReturn(Optional.of(order));
-
-            SellerOrderRecord sellerOrder = mock(SellerOrderRecord.class);
-            when(sellerOrder.getId()).thenReturn(sellerOrderId);
-            when(sellerOrder.getSalesOrderId()).thenReturn(orderId);
-            when(sellerOrder.getSellerProfileId()).thenReturn(sellerProfileId);
-            when(sellerOrder.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSellerOrdersBySalesOrderId(orderId)).thenReturn(List.of(sellerOrder));
-
-            OrderItemRecord item = mock(OrderItemRecord.class);
-            when(item.getId()).thenReturn(452L);
-            when(item.getCatalogVariantId()).thenReturn(variantId);
+            when(item.getProductNameSnapshot()).thenReturn("Charizard EX");
+            when(item.getVariantLabelSnapshot()).thenReturn("EN / Foil / 1st Edition");
             when(item.getConditionSnapshot()).thenReturn("NM");
-            when(item.getUnitPrice()).thenReturn(new BigDecimal("9500.00"));
-            when(item.getQuantity()).thenReturn(1);
+            when(item.getUnitPrice()).thenReturn(new BigDecimal("250.00"));
+            when(item.getQuantity()).thenReturn(2);
+            when(item.getImageKeySnapshot()).thenReturn("cards/charizard.png");
+
             when(orderRepository.findOrderItemsBySellerOrderIds(List.of(sellerOrderId)))
                     .thenReturn(Map.of(sellerOrderId, List.of(item)));
 
-            when(listingRepository.findSellerStandings(List.of(sellerProfileId)))
-                    .thenReturn(Map.of(sellerProfileId, new ListingRepository.SellerStanding(
-                            sellerProfileId, "Card Kingdom TH", true, false)));
+            when(orderRepository.findSellerNamesByProfileIds(List.of(sellerProfileId)))
+                    .thenReturn(Map.of(sellerProfileId, "Card Kingdom"));
 
-            ReorderPreviewResponse response = service.getReorderPreview(buyerPrincipal, orderId);
+            when(orderRepository.findReorderProductMetadata(List.of(variantId)))
+                    .thenReturn(Map.of(variantId, new OrderRepository.ReorderProductMetadata("charizard-ex-151", "SAR")));
 
-            ReorderSellerOrderResponse soResp = response.sellerOrders().getFirst();
-            assertThat(soResp.sellerAvailable()).isFalse();
-            assertThat(soResp.vacationMode()).isTrue();
+            ReorderItemsResponse response = service.getReorderItems(buyerPrincipal, orderId);
 
-            ReorderItemResponse itemResp = soResp.items().getFirst();
-            assertThat(itemResp.currentListing()).isNull();
-            assertThat(itemResp.alternativeConditions()).isEmpty();
-            assertThat(itemResp.status()).isEqualTo(ReorderItemStatus.OUT_OF_STOCK);
+            assertThat(response).isNotNull();
+            assertThat(response.orderId()).isEqualTo(orderId);
+            assertThat(response.orderNumber()).isEqualTo(order.getOrderNumber());
+            assertThat(response.items()).hasSize(1);
+
+            ReorderItemsResponse.ReorderItemDto itemDto = response.items().getFirst();
+            assertThat(itemDto.orderItemId()).isEqualTo(orderItemId);
+            assertThat(itemDto.catalogVariantId()).isEqualTo(variantId);
+            assertThat(itemDto.productSlug()).isEqualTo("charizard-ex-151");
+            assertThat(itemDto.productName()).isEqualTo("Charizard EX");
+            assertThat(itemDto.variantLabel()).isEqualTo("EN / Foil / 1st Edition");
+            assertThat(itemDto.rarity()).isEqualTo("SAR");
+            assertThat(itemDto.originalCondition()).isEqualTo("NM");
+            assertThat(itemDto.originalPrice()).isEqualByComparingTo("250.00");
+            assertThat(itemDto.originalQuantity()).isEqualTo(2);
+            assertThat(itemDto.originalSellerName()).isEqualTo("Card Kingdom");
         }
 
         @Test
-        @DisplayName("Cancelled sub-orders are filtered out from reorder preview")
-        void cancelledSubOrder_IsFilteredOut() {
-            long orderId = 103L;
-            long activeSellerId = 12L;
-            long cancelledSellerId = 13L;
+        @DisplayName("Cancelled seller orders are excluded from reorder items")
+        void cancelledSellerOrders_ExcludedFromItems() {
+            long orderId = 100L;
+            long activeSellerOrderId = 200L;
+            long cancelledSellerOrderId = 201L;
 
-            SalesOrderRecord order = mock(SalesOrderRecord.class);
-            when(order.getId()).thenReturn(orderId);
-            when(order.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSalesOrderByIdAndBuyerId(orderId, buyerPrincipal.userId())).thenReturn(Optional.of(order));
+            SalesOrderRecord order = mockSalesOrder(orderId, "COMPLETED");
+            when(orderRepository.findSalesOrderByIdAndBuyerId(orderId, buyerPrincipal.userId()))
+                    .thenReturn(Optional.of(order));
 
-            SellerOrderRecord activeSubOrder = mock(SellerOrderRecord.class);
-            when(activeSubOrder.getId()).thenReturn(203L);
-            when(activeSubOrder.getSellerProfileId()).thenReturn(activeSellerId);
-            when(activeSubOrder.getStatus()).thenReturn("COMPLETED");
+            SellerOrderRecord soActive = mock(SellerOrderRecord.class);
+            when(soActive.getId()).thenReturn(activeSellerOrderId);
+            when(soActive.getSellerProfileId()).thenReturn(10L);
+            when(soActive.getStatus()).thenReturn("COMPLETED");
 
-            SellerOrderRecord cancelledSubOrder = mock(SellerOrderRecord.class);
-            when(cancelledSubOrder.getId()).thenReturn(204L);
-            when(cancelledSubOrder.getSellerProfileId()).thenReturn(cancelledSellerId);
-            when(cancelledSubOrder.getStatus()).thenReturn("CANCELLED");
+            SellerOrderRecord soCancelled = mock(SellerOrderRecord.class);
+            when(soCancelled.getId()).thenReturn(cancelledSellerOrderId);
+            when(soCancelled.getSellerProfileId()).thenReturn(20L);
+            when(soCancelled.getStatus()).thenReturn("CANCELLED");
 
             when(orderRepository.findSellerOrdersBySalesOrderId(orderId))
-                    .thenReturn(List.of(activeSubOrder, cancelledSubOrder));
+                    .thenReturn(List.of(soActive, soCancelled));
 
-            when(listingRepository.findSellerStandings(List.of(activeSellerId)))
-                    .thenReturn(Map.of(activeSellerId, new ListingRepository.SellerStanding(
-                            activeSellerId, "Active Seller", false, true)));
+            OrderItemRecord activeItem = mock(OrderItemRecord.class);
+            when(activeItem.getId()).thenReturn(1L);
+            when(activeItem.getCatalogVariantId()).thenReturn(10L);
+            when(activeItem.getProductNameSnapshot()).thenReturn("Active Card");
+            when(activeItem.getUnitPrice()).thenReturn(new BigDecimal("100.00"));
+            when(activeItem.getQuantity()).thenReturn(1);
 
-            ReorderPreviewResponse response = service.getReorderPreview(buyerPrincipal, orderId);
+            OrderItemRecord cancelledItem = mock(OrderItemRecord.class);
+            when(cancelledItem.getId()).thenReturn(2L);
+            when(cancelledItem.getCatalogVariantId()).thenReturn(20L);
+            when(cancelledItem.getProductNameSnapshot()).thenReturn("Cancelled Card");
 
-            assertThat(response.sellerOrders()).hasSize(1);
-            assertThat(response.sellerOrders().getFirst().sellerProfileId()).isEqualTo(activeSellerId);
-        }
+            when(orderRepository.findOrderItemsBySellerOrderIds(List.of(activeSellerOrderId, cancelledSellerOrderId)))
+                    .thenReturn(Map.of(
+                            activeSellerOrderId, List.of(activeItem),
+                            cancelledSellerOrderId, List.of(cancelledItem)));
 
-        @Test
-        @DisplayName("Graded vs RAW isolation: Raw item does NOT match PSA graded listing")
-        void rawItem_DoesNotMatchGradedListing() {
-            long orderId = 104L;
-            long sellerProfileId = 12L;
-            long sellerOrderId = 205L;
-            long variantId = 55L;
+            when(orderRepository.findSellerNamesByProfileIds(any()))
+                    .thenReturn(Map.of(10L, "Active Seller", 20L, "Cancelled Seller"));
 
-            SalesOrderRecord order = mock(SalesOrderRecord.class);
-            when(order.getId()).thenReturn(orderId);
-            when(order.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSalesOrderByIdAndBuyerId(orderId, buyerPrincipal.userId())).thenReturn(Optional.of(order));
+            ReorderItemsResponse response = service.getReorderItems(orderId, buyerPrincipal.userId());
 
-            SellerOrderRecord sellerOrder = mock(SellerOrderRecord.class);
-            when(sellerOrder.getId()).thenReturn(sellerOrderId);
-            when(sellerOrder.getSellerProfileId()).thenReturn(sellerProfileId);
-            when(sellerOrder.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSellerOrdersBySalesOrderId(orderId)).thenReturn(List.of(sellerOrder));
-
-            OrderItemRecord rawItem = mock(OrderItemRecord.class);
-            when(rawItem.getId()).thenReturn(455L);
-            when(rawItem.getListingId()).thenReturn(2045L);
-            when(rawItem.getCatalogVariantId()).thenReturn(variantId);
-            when(rawItem.getConditionSnapshot()).thenReturn("NM");
-            when(rawItem.getUnitPrice()).thenReturn(new BigDecimal("100.00"));
-            when(rawItem.getQuantity()).thenReturn(1);
-            when(orderRepository.findOrderItemsBySellerOrderIds(List.of(sellerOrderId)))
-                    .thenReturn(Map.of(sellerOrderId, List.of(rawItem)));
-
-            when(listingRepository.findGradingByListingIds(List.of(2045L)))
-                    .thenReturn(Map.of(2045L, new ListingRepository.ListingGrading(null, null)));
-
-            when(listingRepository.findSellerStandings(List.of(sellerProfileId)))
-                    .thenReturn(Map.of(sellerProfileId, new ListingRepository.SellerStanding(
-                            sellerProfileId, "Card Kingdom TH", false, true)));
-
-            Listing psaListing = new Listing(3001L, sellerProfileId, variantId, CardCondition.NM, "PSA", new BigDecimal("10.0"),
-                    new BigDecimal("5000.00"), "THB", null, null, null, null, null, 1, 0, 1, ListingStatus.ACTIVE, null, null, 1, null, null, null);
-
-            when(listingRepository.findActiveListingsForReorder(List.of(sellerProfileId), List.of(variantId)))
-                    .thenReturn(List.of(psaListing));
-
-            ReorderPreviewResponse response = service.getReorderPreview(buyerPrincipal, orderId);
-
-            ReorderItemResponse itemResp = response.sellerOrders().getFirst().items().getFirst();
-            assertThat(itemResp.currentListing()).isNull();
-            assertThat(itemResp.alternativeConditions()).isEmpty();
-            assertThat(itemResp.status()).isEqualTo(ReorderItemStatus.OUT_OF_STOCK);
-        }
-
-        @Test
-        @DisplayName("Selection Priority: Original listing ID is prioritized over cheaper listing")
-        void selectionPriority_OriginalListingIdPrioritized() {
-            long orderId = 105L;
-            long sellerProfileId = 12L;
-            long sellerOrderId = 206L;
-            long variantId = 55L;
-
-            SalesOrderRecord order = mock(SalesOrderRecord.class);
-            when(order.getId()).thenReturn(orderId);
-            when(order.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSalesOrderByIdAndBuyerId(orderId, buyerPrincipal.userId())).thenReturn(Optional.of(order));
-
-            SellerOrderRecord sellerOrder = mock(SellerOrderRecord.class);
-            when(sellerOrder.getId()).thenReturn(sellerOrderId);
-            when(sellerOrder.getSellerProfileId()).thenReturn(sellerProfileId);
-            when(sellerOrder.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSellerOrdersBySalesOrderId(orderId)).thenReturn(List.of(sellerOrder));
-
-            OrderItemRecord item = mock(OrderItemRecord.class);
-            when(item.getId()).thenReturn(456L);
-            when(item.getListingId()).thenReturn(2045L);
-            when(item.getCatalogVariantId()).thenReturn(variantId);
-            when(item.getConditionSnapshot()).thenReturn("NM");
-            when(item.getUnitPrice()).thenReturn(new BigDecimal("100.00"));
-            when(item.getQuantity()).thenReturn(1);
-            when(orderRepository.findOrderItemsBySellerOrderIds(List.of(sellerOrderId)))
-                    .thenReturn(Map.of(sellerOrderId, List.of(item)));
-
-            when(listingRepository.findGradingByListingIds(List.of(2045L)))
-                    .thenReturn(Map.of(2045L, new ListingRepository.ListingGrading(null, null)));
-
-            when(listingRepository.findSellerStandings(List.of(sellerProfileId)))
-                    .thenReturn(Map.of(sellerProfileId, new ListingRepository.SellerStanding(
-                            sellerProfileId, "Card Kingdom TH", false, true)));
-
-            Listing origListing = new Listing(2045L, sellerProfileId, variantId, CardCondition.NM, null, null,
-                    new BigDecimal("120.00"), "THB", null, null, null, null, null, 2, 0, 2, ListingStatus.ACTIVE, null, null, 1, null, null, null);
-            Listing cheaperListing = new Listing(2046L, sellerProfileId, variantId, CardCondition.NM, null, null,
-                    new BigDecimal("90.00"), "THB", null, null, null, null, null, 1, 0, 1, ListingStatus.ACTIVE, null, null, 1, null, null, null);
-
-            when(listingRepository.findActiveListingsForReorder(List.of(sellerProfileId), List.of(variantId)))
-                    .thenReturn(List.of(origListing, cheaperListing));
-
-            ReorderPreviewResponse response = service.getReorderPreview(buyerPrincipal, orderId);
-
-            ReorderItemResponse itemResp = response.sellerOrders().getFirst().items().getFirst();
-            assertThat(itemResp.currentListing()).isNotNull();
-            assertThat(itemResp.currentListing().listingId()).isEqualTo(2045L);
-            assertThat(itemResp.currentListing().price()).isEqualByComparingTo("120.00");
-
-            assertThat(itemResp.alternativeConditions()).hasSize(1);
-            assertThat(itemResp.alternativeConditions().getFirst().listingId()).isEqualTo(2046L);
-        }
-
-        @Test
-        @DisplayName("Selection Priority: Lowest price chosen when original listing is no longer active")
-        void selectionPriority_LowestPriceChosenWhenOriginalNotActive() {
-            long orderId = 106L;
-            long sellerProfileId = 12L;
-            long sellerOrderId = 207L;
-            long variantId = 55L;
-
-            SalesOrderRecord order = mock(SalesOrderRecord.class);
-            when(order.getId()).thenReturn(orderId);
-            when(order.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSalesOrderByIdAndBuyerId(orderId, buyerPrincipal.userId())).thenReturn(Optional.of(order));
-
-            SellerOrderRecord sellerOrder = mock(SellerOrderRecord.class);
-            when(sellerOrder.getId()).thenReturn(sellerOrderId);
-            when(sellerOrder.getSellerProfileId()).thenReturn(sellerProfileId);
-            when(sellerOrder.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSellerOrdersBySalesOrderId(orderId)).thenReturn(List.of(sellerOrder));
-
-            OrderItemRecord item = mock(OrderItemRecord.class);
-            when(item.getId()).thenReturn(457L);
-            when(item.getListingId()).thenReturn(2040L);
-            when(item.getCatalogVariantId()).thenReturn(variantId);
-            when(item.getConditionSnapshot()).thenReturn("NM");
-            when(item.getUnitPrice()).thenReturn(new BigDecimal("100.00"));
-            when(item.getQuantity()).thenReturn(1);
-            when(orderRepository.findOrderItemsBySellerOrderIds(List.of(sellerOrderId)))
-                    .thenReturn(Map.of(sellerOrderId, List.of(item)));
-
-            when(listingRepository.findGradingByListingIds(List.of(2040L)))
-                    .thenReturn(Map.of());
-
-            when(listingRepository.findSellerStandings(List.of(sellerProfileId)))
-                    .thenReturn(Map.of(sellerProfileId, new ListingRepository.SellerStanding(
-                            sellerProfileId, "Card Kingdom TH", false, true)));
-
-            Listing cheaperListing = new Listing(2046L, sellerProfileId, variantId, CardCondition.NM, null, null,
-                    new BigDecimal("90.00"), "THB", null, null, null, null, null, 1, 0, 1, ListingStatus.ACTIVE, null, null, 1, null, null, null);
-            Listing moreExpensiveListing = new Listing(2047L, sellerProfileId, variantId, CardCondition.NM, null, null,
-                    new BigDecimal("110.00"), "THB", null, null, null, null, null, 2, 0, 2, ListingStatus.ACTIVE, null, null, 1, null, null, null);
-
-            when(listingRepository.findActiveListingsForReorder(List.of(sellerProfileId), List.of(variantId)))
-                    .thenReturn(List.of(moreExpensiveListing, cheaperListing));
-
-            ReorderPreviewResponse response = service.getReorderPreview(buyerPrincipal, orderId);
-
-            ReorderItemResponse itemResp = response.sellerOrders().getFirst().items().getFirst();
-            assertThat(itemResp.currentListing()).isNotNull();
-            assertThat(itemResp.currentListing().listingId()).isEqualTo(2046L);
-            assertThat(itemResp.currentListing().price()).isEqualByComparingTo("90.00");
-
-            assertThat(itemResp.alternativeConditions()).hasSize(1);
-            assertThat(itemResp.alternativeConditions().getFirst().listingId()).isEqualTo(2047L);
+            assertThat(response.items()).hasSize(1);
+            assertThat(response.items().getFirst().orderItemId()).isEqualTo(1L);
+            assertThat(response.items().getFirst().productName()).isEqualTo("Active Card");
         }
     }
 }

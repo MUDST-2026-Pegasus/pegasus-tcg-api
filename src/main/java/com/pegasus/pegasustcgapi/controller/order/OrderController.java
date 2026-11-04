@@ -5,7 +5,7 @@ import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.order.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.order.OrderDetailsResponse;
-import com.pegasus.pegasustcgapi.dto.cart.ReorderPreviewResponse;
+import com.pegasus.pegasustcgapi.dto.order.ReorderItemsResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -58,19 +58,18 @@ public class OrderController {
         return ApiResult.success(orderLifecycleService.getBuyerOrder(principal, id));
     }
 
-    @Operation(summary = "Get reorder preview",
-            description = "Retrieves reorder preview for a completed order, checking seller availability and current listing status.")
+    @Operation(summary = "Get reorder items",
+            description = "Retrieves purchased items from a completed order with product metadata for PDP navigation.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Reorder preview retrieved"),
+            @ApiResponse(responseCode = "200", description = "Reorder items retrieved"),
             @ApiResponse(responseCode = "400", description = "Order is not completed"),
-            @ApiResponse(responseCode = "403", description = "Forbidden to access another user's order"),
             @ApiResponse(responseCode = "404", description = "Order not found")
     })
-    @GetMapping("/{orderId}/reorder-preview")
-    public ApiResult<ReorderPreviewResponse> getReorderPreview(
+    @GetMapping("/{orderId}/reorder-items")
+    public ApiResult<ReorderItemsResponse> getReorderItems(
             @PathVariable long orderId,
             AuthPrincipal principal) {
-        return ApiResult.success(orderLifecycleService.getReorderPreview(principal, orderId));
+        return ApiResult.success(orderLifecycleService.getReorderItems(orderId, principal.userId()));
     }
 
     @Operation(summary = "Cancel order", description = "Cancels an order within the cancellation window before shipping.")
