@@ -143,6 +143,26 @@ public class AuctionRepository {
                 .execute() == 1;
     }
 
+    public boolean recordBuyNowWin(
+            long auctionId,
+            long winnerId,
+            BigDecimal winningAmount,
+            OffsetDateTime closedAt,
+            OffsetDateTime paymentDueAt) {
+        return dsl.update(AUCTION)
+                .set(AUCTION.STATUS, AuctionStatus.AWAITING_PAYMENT.name())
+                .set(AUCTION.WINNER_ID, winnerId)
+                .set(AUCTION.WINNING_AMOUNT, winningAmount)
+                .set(AUCTION.CLOSED_AT, closedAt)
+                .set(AUCTION.PAYMENT_DUE_AT, paymentDueAt)
+                .set(AUCTION.VERSION, AUCTION.VERSION.plus(1))
+                .set(AUCTION.UPDATED_AT, closedAt)
+                .where(AUCTION.ID.eq(auctionId))
+                .and(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()))
+                .and(AUCTION.BID_COUNT.eq(0))
+                .execute() == 1;
+    }
+
     public Optional<Auction> findOpenAuctionByListingUnit(long listingUnitId) {
         return dsl.selectFrom(AUCTION)
                 .where(AUCTION.LISTING_UNIT_ID.eq(listingUnitId))

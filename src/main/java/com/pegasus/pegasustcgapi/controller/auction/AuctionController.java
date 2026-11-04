@@ -16,6 +16,7 @@ import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Sort;
 import com.pegasus.pegasustcgapi.dto.order.CheckoutResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBidService;
+import com.pegasus.pegasustcgapi.service.auction.AuctionBuyNowService;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBrowseService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -54,11 +55,17 @@ public class AuctionController {
 
     private final AuctionBrowseService auctionBrowseService;
     private final AuctionBidService auctionBidService;
+    private final AuctionBuyNowService auctionBuyNowService;
     private final Clock clock;
 
-    public AuctionController(AuctionBrowseService auctionBrowseService, AuctionBidService auctionBidService, Clock clock) {
+    public AuctionController(
+            AuctionBrowseService auctionBrowseService,
+            AuctionBidService auctionBidService,
+            AuctionBuyNowService auctionBuyNowService,
+            Clock clock) {
         this.auctionBrowseService = auctionBrowseService;
         this.auctionBidService = auctionBidService;
+        this.auctionBuyNowService = auctionBuyNowService;
         this.clock = clock;
     }
 
@@ -137,8 +144,12 @@ public class AuctionController {
             @ApiResponse(responseCode = "409", description = "AUCTION_CLOSED or BUY_NOW_UNAVAILABLE")
     })
     @PostMapping(ApiPaths.AUCTIONS + "/{id}/buy-now")
-    public ApiResult<AuctionWin> buyNow(@PathVariable long id, AuthPrincipal principal) {
-        return ApiResult.success(AuctionSamples.win(id, BigDecimal.valueOf(3500), now()));
+    public ApiResult<AuctionWin> buyNow(
+            @PathVariable long id,
+            @Parameter(description = "Optional idempotency key to prevent double buy-now")
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            AuthPrincipal principal) {
+        return ApiResult.success(auctionBuyNowService.buyNow(id, principal.userId(), idempotencyKey));
     }
 
     @Operation(summary = "Pay for a won auction",
