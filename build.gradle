@@ -72,10 +72,11 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-// Resolve DB settings the same way the app does: real env var first, then .env, then default.
+// Resolve DB settings the same way the app does: real env var, selected file, then default.
 def dotenv = new Properties()
-if (file('.env').exists()) {
-    file('.env').withInputStream { dotenv.load(it) }
+def envFile = file(System.getenv('APP_ENV_FILE') ?: '.env')
+if (envFile.exists()) {
+    envFile.withInputStream { dotenv.load(it) }
 }
 def dbSetting = { String key, String fallback ->
     System.getenv(key) ?: dotenv.getProperty(key) ?: fallback

@@ -29,8 +29,12 @@ help: ## Show this help message (Command: awk … Makefile)
 build: ## Build the project, skip tests (Command: ./gradlew build -x test)
 	$(gd) build -x test
 
-run: ## Start the application via bootRun (Command: ./gradlew bootRun)
-	$(gd) bootRun
+run: ## Start the application with dev env, or prod env on main
+	@branch=$$(git symbolic-ref --quiet --short HEAD) || { echo 'Cannot run from detached HEAD'; exit 1; }; \
+	env_file=.env.dev; [ "$$branch" = main ] && env_file=.env.prod; \
+	[ -f "$$env_file" ] || { echo "Missing $$env_file"; exit 1; }; \
+	echo "Using $$env_file for $$branch"; \
+	APP_ENV_FILE="$$env_file" $(gd) bootRun
 
 test: ## Run all tests with JUnit Platform (Command: ./gradlew test)
 	$(gd) test

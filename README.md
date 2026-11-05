@@ -39,6 +39,10 @@ docker compose up -d
 ./gradlew bootRun
 ```
 
+`./gradlew bootRun` reads `.env`. To select credentials by Git branch, use
+`make run` with local `.env.dev` and `.env.prod` files: `main` uses prod and
+other branches use dev. Keep both files out of Git.
+
 The application runs on port `8080` by Spring Boot's default. On startup, Flyway applies migrations and jOOQ generates database code; PostgreSQL must be healthy before running Gradle.
 
 Verify the service:
@@ -502,7 +506,7 @@ On Windows the Makefile automatically selects `gradlew.bat` instead of `./gradle
 | Target | Description |
 | --- | --- |
 | `make build` | Build the project, skipping tests (`./gradlew build -x test`) |
-| `make run` | Start the application via Spring Boot (`./gradlew bootRun`) |
+| `make run` | Start Spring Boot with `.env.prod` on `main`, `.env.dev` otherwise |
 | `make test` | Run the full test suite with JUnit Platform (`./gradlew test`) |
 | `make clean` | Remove build artifacts (`./gradlew clean`) |
 | `make compile` | Compile Java sources; triggers jOOQ codegen (`./gradlew compileJava`) |
@@ -549,6 +553,7 @@ On Windows the Makefile automatically selects `gradlew.bat` instead of `./gradle
 ```bash
 make env          # create .env from template
 # edit .env — set JWT_SECRET, MinIO keys, etc.
+cp .env .env.dev  # make run uses this outside main
 make check        # start DB, migrate, codegen, build
 make run          # start the API on port 8080
 ```
