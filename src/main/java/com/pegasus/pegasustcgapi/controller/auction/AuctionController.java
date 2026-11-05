@@ -14,7 +14,12 @@ import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.MyAuctionPage;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.MyTab;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Sort;
 import com.pegasus.pegasustcgapi.dto.order.CheckoutResponse;
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
+import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.service.auction.AuctionBidService;
+import com.pegasus.pegasustcgapi.service.auction.AuctionBuyNowService;
+import com.pegasus.pegasustcgapi.service.auction.AuctionBrowseService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -22,12 +27,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.math.BigDecimal;
+import jakarta.validation.constraints.Size;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,8 +43,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Auctions for buyers [TCG-613]. Browsing is open to guests; bidding, buy-now, checkout
- * and the runner-up offer need sign-in.
+ * Auctions for buyers [TCG-613]. Browsing is open to guests; bidding, buy-now and checkout
+ * need sign-in.
  *
  * <p>Contract only: every endpoint returns {@link AuctionSamples} until BE-3 to BE-10 add the logic.
  *
@@ -47,12 +53,23 @@ import org.springframework.web.bind.annotation.RestController;
  * seller (OWN_AUCTION).
  */
 @Tag(name = "Auctions", description = "Browse auctions, bid, buy now and pay for a win")
+@Validated
 @RestController
 public class AuctionController {
 
+    private final AuctionBrowseService auctionBrowseService;
+    private final AuctionBidService auctionBidService;
+    private final AuctionBuyNowService auctionBuyNowService;
     private final Clock clock;
 
-    public AuctionController(Clock clock) {
+    public AuctionController(
+            AuctionBrowseService auctionBrowseService,
+            AuctionBidService auctionBidService,
+            AuctionBuyNowService auctionBuyNowService,
+            Clock clock) {
+        this.auctionBrowseService = auctionBrowseService;
+        this.auctionBidService = auctionBidService;
+        this.auctionBuyNowService = auctionBuyNowService;
         this.clock = clock;
     }
 
@@ -67,11 +84,13 @@ public class AuctionController {
     public ApiResult<AuctionPage> list(
             @RequestParam(required = false) Filter filter,
             @RequestParam(required = false) Short gameId,
+            @RequestParam(required = false) Long sellerId,
+            @RequestParam(required = false) Long variantId,
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "ENDING_SOON") Sort sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ApiResult.success(AuctionSamples.auctionPage(now(), page, size));
+        return ApiResult.success(auctionBrowseService.list(filter, gameId, sellerId, variantId, q, sort, page, size));
     }
 
     @Operation(summary = "Get one auction",
@@ -83,7 +102,7 @@ public class AuctionController {
     })
     @GetMapping(ApiPaths.AUCTIONS + "/{id}")
     public ApiResult<AuctionDetail> get(@PathVariable long id, Optional<AuthPrincipal> principal) {
-        return ApiResult.success(AuctionSamples.auctionDetail(id, now(), principal.isPresent()));
+        return ApiResult.success(auctionBrowseService.get(id, principal.map(AuthPrincipal::userId).orElse(null)));
     }
 
     @Operation(summary = "Every bid on an auction", description = "Newest first; bidders are masked.")
@@ -92,7 +111,7 @@ public class AuctionController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             Optional<AuthPrincipal> principal) {
-        return ApiResult.success(AuctionSamples.bidHistory(now(), page, size));
+        return ApiResult.success(auctionBrowseService.bids(id, page, size, principal.map(AuthPrincipal::userId).orElse(null)));
     }
 
     @Operation(summary = "Place a bid",
@@ -109,10 +128,16 @@ public class AuctionController {
                     + "and details.currentPrice (also when someone bid first)")
     })
     @PostMapping(ApiPaths.AUCTIONS + "/{id}/bids")
-    public ResponseEntity<ApiResult<BidPlaced>> placeBid(@PathVariable long id,
+    public ResponseEntity<ApiResult<BidPlaced>> placeBid(
+            @PathVariable long id,
+            @Parameter(description = "Optional idempotency key to prevent double-bidding")
+            @RequestHeader(value = "Idempotency-Key", required = false) @Size(max = 64) String idempotencyKey,
             @Valid @RequestBody PlaceBid request, AuthPrincipal principal) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResult.success(AuctionSamples.bidPlaced(id, request.amount(), now())));
+        if (idempotencyKey != null && idempotencyKey.length() > 64) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Idempotency-Key header must not exceed 64 characters");
+        }
+        BidPlaced placed = auctionBidService.placeBid(id, principal.userId(), request.amount(), idempotencyKey);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResult.success(placed));
     }
 
     @Operation(summary = "Buy now",
@@ -126,8 +151,10 @@ public class AuctionController {
             @ApiResponse(responseCode = "409", description = "AUCTION_CLOSED or BUY_NOW_UNAVAILABLE")
     })
     @PostMapping(ApiPaths.AUCTIONS + "/{id}/buy-now")
-    public ApiResult<AuctionWin> buyNow(@PathVariable long id, AuthPrincipal principal) {
-        return ApiResult.success(AuctionSamples.win(id, BigDecimal.valueOf(3500), now()));
+    public ApiResult<AuctionWin> buyNow(
+            @PathVariable long id,
+            AuthPrincipal principal) {
+        return ApiResult.success(auctionBuyNowService.buyNow(id, principal.userId()));
     }
 
     @Operation(summary = "Pay for a won auction",
@@ -146,40 +173,17 @@ public class AuctionController {
     @PostMapping(ApiPaths.AUCTIONS + "/{id}/checkout")
     public ResponseEntity<ApiResult<CheckoutResponse>> checkout(@PathVariable long id,
             @Parameter(description = "Required unique key for this checkout (1–64 characters)", required = true)
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key", required = false) @Size(max = 64) String idempotencyKey,
             @Valid @RequestBody AuctionCheckout request, AuthPrincipal principal) {
+        if (idempotencyKey != null && idempotencyKey.length() > 64) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Idempotency-Key header must not exceed 64 characters");
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResult.success("Order placed successfully", AuctionSamples.checkout(now())));
     }
 
-    @Operation(summary = "Accept the seller's runner-up offer",
-            description = "Buy at the caller's own bid; then pay within 24 hours through the auction checkout. "
-                    + "Not paying counts as an unpaid win.")
-    @SecurityRequirement(name = "BearerAuth")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "The caller now has to pay"),
-            @ApiResponse(responseCode = "404", description = "AUCTION_NOT_FOUND, or no offer to the caller"),
-            @ApiResponse(responseCode = "409", description = "OFFER_EXPIRED")
-    })
-    @PostMapping(ApiPaths.AUCTIONS + "/{id}/second-chance/accept")
-    public ApiResult<AuctionWin> acceptOffer(@PathVariable long id, AuthPrincipal principal) {
-        return ApiResult.success(AuctionSamples.win(id, BigDecimal.valueOf(8300), now()));
-    }
-
-    @Operation(summary = "Decline the seller's runner-up offer",
-            description = "No penalty. The card goes back to the seller's stock.")
-    @SecurityRequirement(name = "BearerAuth")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Declined"),
-            @ApiResponse(responseCode = "409", description = "OFFER_EXPIRED")
-    })
-    @PostMapping(ApiPaths.AUCTIONS + "/{id}/second-chance/decline")
-    public ApiResult<Void> declineOffer(@PathVariable long id, AuthPrincipal principal) {
-        return ApiResult.success("Offer declined", null);
-    }
-
     @Operation(summary = "The caller's auctions",
-            description = "Every auction the caller has bid on or been offered, newest activity first, with tab counts "
+            description = "Every auction the caller has bid on or won, newest activity first, with tab counts "
                     + "and the caller's unpaid-win count.")
     @SecurityRequirement(name = "BearerAuth")
     @GetMapping(ApiPaths.ME_AUCTIONS)

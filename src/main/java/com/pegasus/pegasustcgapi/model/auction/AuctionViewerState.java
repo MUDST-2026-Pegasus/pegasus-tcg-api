@@ -10,10 +10,8 @@ public enum AuctionViewerState {
     LEADING,
     /** Bid, but someone has bid more and the auction is still live. */
     OUTBID,
-    /** Won (by bid, buy-now or an accepted runner-up offer) and has not paid yet. */
+    /** Won (by bid or buy-now) and has not paid yet. */
     WON_AWAITING_PAYMENT,
-    /** Runner-up with an open offer from the seller at their own bid. */
-    SECOND_CHANCE,
     /** Won and paid. */
     WON,
     /** The auction ended and this buyer did not get the card. */

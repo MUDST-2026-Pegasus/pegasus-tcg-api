@@ -4,7 +4,6 @@ import com.pegasus.pegasustcgapi.dto.listing.ListingCard;
 
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
-import com.pegasus.pegasustcgapi.model.auction.AuctionOfferStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
@@ -53,8 +52,6 @@ public final class AuctionViews {
         BIDDING,
         /** WON_AWAITING_PAYMENT. */
         TO_PAY,
-        /** SECOND_CHANCE. */
-        SECOND_CHANCE,
         /** WON. */
         WON,
         /** LOST. */
@@ -130,19 +127,6 @@ public final class AuctionViews {
     }
 
     /**
-     * The runner-up offer a seller sent the caller (B3-G).
-     *
-     * @param total amount plus shipping
-     */
-    public record SecondChanceOffer(
-            BigDecimal amount,
-            BigDecimal shippingFee,
-            BigDecimal total,
-            AuctionOfferStatus status,
-            OffsetDateTime expiresAt) {
-    }
-
-    /**
      * Where the signed-in caller stands on this auction (B3-D, B3-E, B3-F). Null for a guest.
      *
      * @param state          null when the caller has not bid
@@ -152,7 +136,6 @@ public final class AuctionViews {
      *                       EMAIL_NOT_VERIFIED, NO_SHIPPING_ADDRESS, BIDDING_BANNED or OWN_AUCTION
      * @param bannedUntil    set with BIDDING_BANNED
      * @param paymentDueAt   set with WON_AWAITING_PAYMENT
-     * @param offer          set with SECOND_CHANCE
      */
     public record Viewer(
             AuctionViewerState state,
@@ -160,8 +143,7 @@ public final class AuctionViews {
             boolean ownAuction,
             List<ErrorCode> blockers,
             OffsetDateTime bannedUntil,
-            OffsetDateTime paymentDueAt,
-            SecondChanceOffer offer) {
+            OffsetDateTime paymentDueAt) {
     }
 
     /**
@@ -229,7 +211,7 @@ public final class AuctionViews {
 
     /**
      * The caller now owns the right to buy the card and must pay within 24 hours
-     * through {@code POST /auctions/{id}/checkout}. Returned by buy-now and by accepting a runner-up offer.
+     * through {@code POST /auctions/{id}/checkout}. Returned by buy-now.
      *
      * @param total price plus shipping
      */
@@ -247,12 +229,11 @@ public final class AuctionViews {
      * One row on the buyer's "การประมูลของฉัน" page (W1).
      *
      * @param currentPrice the highest bid while live, the closing price once ended
-     * @param myHighestBid the caller's best bid; for SECOND_CHANCE this is the offer price
-     * @param totalDue     price plus shipping; set with WON_AWAITING_PAYMENT and SECOND_CHANCE
+     * @param myHighestBid the caller's best bid
+     * @param totalDue     price plus shipping; set with WON_AWAITING_PAYMENT
      * @param minNextBid   set while live, for the "บิด ฿X" button
      * @param extended     true while live and at least one extension has happened ("ต่อเวลาอยู่")
-     * @param deadline     paymentDueAt with WON_AWAITING_PAYMENT, the offer's expiry with SECOND_CHANCE,
-     *                     else null
+     * @param deadline     paymentDueAt with WON_AWAITING_PAYMENT, else null
      * @param orderId      set once the auction checkout placed an order
      */
     public record MyAuction(

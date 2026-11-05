@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.config;
 
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.web.cors.CorsConfiguration;
 
 /**
@@ -15,6 +16,8 @@ import org.springframework.web.cors.CorsConfiguration;
 @ConfigurationProperties("pegasus.cors")
 public record CorsProperties(List<String> allowedOrigins, List<String> allowedOriginPatterns) {
 
+    // Two constructors: Spring must be told which one binds the properties.
+    @ConstructorBinding
     public CorsProperties {
         allowedOrigins = clean(allowedOrigins);
         allowedOriginPatterns = clean(allowedOriginPatterns);

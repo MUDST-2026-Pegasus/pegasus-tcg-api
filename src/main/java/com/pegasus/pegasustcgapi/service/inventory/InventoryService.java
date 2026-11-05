@@ -195,6 +195,38 @@ public class InventoryService implements InventoryPort {
                 .orElse(WeightedAverageCost.EMPTY.averageUnitCost());
     }
 
+    // ---------- auctions ----------
+
+    @Transactional
+    public void recordAuctionTransfer(ListingUnit unit, long auctionId, Long actorUserId) {
+        BigDecimal cost = unit.acquisitionCost() != null ? unit.acquisitionCost() : BigDecimal.ZERO;
+        InventoryMovementRepository.NewMovement line = new InventoryMovementRepository.NewMovement(
+                unit.sellerProfileId(), unit.listingId(), unit.id(), unit.catalogVariantId(),
+                unit.condition(), MovementType.ADJUSTMENT, -1, cost,
+                InventoryMovement.REF_AUCTION, auctionId, "Transfer to auction", actorUserId);
+        movements.insertAll(List.of(line));
+    }
+
+    @Transactional
+    public void recordAuctionCancellation(ListingUnit unit, long auctionId, Long actorUserId) {
+        BigDecimal cost = unit.acquisitionCost() != null ? unit.acquisitionCost() : BigDecimal.ZERO;
+        InventoryMovementRepository.NewMovement line = new InventoryMovementRepository.NewMovement(
+                unit.sellerProfileId(), null, unit.id(), unit.catalogVariantId(),
+                unit.condition(), MovementType.ADJUSTMENT, 1, cost,
+                InventoryMovement.REF_AUCTION, auctionId, "Auction cancelled - return to stock", actorUserId);
+        movements.insertAll(List.of(line));
+    }
+
+    @Transactional
+    public void recordAuctionUnsold(ListingUnit unit, long auctionId, Long actorUserId) {
+        BigDecimal cost = unit.acquisitionCost() != null ? unit.acquisitionCost() : BigDecimal.ZERO;
+        InventoryMovementRepository.NewMovement line = new InventoryMovementRepository.NewMovement(
+                unit.sellerProfileId(), null, unit.id(), unit.catalogVariantId(),
+                unit.condition(), MovementType.ADJUSTMENT, 1, cost,
+                InventoryMovement.REF_AUCTION, auctionId, "Auction unsold - return to stock", actorUserId);
+        movements.insertAll(List.of(line));
+    }
+
     // ---------- helpers ----------
 
     private static void requireAll(Collection<Long> requested, List<ListingUnit> found, ListingUnitStatus expected) {

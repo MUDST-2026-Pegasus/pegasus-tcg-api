@@ -44,6 +44,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.86'
+    // Generates the signed-in user's order-summary PDF without a web-rendering runtime.
+    implementation 'org.apache.pdfbox:pdfbox:3.0.8'
     // Object storage. Talks S3 to MinIO in compose.yaml.
     implementation 'io.minio:minio:9.0.3'
 
