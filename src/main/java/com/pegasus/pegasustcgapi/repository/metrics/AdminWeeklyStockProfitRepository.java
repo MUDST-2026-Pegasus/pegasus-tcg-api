@@ -20,35 +20,27 @@ public class AdminWeeklyStockProfitRepository {
 
     public Totals completedTotals(OffsetDateTime from, OffsetDateTime to, String game, String type) {
         Record r = dsl.fetchOne("""
-                WITH completed AS (
-                    SELECT so.id, so.commission_amount
+                WITH completed_lines AS (
+                    SELECT so.id AS seller_order_id, so.commission_amount,
+                           oi.line_total, oi.unit_cost_snapshot * oi.quantity AS cost,
+                           cp.product_type, g.slug AS game,
+                           SUM(oi.line_total) OVER (PARTITION BY so.id) AS order_gmv
                       FROM seller_order so
-                     WHERE so.status = 'COMPLETED' AND so.completed_at >= ? AND so.completed_at < ?
-                ), lines AS (
-                    SELECT c.id, oi.line_total, oi.unit_cost_snapshot * oi.quantity AS cost,
-                           cp.product_type, g.slug AS game
-                      FROM completed c
-                      JOIN order_item oi ON oi.seller_order_id = c.id
+                      JOIN order_item oi ON oi.seller_order_id = so.id
                       JOIN catalog_variant cv ON cv.id = oi.catalog_variant_id
                       JOIN catalog_product cp ON cp.id = cv.catalog_product_id
                       JOIN game g ON g.id = cp.game_id
-                     WHERE (CAST(? AS varchar) IS NULL OR replace(lower(g.slug), '-', '') = replace(lower(CAST(? AS varchar)), '-', ''))
-                       AND (CAST(? AS varchar) IS NULL OR (CAST(? AS varchar) = 'SINGLE_CARD' AND cp.product_type = 'SINGLE_CARD')
-                            OR (CAST(? AS varchar) = 'SEALED' AND cp.product_type IN
-                                ('BOOSTER_PACK','BOOSTER_BOX','ELITE_TRAINER_BOX','STARTER_DECK','BUNDLE')))
-                ), order_amounts AS (
-                    SELECT c.id,
-                           c.commission_amount * COALESCE(SUM(l.line_total), 0) /
-                               NULLIF((SELECT SUM(x.line_total) FROM order_item x WHERE x.seller_order_id = c.id), 0) AS commission,
-                           COALESCE(SUM(l.line_total), 0) AS gmv,
-                           COALESCE(SUM(l.cost), 0) AS cost
-                      FROM completed c LEFT JOIN lines l ON l.id = c.id
-                     GROUP BY c.id, c.commission_amount
+                     WHERE so.status = 'COMPLETED' AND so.completed_at >= ? AND so.completed_at < ?
                 )
-                SELECT COALESCE(SUM(oa.gmv), 0) AS gmv,
-                       COALESCE(SUM(oa.commission), 0) AS commission,
-                       COALESCE(SUM(oa.gmv - oa.cost - oa.commission), 0) AS profit
-                  FROM order_amounts oa
+                SELECT COALESCE(SUM(line_total), 0) AS gmv,
+                       COALESCE(SUM(commission_amount * line_total / NULLIF(order_gmv, 0)), 0) AS commission,
+                       COALESCE(SUM(line_total - cost - commission_amount * line_total / NULLIF(order_gmv, 0)), 0) AS profit
+                  FROM completed_lines
+                 WHERE (CAST(? AS varchar) IS NULL OR replace(lower(game), '-', '') = replace(lower(CAST(? AS varchar)), '-', ''))
+                   AND (CAST(? AS varchar) IS NULL
+                        OR (CAST(? AS varchar) = 'SINGLE_CARD' AND product_type = 'SINGLE_CARD')
+                        OR (CAST(? AS varchar) = 'SEALED' AND product_type IN
+                            ('BOOSTER_PACK','BOOSTER_BOX','ELITE_TRAINER_BOX','STARTER_DECK','BUNDLE')))
                 """, from, to, game, game, type, type, type);
         return new Totals(r.get("gmv", BigDecimal.class), r.get("commission", BigDecimal.class),
                 r.get("profit", BigDecimal.class));
