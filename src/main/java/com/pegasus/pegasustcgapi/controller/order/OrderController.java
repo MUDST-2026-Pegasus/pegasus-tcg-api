@@ -7,13 +7,16 @@ import com.pegasus.pegasustcgapi.dto.order.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.order.OrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.order.ReorderItemsResponse;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.dto.payment.PaymentInfoResponse;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
+import com.pegasus.pegasustcgapi.service.payment.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,9 +35,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class OrderController {
 
     private final OrderLifecycleService orderLifecycleService;
+    private final PaymentService paymentService;
+
+    @Autowired
+    public OrderController(OrderLifecycleService orderLifecycleService, PaymentService paymentService) {
+        this.orderLifecycleService = orderLifecycleService;
+        this.paymentService = paymentService;
+    }
 
     public OrderController(OrderLifecycleService orderLifecycleService) {
-        this.orderLifecycleService = orderLifecycleService;
+        this(orderLifecycleService, null);
     }
 
     @Operation(summary = "List buyer orders",
@@ -56,6 +66,19 @@ public class OrderController {
     @GetMapping("/{id}")
     public ApiResult<OrderDetailsResponse> get(@PathVariable long id, AuthPrincipal principal) {
         return ApiResult.success(orderLifecycleService.getBuyerOrder(principal, id));
+    }
+
+    @Operation(summary = "Get order payment info",
+            description = "Retrieves dynamic PromptPay QR payload and payment details for an order.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Payment info retrieved"),
+            @ApiResponse(responseCode = "404", description = "Order not found")
+    })
+    @GetMapping("/{orderId}/payment-info")
+    public ApiResult<PaymentInfoResponse> getPaymentInfo(
+            @PathVariable("orderId") long orderId,
+            AuthPrincipal principal) {
+        return ApiResult.success(paymentService.getPaymentInfo(principal, orderId));
     }
 
     @Operation(summary = "Get reorder items",

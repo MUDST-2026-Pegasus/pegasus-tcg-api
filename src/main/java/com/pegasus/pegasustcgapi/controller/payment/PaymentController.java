@@ -4,6 +4,7 @@ import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.payment.PaymentService;
+import com.pegasus.pegasustcgapi.dto.payment.PaymentInfoResponse;
 import com.pegasus.pegasustcgapi.service.payment.PaymentService.View;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -42,6 +43,12 @@ public class PaymentController {
     @GetMapping("/{id}")
     public ApiResult<View> get(@PathVariable long id, AuthPrincipal principal) {
         return ApiResult.success(payments.get(principal, id));
+    }
+
+    @Operation(summary = "Get payment info and PromptPay QR payload")
+    @GetMapping("/{id}/payment-info")
+    public ApiResult<PaymentInfoResponse> getPaymentInfo(@PathVariable("id") long id, AuthPrincipal principal) {
+        return ApiResult.success(payments.getPaymentInfoByPaymentId(principal, id));
     }
 
     @Operation(summary = "Submit an uploaded bank transfer slip for admin review")

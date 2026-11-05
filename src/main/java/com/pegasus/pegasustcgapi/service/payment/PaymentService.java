@@ -16,7 +16,10 @@ import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
+import com.pegasus.pegasustcgapi.config.PromptPayProperties;
+import com.pegasus.pegasustcgapi.dto.payment.PaymentInfoResponse;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -37,12 +40,15 @@ public class PaymentService {
     private final StorageService storage;
     private final Clock clock;
     private final AuctionRepository auctions;
+    private final PromptPayProperties promptPayProperties;
+    private final PromptPayQrService promptPayQrService;
 
     @Autowired
     public PaymentService(PaymentRepository payments, EscrowRepository escrow,
             WalletLedgerService ledger, OrderLifecycleService orders,
             PlatformSettingService settings, StorageService storage, Clock clock,
-            AuctionRepository auctions) {
+            AuctionRepository auctions, PromptPayProperties promptPayProperties,
+            PromptPayQrService promptPayQrService) {
         this.payments = payments;
         this.escrow = escrow;
         this.ledger = ledger;
@@ -51,12 +57,21 @@ public class PaymentService {
         this.storage = storage;
         this.clock = clock;
         this.auctions = auctions;
+        this.promptPayProperties = promptPayProperties != null ? promptPayProperties : new PromptPayProperties(null, null, null, null);
+        this.promptPayQrService = promptPayQrService != null ? promptPayQrService : new PromptPayQrService(this.promptPayProperties);
+    }
+
+    public PaymentService(PaymentRepository payments, EscrowRepository escrow,
+            WalletLedgerService ledger, OrderLifecycleService orders,
+            PlatformSettingService settings, StorageService storage, Clock clock,
+            AuctionRepository auctions) {
+        this(payments, escrow, ledger, orders, settings, storage, clock, auctions, null, null);
     }
 
     public PaymentService(PaymentRepository payments, EscrowRepository escrow,
             WalletLedgerService ledger, OrderLifecycleService orders,
             PlatformSettingService settings, StorageService storage, Clock clock) {
-        this(payments, escrow, ledger, orders, settings, storage, clock, null);
+        this(payments, escrow, ledger, orders, settings, storage, clock, null, null, null);
     }
 
     @Transactional
@@ -183,11 +198,68 @@ public class PaymentService {
         return order;
     }
 
+    @Transactional(readOnly = true)
+    public PaymentInfoResponse getPaymentInfo(AuthPrincipal buyer, long orderId) {
+        SalesOrderRecord order = payments.findOrder(orderId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+        if (order.getBuyerId() != buyer.userId()) {
+            throw new NotFoundException(ErrorCode.ORDER_NOT_FOUND);
+        }
+        PaymentRecord active = payments.activeForOrder(orderId).orElse(null);
+        BigDecimal amount;
+        if (active != null) {
+            amount = active.getAmount();
+        } else {
+            amount = payments.unpaidTotal(orderId);
+            if (amount == null || amount.signum() <= 0) {
+                amount = order.getGrandTotal();
+            }
+        }
+        if (amount == null || amount.signum() <= 0) {
+            throw new ConflictException(ErrorCode.ORDER_NOT_PAYABLE);
+        }
+        amount = amount.setScale(2, RoundingMode.HALF_UP);
+        OffsetDateTime expiresAt = paymentDeadline(order);
+        String qrPayload = promptPayQrService.generatePayload(amount);
+        String promptpayId = promptPayQrService.maskedPromptPayId();
+        String bankName = promptPayProperties.bank();
+        String accountName = promptPayProperties.name();
+        return new PaymentInfoResponse(qrPayload, promptpayId, bankName, accountName, amount, expiresAt);
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentInfoResponse getPaymentInfoByPaymentId(AuthPrincipal buyer, long paymentId) {
+        PaymentRecord payment = payments.find(paymentId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.PAYMENT_NOT_FOUND));
+        SalesOrderRecord order = payments.findOrder(payment.getSalesOrderId())
+                .orElseThrow(() -> new NotFoundException(ErrorCode.PAYMENT_NOT_FOUND));
+        if (order.getBuyerId() != buyer.userId()) {
+            throw new NotFoundException(ErrorCode.PAYMENT_NOT_FOUND);
+        }
+        BigDecimal amount = payment.getAmount() != null
+                ? payment.getAmount().setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        OffsetDateTime expiresAt = paymentDeadline(order);
+        String qrPayload = amount.signum() > 0 ? promptPayQrService.generatePayload(amount) : null;
+        String promptpayId = promptPayQrService.maskedPromptPayId();
+        String bankName = promptPayProperties.bank();
+        String accountName = promptPayProperties.name();
+        return new PaymentInfoResponse(qrPayload, promptpayId, bankName, accountName, amount, expiresAt);
+    }
+
     private View view(PaymentRecord payment, SalesOrderRecord order) {
+        BigDecimal amount = payment.getAmount() != null
+                ? payment.getAmount().setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        String qr = promptPayQrService != null && amount.signum() > 0 ? promptPayQrService.generatePayload(amount) : null;
+        String promptPayId = promptPayQrService != null ? promptPayQrService.maskedPromptPayId() : "094-xxx-1119";
+        String bankName = promptPayProperties != null ? promptPayProperties.bank() : "ธนาคารไทยพาณิชย์ (SCB)";
+        String accountName = promptPayProperties != null ? promptPayProperties.name() : "PEGASUS TCG";
         return new View(payment.getId(), order.getId(), payment.getMethod(), payment.getStatus(),
                 payment.getAmount(), paymentDeadline(order),
                 settings.get(PlatformSettingService.PAYMENT_TRANSFER_ACCOUNT).value(),
-                payment.getReferenceCode(), payment.getFailureReason());
+                payment.getReferenceCode(), payment.getFailureReason(),
+                qr, promptPayId, bankName, accountName);
     }
 
     private OffsetDateTime paymentDeadline(SalesOrderRecord order) {
@@ -205,6 +277,7 @@ public class PaymentService {
     }
 
     public record View(long id, long salesOrderId, String method, String status, BigDecimal amount,
-            OffsetDateTime expiresAt, String transferAccountJson, String referenceCode, String failureReason) {
+            OffsetDateTime expiresAt, String transferAccountJson, String referenceCode, String failureReason,
+            String qrPayload, String promptpayId, String bankName, String accountName) {
     }
 }

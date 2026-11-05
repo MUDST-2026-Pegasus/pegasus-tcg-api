@@ -21,7 +21,9 @@ import com.pegasus.pegasustcgapi.exception.GlobalExceptionHandler;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.security.AuthClaims;
 import com.pegasus.pegasustcgapi.security.AuthPrincipalArgumentResolver;
+import com.pegasus.pegasustcgapi.dto.payment.PaymentInfoResponse;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
+import com.pegasus.pegasustcgapi.service.payment.PaymentService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -47,6 +49,9 @@ class OrderControllerTest {
 
     @Mock
     private OrderLifecycleService orderLifecycleService;
+
+    @Mock
+    private PaymentService paymentService;
 
     @InjectMocks
     private OrderController orderController;
@@ -217,5 +222,44 @@ class OrderControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders/{orderId}/payment-info returns 200 with QR payload and transfer details")
+    void getPaymentInfo_Success() throws Exception {
+        OffsetDateTime expiresAt = OffsetDateTime.parse("2026-11-06T12:00:00Z");
+        PaymentInfoResponse response = new PaymentInfoResponse(
+                "00020101021229370016A0000006770101110113006694776111953037645406673.005802TH5911PEGASUS TCG6007Bangkok6304C2AF",
+                "094-xxx-1119",
+                "ธนาคารไทยพาณิชย์ (SCB)",
+                "PEGASUS TCG",
+                new BigDecimal("673.00"),
+                expiresAt
+        );
+
+        given(paymentService.getPaymentInfo(any(), eq(100L)))
+                .willReturn(response);
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/100/payment-info"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.qrPayload").value(response.qrPayload()))
+                .andExpect(jsonPath("$.data.promptpayId").value("094-xxx-1119"))
+                .andExpect(jsonPath("$.data.bankName").value("ธนาคารไทยพาณิชย์ (SCB)"))
+                .andExpect(jsonPath("$.data.accountName").value("PEGASUS TCG"))
+                .andExpect(jsonPath("$.data.amount").value(673.00))
+                .andExpect(jsonPath("$.data.expiresAt").exists());
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders/{orderId}/payment-info returns 404 when order not found")
+    void getPaymentInfo_NotFound() throws Exception {
+        given(paymentService.getPaymentInfo(any(), eq(999L)))
+                .willThrow(new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/999/payment-info"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value("ORDER_NOT_FOUND"));
     }
 }
