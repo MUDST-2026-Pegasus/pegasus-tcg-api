@@ -27,6 +27,7 @@ import com.pegasus.pegasustcgapi.service.sale.SalePricingService;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -167,6 +168,11 @@ public class ListingBrowseService {
                         cards.signed(photoByListing.get(r.listing().id())), cards.signed(r.sellerAvatarUrl()),
                         pricing.get(r.listing().id())))
                 .toList();
+    }
+
+    /** These listings, priced as on any market page, in id order; ones a buyer cannot open are left out. */
+    public List<PublicListingResponse> byIds(Collection<Long> listingIds) {
+        return render(listings.findPublicByIds(listingIds));
     }
 
     /** One page of the market under {@code query}. */

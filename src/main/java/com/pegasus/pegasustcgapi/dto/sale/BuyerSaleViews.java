@@ -72,6 +72,20 @@ public final class BuyerSaleViews {
     public record Featured(@Schema(nullable = true) FlashSale flashSale, List<SaleHeader> categorySales) {
     }
 
-    public record FlashSale(SaleHeader sale, List<PublicListingResponse> listings) {
+    /**
+     * @param listings cards selling at the flash price now
+     * @param soldOut  cards whose flash quota is used up, shown faded after
+     *                 {@code listings} so the strip stays full; together at most 12
+     */
+    public record FlashSale(SaleHeader sale, List<PublicListingResponse> listings, List<SoldOutCard> soldOut) {
+    }
+
+    /**
+     * A flash card that has sold its quota. {@code listing.pricing} is what it sells
+     * for now (its asking price); {@code flashPrice} is what it sold at during the sale.
+     *
+     * @param discountPercent the flash discount as a whole percent of the asking price
+     */
+    public record SoldOutCard(PublicListingResponse listing, BigDecimal flashPrice, int discountPercent) {
     }
 }
