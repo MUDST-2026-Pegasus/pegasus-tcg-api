@@ -414,7 +414,7 @@ class AuctionBidServiceTest {
     @DisplayName("Idempotency")
     class IdempotencyTests {
 
-        private static final String IDEM_KEY = "test-idempotency-key-auction-001"; // gitleaks:allow
+        private static final String IDEM_KEY = "test-auction-idem-key-001"; // gitleaks:allow
 
         @Test
         @DisplayName("Replaying with same idempotency key and amount returns existing bid without inserting new one")
