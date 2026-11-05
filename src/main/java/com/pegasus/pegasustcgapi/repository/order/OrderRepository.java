@@ -100,6 +100,13 @@ public class OrderRepository {
                 .fetchOptional();
     }
 
+    public Optional<String> findCurrencyBySalesOrderId(long id) {
+        return dsl.select(SALES_ORDER.CURRENCY)
+                .from(SALES_ORDER)
+                .where(SALES_ORDER.ID.eq(id))
+                .fetchOptional(SALES_ORDER.CURRENCY);
+    }
+
     public boolean hasPaymentUnderReview(long salesOrderId) {
         return dsl.fetchExists(dsl.selectOne().from(PAYMENT)
                 .where(PAYMENT.SALES_ORDER_ID.eq(salesOrderId))
@@ -677,6 +684,21 @@ public class OrderRepository {
                 .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
                 .where(SELLER_PROFILE.ID.in(sellerProfileIds))
                 .fetchMap(SELLER_PROFILE.ID, r -> r.value2());
+    }
+
+    public Map<Long, SellerIdentity> findSellerIdentitiesByProfileIds(Collection<Long> sellerProfileIds) {
+        if (sellerProfileIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(SELLER_PROFILE.ID, USER_ACCOUNT.USERNAME, USER_ACCOUNT.DISPLAY_NAME)
+                .from(SELLER_PROFILE)
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .where(SELLER_PROFILE.ID.in(sellerProfileIds))
+                .fetchMap(SELLER_PROFILE.ID,
+                        row -> new SellerIdentity(row.value2(), row.value3()));
+    }
+
+    public record SellerIdentity(String username, String displayName) {
     }
 
     public record ReorderProductMetadata(String productSlug, String rarity) {}
