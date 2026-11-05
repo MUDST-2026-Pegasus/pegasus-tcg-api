@@ -8,6 +8,7 @@ import com.pegasus.pegasustcgapi.dto.listing.PublicListingResponse;
 import com.pegasus.pegasustcgapi.dto.user.PublicProfileResponse;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.service.listing.ListingBrowseService;
+import com.pegasus.pegasustcgapi.service.listing.ListingBrowseService.SaleFilter;
 import java.math.BigDecimal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,7 +28,15 @@ public class PublicListingController {
         this.browse = browse;
     }
 
-    /** Cheapest first by default; {@code sort} is price, price_desc or newest. */
+    /**
+     * The market and its search. Cheapest first by default; {@code sort} is price,
+     * price_desc, newest, discount_desc or ending_soon. Prices, their filters and
+     * their sorts are what a buyer pays now, sale included [TCG-679].
+     *
+     * @param onSale      true: only cards on sale; false: only cards off sale
+     * @param saleId      only cards priced by this sale
+     * @param minDiscount only cards at least this many percent off (1–99)
+     */
     @GetMapping(ApiPaths.LISTINGS)
     public ApiResult<PageResponse<PublicListingResponse>> market(
             @RequestParam(required = false) Long variantId,
@@ -36,12 +45,15 @@ public class PublicListingController {
             @RequestParam(required = false) CardCondition condition,
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
+            @RequestParam(required = false) Boolean onSale,
+            @RequestParam(required = false) Long saleId,
+            @RequestParam(required = false) BigDecimal minDiscount,
             @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        return ApiResult.success(browse.market(
-                variantId, productId, gameId, condition, minPrice, maxPrice, sort, page, size));
+        return ApiResult.success(browse.market(variantId, productId, gameId, condition, minPrice, maxPrice,
+                new SaleFilter(onSale, saleId, minDiscount), sort, page, size));
     }
 
     @GetMapping(ApiPaths.LISTINGS + "/{listingId}")
