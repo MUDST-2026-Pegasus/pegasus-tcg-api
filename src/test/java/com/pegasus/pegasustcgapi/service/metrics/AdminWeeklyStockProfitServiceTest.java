@@ -70,7 +70,8 @@ class AdminWeeklyStockProfitServiceTest {
 
     @Test
     void convertsIsoInstantToBangkokWeekAndMapsProductTypes() {
-        OffsetDateTime from = OffsetDateTime.parse("2026-10-25T17:00:00Z");
+        // The service normalizes the input instant to Bangkok midnight before calling the repository.
+        OffsetDateTime from = OffsetDateTime.parse("2026-10-26T00:00:00+07:00");
         when(repository.completedTotals(from, from.plusWeeks(1), null, "SINGLE_CARD"))
                 .thenReturn(new Totals(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
         when(repository.completedTotals(from.minusWeeks(1), from, null, "SINGLE_CARD"))
