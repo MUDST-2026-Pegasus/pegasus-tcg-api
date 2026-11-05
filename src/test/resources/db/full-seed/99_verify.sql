@@ -92,7 +92,7 @@ BEGIN
     FOR t IN SELECT c.relname FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
               WHERE ns.nspname = 'public' AND c.relkind = 'r'
                 AND c.relname NOT IN ('flyway_schema_history', 'auction', 'auction_bid',
-                                      'auction_offer', 'bidder_strike', 'bidding_ban',
+                                      'bidder_strike', 'bidding_ban',
                                       'price_sale', 'price_sale_listing', 'listing_sale_price')
               ORDER BY c.relname LOOP
         EXECUTE format('SELECT count(*) FROM %I', t.relname) INTO n;

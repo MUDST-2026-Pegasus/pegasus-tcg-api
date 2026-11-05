@@ -21,7 +21,7 @@ public final class AdminAuctionViews {
         /** Reported by users or showing a {@link Signal}. */
         FLAGGED,
         LIVE,
-        /** AWAITING_PAYMENT, AWAITING_SELLER_DECISION or OFFERED_TO_SECOND. */
+        /** AWAITING_PAYMENT. */
         AWAITING_PAYMENT,
         /** SOLD, UNSOLD or CANCELLED. */
         ENDED,
@@ -47,14 +47,13 @@ public final class AdminAuctionViews {
             long live,
             long endingWithinHour,
             long awaitingPayment,
-            long offeredToSecond,
             long suspendedLast30Days) {
     }
 
     /**
      * One row of the admin auction table (A1).
      *
-     * @param deadline    payment, decision or offer deadline, as on the seller's list; else null
+     * @param deadline    payment deadline, as on the seller's list; else null
      * @param reportCount user reports, shown as "ถูกรายงาน 3"
      * @param suspendedAt set with SUSPENDED
      */

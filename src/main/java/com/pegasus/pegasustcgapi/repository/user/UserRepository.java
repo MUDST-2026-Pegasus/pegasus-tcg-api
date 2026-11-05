@@ -64,11 +64,24 @@ public class UserRepository {
         return dsl.fetchExists(dsl.selectOne().from(USER_ACCOUNT).where(USER_ACCOUNT.EMAIL.eq(email)));
     }
 
+    public boolean isEmailVerified(long userId) {
+        return dsl.fetchExists(dsl.selectOne()
+                .from(USER_ACCOUNT)
+                .where(USER_ACCOUNT.ID.eq(userId))
+                .and(USER_ACCOUNT.EMAIL_VERIFIED_AT.isNotNull())
+                .and(USER_ACCOUNT.DELETED_AT.isNull()));
+    }
+
     public boolean existsByUsername(String username) {
         return dsl.fetchExists(dsl.selectOne().from(USER_ACCOUNT).where(USER_ACCOUNT.USERNAME.eq(username)));
     }
 
-    /** @return the generated id. */
+    /**
+     * The email counts as verified from sign-up, because the app has no email
+     * verification flow yet. Remove this once that flow exists.
+     *
+     * @return the generated id.
+     */
     public long insert(NewUser user) {
         return dsl.insertInto(USER_ACCOUNT)
                 .set(USER_ACCOUNT.EMAIL, user.email())
@@ -77,6 +90,7 @@ public class UserRepository {
                 .set(USER_ACCOUNT.DISPLAY_NAME, user.displayName())
                 .set(USER_ACCOUNT.PHONE, user.phone())
                 .set(USER_ACCOUNT.STATUS, UserStatus.ACTIVE)
+                .set(USER_ACCOUNT.EMAIL_VERIFIED_AT, DSL.currentOffsetDateTime())
                 .returningResult(USER_ACCOUNT.ID)
                 .fetchSingle(USER_ACCOUNT.ID);
     }
@@ -252,7 +266,7 @@ public class UserRepository {
                 r.getLastLoginAt(),
                 r.getLockedUntil(),
                 r.getCreatedAt(),
-                Set.of(), r.getPhonePublic());
+                Set.of(), r.getPhonePublic(), r.getEmailVerifiedAt());
     }
 
     /** Fields a registration supplies; everything else comes from column defaults. */

@@ -33,4 +33,5 @@ public record InventoryMovement(
 
     public static final String REF_ORDER_ITEM = "ORDER_ITEM";
     public static final String REF_RETURN_ITEM = "RETURN_ITEM";
+    public static final String REF_AUCTION = "AUCTION";
 }

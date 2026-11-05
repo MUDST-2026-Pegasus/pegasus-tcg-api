@@ -3,7 +3,6 @@ package com.pegasus.pegasustcgapi.dto.auction;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.AuctionItem;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Bid;
-import com.pegasus.pegasustcgapi.model.auction.AuctionOfferStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -44,8 +43,7 @@ public final class SellerAuctionViews {
      * @param currentPrice    the highest bid, or the starting price with no bids
      * @param buyNowPrice     null when the seller set none
      * @param buyNowAvailable true only while LIVE with no bids
-     * @param deadline        payment due (AWAITING_PAYMENT), the seller's choice due (AWAITING_SELLER_DECISION)
-     *                        or the runner-up's answer due (OFFERED_TO_SECOND); else null
+     * @param deadline        payment due (AWAITING_PAYMENT); else null
      * @param orderId         set once an order exists, for "ดูคำสั่งซื้อ"
      */
     public record SellerAuctionRow(
@@ -115,34 +113,6 @@ public final class SellerAuctionViews {
     }
 
     /**
-     * The runner-up, while the seller decides (S4b).
-     *
-     * @param estimatedPayout what the seller gets if the runner-up buys, after commission
-     */
-    public record SecondBidder(String bidderAlias, BigDecimal amount, BigDecimal estimatedPayout) {
-    }
-
-    /**
-     * The winner did not pay and the seller has to choose (S3-H, S4b). Not choosing by
-     * {@code decideBy} puts the card back in stock.
-     *
-     * @param cancelledOrderNumber the winner's cancelled order, e.g. "ORD-10351"
-     * @param secondBidder         null when only one person bid; OFFER_TO_SECOND is then disabled
-     */
-    public record PendingDecision(
-            String winnerAlias,
-            BigDecimal winningBid,
-            String cancelledOrderNumber,
-            OffsetDateTime decideBy,
-            SecondBidder secondBidder) {
-    }
-
-    /** The offer sent to the runner-up (S3-C, S3-D). */
-    public record SentOffer(String bidderAlias, BigDecimal amount, AuctionOfferStatus status,
-            OffsetDateTime expiresAt) {
-    }
-
-    /**
      * One auction from the seller's side (S4, S4b).
      *
      * @param estimatedPayout   the current price after commission
@@ -152,8 +122,6 @@ public final class SellerAuctionViews {
      * @param firstBidAt        when buy-now disappeared; null with no bids
      * @param winnerAlias       set once the auction ended with a winner
      * @param paymentDueAt      set with AWAITING_PAYMENT
-     * @param decision          set with AWAITING_SELLER_DECISION
-     * @param offer             set once an offer was sent to the runner-up
      * @param bids              newest first, bidders masked
      */
     public record SellerAuctionDetail(
@@ -181,8 +149,6 @@ public final class SellerAuctionViews {
             OffsetDateTime firstBidAt,
             String winnerAlias,
             OffsetDateTime paymentDueAt,
-            PendingDecision decision,
-            SentOffer offer,
             Long orderId,
             List<Bid> bids,
             OffsetDateTime serverTime) {

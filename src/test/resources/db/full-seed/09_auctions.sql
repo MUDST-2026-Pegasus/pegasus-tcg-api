@@ -46,15 +46,19 @@ BEGIN
     VALUES (auction_key, pg_temp.uid('demo_buyer'), 120, 'ACTIVE', 'seed-auction-bid-2', anchor - interval '28 hours 10 seconds')
     RETURNING id INTO bid_two;
 
-    -- The high bidder did not pay, so the seller has offered the card to the runner-up.
+    -- The high bidder did not pay within 24 hours, so the auction ended UNSOLD and
+    -- the card went back to the seller's stock.
     UPDATE auction
        SET leading_bid_id = bid_two, current_price = 120, bid_count = 2, bidder_count = 2,
-           first_bid_at = anchor - interval '28 hours 30 seconds', status = 'OFFERED_TO_SECOND',
+           first_bid_at = anchor - interval '28 hours 30 seconds',
+           winner_id = pg_temp.uid('demo_buyer'), winning_amount = 120,
+           payment_due_at = anchor - interval '4 hours', status = 'UNSOLD',
            closed_at = anchor - interval '28 hours', updated_at = anchor
      WHERE id = auction_key;
 
-    INSERT INTO auction_offer (auction_id, recipient_id, bid_id, amount, status, expires_at, created_at)
-    VALUES (auction_key, pg_temp.uid('collector_mai'), bid_one, 110, 'PENDING', anchor + interval '2 days', anchor);
+    UPDATE listing_unit
+       SET status = 'IN_STOCK', updated_at = anchor
+     WHERE id = card.id;
 
     INSERT INTO bidder_strike (user_id, auction_id, struck_at, cleared_at, cleared_by, clear_reason)
     VALUES (pg_temp.uid('demo_buyer'), auction_key, anchor - interval '4 hours',

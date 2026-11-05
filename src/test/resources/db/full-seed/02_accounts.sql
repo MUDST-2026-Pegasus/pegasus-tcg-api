@@ -33,10 +33,11 @@ SELECT * FROM (VALUES
 ) AS v(username, email, display_name, bio, phone, phone_public, status, created_days, last_login_days,
        failed_logins, locked_until_hours_ago, deleted_days, has_avatar);
 
--- Password123! — the same hash the older seed files use.
+-- Password123! — the same hash the older seed files use. Every account has a verified
+-- email from sign-up, as the app does until it has an email verification flow.
 INSERT INTO user_account (email, password_hash, username, display_name, bio, phone, phone_public, avatar_url,
                           status, failed_login_attempts, last_login_at, locked_until,
-                          created_at, updated_at, deleted_at)
+                          created_at, updated_at, deleted_at, email_verified_at)
 SELECT d.email,
        '$argon2id$v=19$m=16384,t=2,p=1$1lZHYXd3IHzu+vWVqCFhaA$DkeuKft0NlGgWZA2peJ+vNfV5j6qKrh52t7ZhShsRwU',
        d.username, d.display_name, d.bio, d.phone, d.phone_public,
@@ -44,7 +45,8 @@ SELECT d.email,
        d.status::user_status, d.failed_logins::smallint, pg_temp.ago(d.last_login_days),
        CASE WHEN d.locked_until_hours_ago IS NOT NULL THEN pg_temp.ago(0, d.locked_until_hours_ago) END,
        pg_temp.ago(d.created_days), pg_temp.ago(least(d.created_days, d.last_login_days)),
-       CASE WHEN d.deleted_days IS NOT NULL THEN pg_temp.ago(d.deleted_days) END
+       CASE WHEN d.deleted_days IS NOT NULL THEN pg_temp.ago(d.deleted_days) END,
+       pg_temp.ago(d.created_days)
   FROM seed_user_def d
  ORDER BY d.created_days DESC;
 
