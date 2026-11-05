@@ -30,7 +30,7 @@ public class AdminWeeklyStockProfitRepository {
                       JOIN catalog_variant cv ON cv.id = oi.catalog_variant_id
                       JOIN catalog_product cp ON cp.id = cv.catalog_product_id
                       JOIN game g ON g.id = cp.game_id
-                     WHERE so.status = 'COMPLETED' AND so.completed_at >= ? AND so.completed_at < ?
+                     WHERE so.status = 'COMPLETED' AND so.completed_at >= CAST(? AS timestamptz) AND so.completed_at < CAST(? AS timestamptz)
                 )
                 SELECT COALESCE(SUM(line_total), 0) AS gmv,
                        COALESCE(SUM(commission_amount * line_total / NULLIF(order_gmv, 0)), 0) AS commission,
@@ -57,7 +57,7 @@ public class AdminWeeklyStockProfitRepository {
                   JOIN catalog_variant cv ON cv.id = oi.catalog_variant_id
                   JOIN catalog_product cp ON cp.id = cv.catalog_product_id
                   JOIN game g ON g.id = cp.game_id
-                 WHERE so.status = 'COMPLETED' AND so.completed_at >= ? AND so.completed_at < ?
+                 WHERE so.status = 'COMPLETED' AND so.completed_at >= CAST(? AS timestamptz) AND so.completed_at < CAST(? AS timestamptz)
                    AND (CAST(? AS varchar) IS NULL OR replace(lower(g.slug), '-', '') = replace(lower(CAST(? AS varchar)), '-', ''))
                    AND (CAST(? AS varchar) IS NULL OR (CAST(? AS varchar) = 'SINGLE_CARD' AND cp.product_type = 'SINGLE_CARD')
                         OR (CAST(? AS varchar) = 'SEALED' AND cp.product_type IN
@@ -74,7 +74,7 @@ public class AdminWeeklyStockProfitRepository {
                 WITH latest AS (
                     SELECT DISTINCT ON (listing_id) listing_id, status, quantity_available, deleted_at
                       FROM listing_stock_history
-                     WHERE changed_at < ?
+                     WHERE changed_at < CAST(? AS timestamptz)
                      ORDER BY listing_id, changed_at DESC, id DESC
                 )
                 SELECT COALESCE(SUM(h.quantity_available), 0) AS stock
@@ -101,7 +101,7 @@ public class AdminWeeklyStockProfitRepository {
                   JOIN catalog_variant cv ON cv.id = oi.catalog_variant_id
                   JOIN catalog_product cp ON cp.id = cv.catalog_product_id
                   JOIN game g ON g.id = cp.game_id
-                 WHERE so.status = 'COMPLETED' AND so.completed_at >= ? AND so.completed_at < ?
+                 WHERE so.status = 'COMPLETED' AND so.completed_at >= CAST(? AS timestamptz) AND so.completed_at < CAST(? AS timestamptz)
                    AND (CAST(? AS varchar) IS NULL OR replace(lower(g.slug), '-', '') = replace(lower(CAST(? AS varchar)), '-', ''))
                    AND (CAST(? AS varchar) IS NULL OR (CAST(? AS varchar) = 'SINGLE_CARD' AND cp.product_type = 'SINGLE_CARD')
                         OR (CAST(? AS varchar) = 'SEALED' AND cp.product_type IN
@@ -114,7 +114,7 @@ public class AdminWeeklyStockProfitRepository {
         return dsl.fetch("""
                 WITH completed AS (
                     SELECT id, commission_amount FROM seller_order
-                     WHERE status = 'COMPLETED' AND completed_at >= ? AND completed_at < ?
+                     WHERE status = 'COMPLETED' AND completed_at >= CAST(? AS timestamptz) AND completed_at < CAST(? AS timestamptz)
                 ), all_lines AS (
                     SELECT c.id, SUM(oi.line_total) AS order_gmv
                       FROM completed c JOIN order_item oi ON oi.seller_order_id = c.id GROUP BY c.id
@@ -148,7 +148,7 @@ public class AdminWeeklyStockProfitRepository {
                 WITH latest AS (
                     SELECT DISTINCT ON (listing_id) listing_id, status, quantity_available, deleted_at
                       FROM listing_stock_history
-                     WHERE changed_at < ?
+                     WHERE changed_at < CAST(? AS timestamptz)
                      ORDER BY listing_id, changed_at DESC, id DESC
                 )
                 SELECT g.slug, g.name, COALESCE(SUM(h.quantity_available), 0) AS stock
