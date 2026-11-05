@@ -29,7 +29,10 @@ class SecurityConfigCorsTest {
                 "Content-Type",
                 "Accept",
                 "Idempotency-Key",
-                "X-Cart-Session");
+                "X-Cart-Session",
+                "traceparent",
+                "tracestate",
+                "baggage");
         assertThat(corsConfig.getExposedHeaders()).contains("X-Cart-Session");
         assertThat(corsConfig.getAllowCredentials()).isTrue();
     }

@@ -230,7 +230,10 @@ public class SecurityConfig {
                 "Content-Type",
                 "Accept",
                 "Idempotency-Key",
-                "X-Cart-Session"));
+                "X-Cart-Session",
+                "traceparent",
+                "tracestate",
+                "baggage"));
         config.setExposedHeaders(List.of(
                 "X-Cart-Session",
                 "Idempotency-Key"));
