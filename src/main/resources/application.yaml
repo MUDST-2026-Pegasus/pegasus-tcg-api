@@ -55,7 +55,8 @@ pegasus:
     refresh-cookie:
       name: pegasus_rt
       secure: ${AUTH_REFRESH_COOKIE_SECURE:true}
-      same-site: Lax
+      # Lax for same-site deploys; None when the web runs on another site (workers.dev previews).
+      same-site: ${AUTH_REFRESH_COOKIE_SAME_SITE:Lax}
       domain: ${AUTH_REFRESH_COOKIE_DOMAIN:}
     password-reset-ttl: 1h
     max-failed-logins: 5
@@ -69,6 +70,8 @@ pegasus:
 
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+    # Wildcard hosts, e.g. https://*.pegasus-dev-teams.workers.dev for Worker previews.
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:}
 
   cart:
     # Signed-out baskets past their expires_at. Anyone can create one without an
