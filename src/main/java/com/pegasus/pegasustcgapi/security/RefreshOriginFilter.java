@@ -35,7 +35,7 @@ public class RefreshOriginFilter extends OncePerRequestFilter {
             } catch (IllegalArgumentException invalidType) {
                 json = false;
             }
-            if (origin == null || !cors.allowedOrigins().contains(origin) || !json) {
+            if (!cors.allows(origin) || !json) {
                 errorHandler.handle(request, response, new AccessDeniedException("Invalid refresh origin or content type"));
                 return;
             }
