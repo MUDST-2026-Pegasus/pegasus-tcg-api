@@ -7,4 +7,8 @@ import java.time.OffsetDateTime;
  * exists — it is handed to the caller and then only its hash remains.
  */
 public record IssuedToken(long id, String value, OffsetDateTime expiresAt) {
+    @Override
+    public String toString() {
+        return "IssuedToken[id=" + id + ", value=REDACTED, expiresAt=" + expiresAt + "]";
+    }
 }

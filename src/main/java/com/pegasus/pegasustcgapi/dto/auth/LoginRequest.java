@@ -20,4 +20,9 @@ public record LoginRequest(
         @NotBlank
         @Size(max = 128)
         String password) {
+
+    @Override
+    public String toString() {
+        return "LoginRequest[email=REDACTED, password=REDACTED]";
+    }
 }

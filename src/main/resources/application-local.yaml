@@ -2,3 +2,8 @@ pegasus:
   payment:
     # Explicitly enabled by default for local development profile
     mock-enabled: ${PAYMENT_MOCK_ENABLED:true}
+
+logging:
+  structured:
+    format:
+      console: ${LOG_FORMAT:}

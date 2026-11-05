@@ -37,4 +37,10 @@ public record VerificationRequest(
     public String normalisedAccountNumber() {
         return bankAccountNumber.replaceAll("[^0-9]", "");
     }
+
+    @Override
+    public String toString() {
+        return "VerificationRequest[legalName=REDACTED, bankCode=" + bankCode
+                + ", bankName=" + bankName + ", bankAccountNumber=REDACTED, bankBookImageKey=REDACTED]";
+    }
 }
