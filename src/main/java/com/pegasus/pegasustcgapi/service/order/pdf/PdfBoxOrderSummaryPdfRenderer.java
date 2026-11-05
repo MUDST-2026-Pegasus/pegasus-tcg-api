@@ -61,7 +61,6 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             drawShipping(canvas, document.shipping());
             drawPayment(canvas, document);
             drawTotals(canvas, document);
-            drawDocumentNote(canvas);
             drawStatusHistory(canvas, document);
 
             canvas.close();
@@ -220,9 +219,12 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
     private void drawTotals(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
         OrderSummaryPdfDocument.Totals totals = document.totals();
         boolean includesSettlement = document.role() != OrderSummaryPdfRole.BUYER;
+        boolean compactHistory = hasCompactStatusHistory(document);
         float height = includesSettlement ? 112f : 78f;
         canvas.ensure(height + 25f);
         canvas.section(includesSettlement ? "ORDER AND SETTLEMENT TOTALS" : "ORDER TOTALS");
+        float panelTop = canvas.y();
+        drawDocumentNote(canvas, height, compactHistory);
         float x = MARGIN + 280f;
         canvas.panelAt(x, canvas.y(), CONTENT_WIDTH - 280f, height);
         float row = canvas.y() - 17f;
@@ -239,11 +241,14 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             row -= 16f;
             drawTotalRow(canvas, "Seller net amount", totals.sellerNetAmount(), document.currency(), x, row, true);
         }
+        if (compactHistory) {
+            drawCompactStatusHistory(canvas, document.statusHistory(), panelTop);
+        }
         canvas.move(height + 12f);
     }
 
     private void drawStatusHistory(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
-        if (document.role() != OrderSummaryPdfRole.ADMIN || document.statusHistory().isEmpty()) {
+        if (document.role() != OrderSummaryPdfRole.ADMIN || document.statusHistory().isEmpty() || hasCompactStatusHistory(document)) {
             return;
         }
         canvas.ensure(48f);
@@ -268,14 +273,29 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         canvas.move(8f);
     }
 
-    private void drawDocumentNote(Canvas canvas) throws IOException {
-        canvas.ensure(42f);
-        canvas.text("DOCUMENT NOTE", MARGIN, canvas.y(), 10f, canvas.fonts.bold, INK);
-        canvas.move(10f);
-        canvas.panel(30f);
-        canvas.text("This order summary is generated from Pegasus TCG order data. It is not a tax invoice or receipt.",
-                MARGIN + 12f, canvas.y() - 20f, 8.5f, canvas.fonts.regular, MUTED);
-        canvas.move(32f);
+    private void drawDocumentNote(Canvas canvas, float availableHeight, boolean compactHistory) throws IOException {
+        float noteHeight = compactHistory ? 50f : Math.min(57f, availableHeight);
+        canvas.panelAt(MARGIN, canvas.y(), 260f, noteHeight);
+        canvas.label("DOCUMENT NOTE", MARGIN + 12f, canvas.y() - 16f);
+        canvas.text("Generated from Pegasus TCG order data.", MARGIN + 12f, canvas.y() - 32f, 8f, canvas.fonts.regular, MUTED);
+        canvas.text("Not a tax invoice or receipt.", MARGIN + 12f, canvas.y() - 44f, 8f, canvas.fonts.regular, MUTED);
+    }
+
+    private void drawCompactStatusHistory(
+            Canvas canvas, List<OrderSummaryPdfDocument.StatusEvent> history, float panelTop) throws IOException {
+        float y = panelTop - 63f;
+        canvas.label("STATUS HISTORY", MARGIN + 12f, y);
+        for (OrderSummaryPdfDocument.StatusEvent event : history) {
+            y -= 13f;
+            canvas.text(formatDate(event.occurredAt()), MARGIN + 12f, y, 7.5f, canvas.fonts.regular, MUTED);
+            canvas.text(event.status(), MARGIN + 140f, y, 7.5f, canvas.fonts.bold, INK);
+        }
+    }
+
+    private boolean hasCompactStatusHistory(OrderSummaryPdfDocument document) {
+        return document.role() == OrderSummaryPdfRole.ADMIN
+                && !document.statusHistory().isEmpty()
+                && document.statusHistory().size() <= 2;
     }
 
     private void drawTotalRow(Canvas canvas, String label, BigDecimal value, String currency, float x, float y, boolean emphasize)
