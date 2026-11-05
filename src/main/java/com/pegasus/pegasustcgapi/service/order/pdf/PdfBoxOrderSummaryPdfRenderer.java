@@ -41,12 +41,11 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             .ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
             .withLocale(Locale.ENGLISH);
 
-    private static final Color NAVY = new Color(26, 49, 74);
-    private static final Color INK = new Color(25, 32, 39);
-    private static final Color MUTED = new Color(94, 111, 124);
-    private static final Color PANEL = new Color(245, 248, 250);
-    private static final Color BORDER = new Color(218, 226, 232);
-    private static final Color SUCCESS = new Color(30, 118, 84);
+    private static final Color PRIMARY = new Color(0, 105, 168);
+    private static final Color INK = new Color(9, 11, 12);
+    private static final Color MUTED = new Color(103, 120, 124);
+    private static final Color PANEL = new Color(245, 249, 252);
+    private static final Color BORDER = new Color(227, 231, 232);
 
     @Override
     public RenderedPdf render(OrderSummaryPdfDocument document) {
@@ -59,7 +58,9 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             drawBuyer(canvas, document.buyer());
             drawSellerSections(canvas, document);
             drawShipping(canvas, document.shipping());
-            drawPayment(canvas, document);
+            if (document.role() != OrderSummaryPdfRole.BUYER) {
+                drawPayment(canvas, document);
+            }
             drawTotals(canvas, document);
             drawStatusHistory(canvas, document);
 
@@ -73,38 +74,34 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
     }
 
     private void drawOrderOverview(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
-        canvas.title("ORDER SUMMARY");
-        canvas.text("Generated " + formatDate(document.generatedAt()), MARGIN, canvas.y(), 8.5f, canvas.fonts.regular, MUTED);
-        canvas.move(18f);
-
-        canvas.panel(70f);
-        float top = canvas.y() - 12f;
-        canvas.label("ORDER NUMBER", MARGIN + 12f, top);
-        canvas.text(document.orderNumber(), MARGIN + 12f, top - 15f, 11f, canvas.fonts.bold, INK);
-        canvas.label("STATUS", MARGIN + 260f, top);
-        canvas.text(document.status(), MARGIN + 260f, top - 15f, 10.5f, canvas.fonts.bold, SUCCESS);
-        canvas.label("PLACED", MARGIN + 390f, top);
-        canvas.text(formatDate(document.placedAt()), MARGIN + 390f, top - 15f, 8.5f, canvas.fonts.regular, INK);
-        if (document.sellerOrderNumber() != null) {
-            canvas.text("Sub-order: " + document.sellerOrderNumber(), MARGIN + 12f, top - 37f, 8.5f, canvas.fonts.regular, MUTED);
-        }
+        canvas.line(canvas.y() + 2f, PRIMARY, 3f);
+        canvas.move(25f);
+        canvas.text(document.orderNumber(), MARGIN, canvas.y(), 24f, canvas.fonts.bold, INK);
+        String activity = "Placed " + formatDate(document.placedAt());
         if (document.paidAt() != null) {
-            canvas.text("Paid: " + formatDate(document.paidAt()), MARGIN + 260f, top - 37f, 8.5f, canvas.fonts.regular, MUTED);
+            activity += " · Payment confirmed";
         }
-        canvas.move(82f);
+        canvas.text(activity, MARGIN, canvas.y() - 16f, 9f, canvas.fonts.regular, MUTED);
+        canvas.badge(document.status(), PAGE_WIDTH - MARGIN - 86f, canvas.y() - 4f);
+        canvas.move(42f);
     }
 
     private void drawBuyer(Canvas canvas, OrderSummaryPdfDocument.Party buyer) throws IOException {
-        if (buyer == null) {
-            return;
+        canvas.ensure(86f);
+        float cardWidth = (CONTENT_WIDTH - 16f) / 2f;
+        canvas.partyCard(MARGIN, cardWidth, "BUYER", buyer == null ? "Not available" : buyer.displayName(),
+                buyer == null ? null : buyer.username(), null);
+        String sellerName = "Seller unavailable";
+        String sellerOrder = null;
+        if (!canvas.document.sellerSections().isEmpty()) {
+            OrderSummaryPdfDocument.SellerSection seller = canvas.document.sellerSections().getFirst();
+            sellerName = seller.sellerName();
+            sellerOrder = seller.sellerOrderNumber();
         }
-        canvas.section("BUYER");
-        canvas.panel(43f);
-        canvas.text(buyer.displayName(), MARGIN + 12f, canvas.y() - 18f, 10f, canvas.fonts.bold, INK);
-        if (buyer.username() != null) {
-            canvas.text("@" + buyer.username(), MARGIN + 12f, canvas.y() - 32f, 8.5f, canvas.fonts.regular, MUTED);
-        }
-        canvas.move(55f);
+        canvas.partyCard(MARGIN + cardWidth + 16f, cardWidth, "SELLER", sellerName,
+                sellerOrder == null ? null : "Store order #" + sellerOrder,
+                canvas.document.sellerSections().size() > 1 ? "+" + (canvas.document.sellerSections().size() - 1) + " additional seller(s)" : null);
+        canvas.move(98f);
     }
 
     private void drawSellerSections(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
@@ -152,12 +149,12 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
     private void drawItemHeader(Canvas canvas) throws IOException {
         canvas.ensure(28f);
         float y = canvas.y();
-        canvas.fill(MARGIN, y - 20f, CONTENT_WIDTH, 20f, NAVY);
-        canvas.text("PRODUCT", MARGIN + 6f, y - 13f, 7.5f, canvas.fonts.bold, Color.WHITE);
-        canvas.text("QTY", MARGIN + 248f, y - 13f, 7.5f, canvas.fonts.bold, Color.WHITE);
-        canvas.right("UNIT PRICE", MARGIN + 360f, y - 13f, 7.5f, canvas.fonts.bold, Color.WHITE);
-        canvas.right("DISCOUNT", MARGIN + 443f, y - 13f, 7.5f, canvas.fonts.bold, Color.WHITE);
-        canvas.right("TOTAL", MARGIN + CONTENT_WIDTH - 6f, y - 13f, 7.5f, canvas.fonts.bold, Color.WHITE);
+        canvas.text("PRODUCT", MARGIN + 2f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
+        canvas.text("QTY", MARGIN + 248f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
+        canvas.right("UNIT PRICE", MARGIN + 360f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
+        canvas.right("DISCOUNT", MARGIN + 443f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
+        canvas.right("TOTAL", MARGIN + CONTENT_WIDTH - 2f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
+        canvas.line(y - 20f);
         canvas.move(22f);
     }
 
@@ -168,15 +165,15 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         List<String> addressLines = shipping.address() == null
                 ? List.of()
                 : wrap(shipping.address(), CONTENT_WIDTH - 24f, canvas.fonts.regular, 8.5f);
-        float height = 47f + (addressLines.size() * 10.5f);
-        canvas.ensure(height + 21f);
-        canvas.section("DELIVERY OVERVIEW");
+        float height = 49f + (addressLines.size() * 10.5f);
+        canvas.ensure(height + 12f);
         canvas.panel(height);
-        float y = canvas.y() - 16f;
+        float y = canvas.y() - 15f;
+        canvas.text("DELIVERY OVERVIEW", MARGIN + 12f, y, 9f, canvas.fonts.bold, INK);
         String recipient = shipping.recipientName() == null ? "Recipient unavailable" : shipping.recipientName();
-        canvas.text(recipient, MARGIN + 12f, y, 9.5f, canvas.fonts.bold, INK);
+        canvas.text(recipient, MARGIN + 12f, y - 13f, 8.5f, canvas.fonts.regular, MUTED);
         if (shipping.address() != null) {
-            float lineY = y - 13f;
+            float lineY = y - 25f;
             for (String line : addressLines) {
                 canvas.text(line, MARGIN + 12f, lineY, 8.5f, canvas.fonts.regular, MUTED);
                 lineY -= 10.5f;
@@ -193,9 +190,9 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             delivery.add("Estimated delivery: " + shipping.estimatedDelivery());
         }
         if (!delivery.isEmpty()) {
-            canvas.text(String.join(" · ", delivery), MARGIN + 12f, canvas.y() - height + 14f, 8.5f, canvas.fonts.regular, MUTED);
+            canvas.text(String.join(" · ", delivery), MARGIN + 12f, canvas.y() - height + 12f, 8.5f, canvas.fonts.regular, MUTED);
         }
-        canvas.move(height + 12f);
+        canvas.move(height + 14f);
     }
 
     private void drawPayment(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
@@ -338,6 +335,15 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         return value == null ? "Not available" : value;
     }
 
+    private static String roleCopy(OrderSummaryPdfDocument document) {
+        String copy = switch (document.role()) {
+            case BUYER -> "Buyer copy";
+            case SELLER -> "Seller copy";
+            case ADMIN -> "Internal admin copy";
+        };
+        return copy + " · Order #" + document.orderNumber() + " · " + formatDate(document.generatedAt());
+    }
+
     private static String fileName(String orderNumber) {
         String safeOrder = orderNumber.replaceAll("[^A-Za-z0-9._-]", "_");
         return "order-summary-" + safeOrder + ".pdf";
@@ -476,11 +482,11 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             PDPage page = new PDPage(PAGE_SIZE);
             pdf.addPage(page);
             content = new PDPageContentStream(pdf, page);
-            fill(0, PAGE_HEIGHT - (firstPage ? 96f : 48f), PAGE_WIDTH, firstPage ? 96f : 48f, NAVY);
-            text("PEGASUS TCG", MARGIN, PAGE_HEIGHT - (firstPage ? 36f : 30f), firstPage ? 17f : 12f, fonts.bold, Color.WHITE);
-            text(firstPage ? "ORDER SUMMARY" : "ORDER SUMMARY · CONTINUED", MARGIN, PAGE_HEIGHT - (firstPage ? 56f : 41f), 8.5f, fonts.regular, new Color(211, 225, 236));
-            text(document.role().name() + " COPY", PAGE_WIDTH - MARGIN - 72f, PAGE_HEIGHT - (firstPage ? 36f : 30f), 8f, fonts.bold, new Color(211, 225, 236));
-            y = PAGE_HEIGHT - (firstPage ? 116f : 66f);
+            text("PEGASUS", MARGIN, PAGE_HEIGHT - 37f, 25f, fonts.bold, PRIMARY);
+            String roleTitle = document.role().name() + " ORDER SUMMARY";
+            right(roleTitle, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 29f, 13f, fonts.bold, INK);
+            right(roleCopy(document), PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 44f, 8.5f, fonts.regular, MUTED);
+            y = PAGE_HEIGHT - 94f;
         }
 
         private void close() throws IOException {
@@ -543,9 +549,43 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         }
 
         private void line(float atY) throws IOException {
-            content.setStrokingColor(BORDER);
+            line(atY, BORDER, 1f);
+        }
+
+        private void line(float atY, Color color, float width) throws IOException {
+            content.setStrokingColor(color);
+            content.setLineWidth(width);
             content.moveTo(MARGIN, atY);
             content.lineTo(MARGIN + CONTENT_WIDTH, atY);
+            content.stroke();
+            content.setLineWidth(1f);
+        }
+
+        private void badge(String value, float x, float top) throws IOException {
+            float width = 86f;
+            float height = 20f;
+            fill(x, top - height, width, height, PRIMARY);
+            text(value, x + 10f, top - 13.5f, 8f, fonts.bold, Color.WHITE);
+        }
+
+        private void partyCard(float x, float width, String title, String primary, String secondary, String tertiary) throws IOException {
+            whitePanelAt(x, y, width, 78f);
+            text(title, x + 14f, y - 16f, 9f, fonts.bold, INK);
+            text(primary, x + 14f, y - 31f, 8.5f, fonts.regular, MUTED);
+            if (secondary != null) {
+                text(secondary, x + 14f, y - 44f, 8.5f, fonts.regular, MUTED);
+            }
+            if (tertiary != null) {
+                text(tertiary, x + 14f, y - 57f, 8.5f, fonts.regular, MUTED);
+            }
+        }
+
+        private void whitePanelAt(float x, float top, float width, float height) throws IOException {
+            content.setNonStrokingColor(Color.WHITE);
+            content.addRect(x, top - height, width, height);
+            content.fill();
+            content.setStrokingColor(BORDER);
+            content.addRect(x, top - height, width, height);
             content.stroke();
         }
 
