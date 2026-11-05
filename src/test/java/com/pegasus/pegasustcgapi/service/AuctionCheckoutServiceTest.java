@@ -78,11 +78,9 @@ class AuctionCheckoutServiceTest {
     private Auction auction(long winner, AuctionStatus status, Long orderId) {
         Auction a = mock(Auction.class);
         lenient().when(a.winnerId()).thenReturn(winner);
-        if (orderId != null) when(a.salesOrderId()).thenReturn(orderId);
-        else {
-            lenient().when(a.status()).thenReturn(status);
-            lenient().when(a.paymentDueAt()).thenReturn(OffsetDateTime.now(CLOCK).plusHours(1));
-        }
+        lenient().when(a.salesOrderId()).thenReturn(orderId);
+        lenient().when(a.status()).thenReturn(status);
+        lenient().when(a.paymentDueAt()).thenReturn(OffsetDateTime.now(CLOCK).plusHours(1));
         return a;
     }
 
@@ -136,14 +134,16 @@ class AuctionCheckoutServiceTest {
     }
 
     @Test void otherBuyerCannotCheckout() {
-        when(auctions.lock(5L)).thenReturn(Optional.of(auction(99L, AuctionStatus.AWAITING_PAYMENT, null)));
+        Auction a = auction(99L, AuctionStatus.AWAITING_PAYMENT, null);
+        when(auctions.lock(5L)).thenReturn(Optional.of(a));
         assertThatThrownBy(() -> service.checkout(5L, BUYER, "key", new AuctionCheckout(3L, null, null, null)))
                 .isInstanceOf(ForbiddenException.class);
         verify(orders, never()).nextOrderNumber();
     }
 
     @Test void repeatedCheckoutReturnsTheSameOrder() {
-        when(auctions.lock(5L)).thenReturn(Optional.of(auction(42L, AuctionStatus.AWAITING_PAYMENT, 100L)));
+        Auction a = auction(42L, AuctionStatus.AWAITING_PAYMENT, 100L);
+        when(auctions.lock(5L)).thenReturn(Optional.of(a));
         SalesOrderRecord sale = mock(SalesOrderRecord.class);
         when(sale.getIdempotencyKey()).thenReturn("key");
         when(sale.getId()).thenReturn(100L);
@@ -164,7 +164,7 @@ class AuctionCheckoutServiceTest {
 
     @Test void expiredPaymentWindowIsRejected() {
         Auction a = auction(42L, AuctionStatus.AWAITING_PAYMENT, null);
-        when(a.paymentDueAt()).thenReturn(OffsetDateTime.now(CLOCK).minusSeconds(1));
+        lenient().when(a.paymentDueAt()).thenReturn(OffsetDateTime.now(CLOCK).minusSeconds(1));
         when(auctions.lock(5L)).thenReturn(Optional.of(a));
         assertThatThrownBy(() -> service.checkout(5L, BUYER, "key", new AuctionCheckout(3L, null, null, null)))
                 .isInstanceOf(ConflictException.class);
