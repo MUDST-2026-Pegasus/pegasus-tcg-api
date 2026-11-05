@@ -62,6 +62,7 @@ public record ProductSearchQuery(
      * matching listing on sale, with cards nobody is selling last either way.
      */
     public enum Sort {
+        RELEVANCE,
         NAME,
         NEWEST,
         CARD_NUMBER,
