@@ -223,7 +223,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(properties.allowedOrigins());
+        properties.applyTo(config);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of(
                 "Authorization",
@@ -234,9 +234,6 @@ public class SecurityConfig {
         config.setExposedHeaders(List.of(
                 "X-Cart-Session",
                 "Idempotency-Key"));
-        if (properties.allowedOrigins().contains("*")) {
-            throw new IllegalStateException("Credentialed CORS requires explicit allowed origins");
-        }
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 
