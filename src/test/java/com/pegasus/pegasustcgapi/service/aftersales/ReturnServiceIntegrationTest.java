@@ -125,7 +125,7 @@ class ReturnServiceIntegrationTest extends PostgresIntegrationTest {
         var seller = data.seller();
         var buyer = data.buyer();
         var card = data.card(data.game("Pokemon"), "Returnable " + data.tag(), "AR");
-        var listing = data.onSale(seller, card, CardCondition.NM, 3, "100.00");
+        var listing = data.onSale(seller, card, CardCondition.NM, 5, "100.00");
         cart.addItem(buyer, null, new CartItemRequest(listing.id(), 3));
         var order = checkout.checkout(buyer, "return-units-" + data.tag(), null, null);
         long suborderId = order.sellerOrders().getFirst().id();

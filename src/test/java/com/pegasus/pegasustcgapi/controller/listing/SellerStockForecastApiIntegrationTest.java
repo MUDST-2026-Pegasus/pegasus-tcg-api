@@ -25,7 +25,6 @@ import tools.jackson.databind.JsonNode;
 
 class SellerStockForecastApiIntegrationTest extends PostgresIntegrationTest {
     private static final String PATH = "/api/v1/sellers/me/listings/stock-forecast";
-    private static final Instant NOW = Instant.parse("2026-11-05T12:00:00Z");
 
     @Autowired CartService cart;
     @Autowired CheckoutService checkout;
@@ -33,10 +32,13 @@ class SellerStockForecastApiIntegrationTest extends PostgresIntegrationTest {
     private ApiClient api;
     private Seller seller;
     private Listing listing;
+    private Instant now;
 
     @BeforeEach
     void setUp() {
-        clock.setInstant(NOW);
+        // JWT validation uses the system clock, so issue test tokens near real time.
+        now = Instant.now();
+        clock.setInstant(now);
         api = new ApiClient(port);
         seller = data.seller();
         var card = data.card(data.game("Forecast"), "Forecast card " + data.tag(), "R");
@@ -63,7 +65,7 @@ class SellerStockForecastApiIntegrationTest extends PostgresIntegrationTest {
     @Test
     void completedSalesUseInclusiveStartExclusiveEnd() {
         AuthPrincipal buyer = data.buyer();
-        OffsetDateTime end = NOW.atOffset(ZoneOffset.UTC);
+        OffsetDateTime end = now.atOffset(ZoneOffset.UTC);
         completedOrder(buyer, 2, end.minusDays(30));
         completedOrder(buyer, 3, end.minusDays(30).minusSeconds(1));
         completedOrder(buyer, 4, end);
@@ -71,14 +73,14 @@ class SellerStockForecastApiIntegrationTest extends PostgresIntegrationTest {
         JsonNode row = ownForecast();
         assertThat(row.path("completedSales30Days").asInt()).isEqualTo(2);
         assertThat(row.path("status").asString()).isEqualTo("FORECAST_AVAILABLE");
-        assertThat(row.path("periodStart").asString()).startsWith("2026-10-06T12:00");
-        assertThat(row.path("periodEnd").asString()).startsWith("2026-11-05T12:00");
+        assertThat(OffsetDateTime.parse(row.path("periodStart").asString())).isEqualTo(end.minusDays(30));
+        assertThat(OffsetDateTime.parse(row.path("periodEnd").asString())).isEqualTo(end);
     }
 
     @Test
     void closedPartialReturnSubtractsOnlyReturnedUnits() {
         AuthPrincipal buyer = data.buyer();
-        long orderId = completedOrder(buyer, 3, NOW.atOffset(ZoneOffset.UTC).minusDays(1));
+        long orderId = completedOrder(buyer, 3, now.atOffset(ZoneOffset.UTC).minusDays(1));
         long itemId = dsl.select(ORDER_ITEM.ID).from(ORDER_ITEM)
                 .where(ORDER_ITEM.SELLER_ORDER_ID.eq(orderId)).fetchSingle(ORDER_ITEM.ID);
         long returnId = dsl.insertInto(RETURN_REQUEST)
