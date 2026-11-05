@@ -166,6 +166,21 @@ class AuctionBrowseServiceTest {
         given(variants.findById(VARIANT_ID)).willReturn(Optional.empty());
     }
 
+    /** List pages load every card in one batch. */
+    private void stubCardRendererBatch() {
+        ListingCard card = new ListingCard(
+                VARIANT_ID,
+                "PKM-1",
+                "NM",
+                true,
+                VARIANT_ID,
+                "Charizard",
+                "charizard",
+                (short) 1,
+                null);
+        given(cards.cards(Set.of(VARIANT_ID))).willReturn(Map.of(VARIANT_ID, card));
+    }
+
     private static Address sampleAddress(long userId) {
         return new Address(1L, userId, "Home", "User", "0812345678", "123 St", null, "Sub", "Dist", "BKK", "10110", "TH", true, false, NOW);
     }
@@ -177,11 +192,11 @@ class AuctionBrowseServiceTest {
         @Test
         @DisplayName("list() with filters and sort calls repository with correct query and returns summaries")
         void list_WithFiltersAndSort_ReturnsSummaries() {
-            stubCardRenderer();
+            stubCardRendererBatch();
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), 0, new BigDecimal("3000.00"));
             given(auctions.findPublicCatalog(any(PublicAuctionQuery.class))).willReturn(List.of(auction));
             given(auctions.countPublicCatalog(any(PublicAuctionQuery.class))).willReturn(1L);
-            given(auctions.findSellerInfo(SELLER_PROFILE_ID)).willReturn(Optional.of(new SellerInfo("Pegasus Shop", "pegasus", new BigDecimal("4.8"))));
+            given(auctions.findShopNames(Set.of(SELLER_PROFILE_ID))).willReturn(Map.of(SELLER_PROFILE_ID, "Pegasus Shop"));
 
             Map<Filter, Long> filterCounts = new EnumMap<>(Filter.class);
             filterCounts.put(Filter.ENDING_SOON, 5L);
@@ -204,11 +219,10 @@ class AuctionBrowseServiceTest {
         @Test
         @DisplayName("list() when auction has bids disables buy-now price in summary")
         void list_WhenHasBids_BuyNowPriceIsNull() {
-            stubCardRenderer();
+            stubCardRendererBatch();
             Auction auctionWithBids = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1050.00"), 1, new BigDecimal("2500.00"));
             given(auctions.findPublicCatalog(any(PublicAuctionQuery.class))).willReturn(List.of(auctionWithBids));
             given(auctions.countPublicCatalog(any(PublicAuctionQuery.class))).willReturn(1L);
-            given(auctions.findSellerInfo(SELLER_PROFILE_ID)).willReturn(Optional.empty());
             given(auctions.publicFilterCounts(any())).willReturn(Map.of());
             given(auctions.countLiveAuctions(any())).willReturn(1L);
 

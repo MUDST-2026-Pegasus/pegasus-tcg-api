@@ -14,7 +14,6 @@ import com.pegasus.pegasustcgapi.repository.catalog.CatalogVariantRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.GameRepository;
 import com.pegasus.pegasustcgapi.service.listing.ListingCardRenderer;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -78,43 +77,14 @@ public class AuctionItemMapper {
         }
     }
 
+    /**
+     * Loads everything a page of auction cards needs in a fixed number of queries. A failed
+     * query is not caught: it reaches GlobalExceptionHandler instead of leaving the page blank.
+     */
     public AuctionItemBundle buildAuctionItems(Collection<Long> catalogVariantIds, Collection<Long> sellerProfileIds) {
-        Map<Long, ListingCard> cardMap = new HashMap<>();
-        if (catalogVariantIds != null && !catalogVariantIds.isEmpty()) {
-            try {
-                Map<Long, ListingCard> batch = cards.cards(catalogVariantIds);
-                if (batch != null) {
-                    cardMap.putAll(batch);
-                }
-            } catch (Exception ignored) {}
-            for (Long vid : catalogVariantIds) {
-                if (!cardMap.containsKey(vid)) {
-                    try {
-                        ListingCard c = cards.card(vid);
-                        if (c != null) {
-                            cardMap.put(vid, c);
-                        }
-                    } catch (Exception ignored) {}
-                }
-            }
-        }
-
-        Map<Long, CatalogVariant> variantMap = new HashMap<>();
-        if (catalogVariantIds != null && !catalogVariantIds.isEmpty()) {
-            try {
-                Map<Long, CatalogVariant> batch = variants.findByIds(catalogVariantIds);
-                if (batch != null) {
-                    variantMap.putAll(batch);
-                }
-            } catch (Exception ignored) {}
-            for (Long vid : catalogVariantIds) {
-                if (!variantMap.containsKey(vid)) {
-                    try {
-                        variants.findById(vid).ifPresent(v -> variantMap.put(vid, v));
-                    } catch (Exception ignored) {}
-                }
-            }
-        }
+        boolean hasVariants = catalogVariantIds != null && !catalogVariantIds.isEmpty();
+        Map<Long, ListingCard> cardMap = hasVariants ? cards.cards(catalogVariantIds) : Map.of();
+        Map<Long, CatalogVariant> variantMap = hasVariants ? variants.findByIds(catalogVariantIds) : Map.of();
 
         List<Long> productIds = variantMap.values().stream()
                 .map(CatalogVariant::catalogProductId)
@@ -144,53 +114,16 @@ public class AuctionItemMapper {
                 ? cardSets.findByIds(setIds)
                 : Map.of();
 
-        Map<Long, String> shopNameMap = new HashMap<>();
-        if (sellerProfileIds != null && !sellerProfileIds.isEmpty()) {
-            try {
-                Map<Long, String> batch = auctions.findShopNames(sellerProfileIds);
-                if (batch != null) {
-                    shopNameMap.putAll(batch);
-                }
-            } catch (Exception ignored) {}
-            for (Long sid : sellerProfileIds) {
-                if (!shopNameMap.containsKey(sid)) {
-                    try {
-                        auctions.findSellerInfo(sid).ifPresent(info -> shopNameMap.put(sid, info.shopName()));
-                    } catch (Exception ignored) {}
-                }
-            }
-        }
+        Map<Long, String> shopNameMap = sellerProfileIds != null && !sellerProfileIds.isEmpty()
+                ? auctions.findShopNames(sellerProfileIds)
+                : Map.of();
 
         return new AuctionItemBundle(cardMap, variantMap, productMap, gameMap, setMap, shopNameMap);
     }
 
     public AuctionItem buildAuctionItem(long catalogVariantId, CardCondition condition) {
-        ListingCard card = null;
-        try {
-            card = cards.card(catalogVariantId);
-        } catch (Exception ignored) {}
-        if (card == null) {
-            try {
-                Map<Long, ListingCard> map = cards.cards(List.of(catalogVariantId));
-                if (map != null) {
-                    card = map.get(catalogVariantId);
-                }
-            } catch (Exception ignored) {}
-        }
-
-        CatalogVariant variant = null;
-        try {
-            variant = variants.findById(catalogVariantId).orElse(null);
-        } catch (Exception ignored) {}
-        if (variant == null) {
-            try {
-                Map<Long, CatalogVariant> map = variants.findByIds(List.of(catalogVariantId));
-                if (map != null) {
-                    variant = map.get(catalogVariantId);
-                }
-            } catch (Exception ignored) {}
-        }
-
+        ListingCard card = cards.card(catalogVariantId);
+        CatalogVariant variant = variants.findById(catalogVariantId).orElse(null);
         if (variant == null) {
             return new AuctionItem(card, condition, null, null, null, null);
         }
@@ -208,13 +141,7 @@ public class AuctionItemMapper {
     }
 
     public String resolveShopName(long sellerProfileId) {
-        Map<Long, String> names = auctions.findShopNames(List.of(sellerProfileId));
-        if (names != null && names.containsKey(sellerProfileId)) {
-            return names.get(sellerProfileId);
-        }
-        return auctions.findSellerInfo(sellerProfileId)
-                .map(AuctionRepository.SellerInfo::shopName)
-                .orElse("Shop");
+        return auctions.findShopNames(List.of(sellerProfileId)).getOrDefault(sellerProfileId, "Shop");
     }
 
     public static String maskUsername(String username) {
