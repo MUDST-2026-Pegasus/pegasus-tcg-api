@@ -20,6 +20,15 @@ class StockForecastServiceTest {
     }
 
     @Test
+    void usesBangkokDateAndRoundsUpAtMinimumSales() {
+        var end = OffsetDateTime.of(2026, 11, 5, 18, 0, 0, 0, ZoneOffset.UTC);
+        var result = StockForecastService.calculate(7, "Card", "ACTIVE", 1, 2, end.minusDays(30), end);
+        assertThat(result.status()).isEqualTo("FORECAST_AVAILABLE");
+        assertThat(result.daysRemaining()).isEqualTo(15);
+        assertThat(result.estimatedStockoutDate()).isEqualTo(end.toLocalDate().plusDays(16));
+    }
+
+    @Test
     void doesNotInventDateWithoutEnoughSalesOrStock() {
         for (var sample : new int[][] {{4, 0}, {4, 1}, {0, 10}}) {
             var result = StockForecastService.calculate(7, "Card", "ACTIVE", sample[0], sample[1], START, END);
