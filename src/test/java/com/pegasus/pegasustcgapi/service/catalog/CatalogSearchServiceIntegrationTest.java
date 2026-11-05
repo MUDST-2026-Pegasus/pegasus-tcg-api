@@ -1,6 +1,9 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogCategory.CATALOG_CATEGORY;
+import static com.pegasus.pegasustcgapi.jooq.tables.CardSet.CARD_SET;
+import static com.pegasus.pegasustcgapi.jooq.tables.Game.GAME;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pegasus.pegasustcgapi.common.PageResponse;
@@ -170,5 +173,31 @@ class CatalogSearchServiceIntegrationTest extends PostgresIntegrationTest {
 
         assertThat(page.items()).extracting(ProductSummaryResponse::id).containsExactly(pikachu.productId());
         assertThat(page.correctedQuery()).isEqualTo("Pokemon");
+    }
+
+    @Test
+    void typosInOtherSearchableFieldsFindTheSameProduct() {
+        short game = data.game("Pokemon");
+        Card card = data.card(game, "Charizard", "SR");
+        int category = dsl.select(CATALOG_PRODUCT.CATEGORY_ID).from(CATALOG_PRODUCT)
+                .where(CATALOG_PRODUCT.ID.eq(card.productId())).fetchSingle(CATALOG_PRODUCT.CATEGORY_ID);
+        int set = dsl.insertInto(CARD_SET)
+                .set(CARD_SET.GAME_ID, game)
+                .set(CARD_SET.CODE, "ST" + data.tag())
+                .set(CARD_SET.NAME, "Silver Tempest")
+                .returningResult(CARD_SET.ID).fetchSingle(CARD_SET.ID);
+        dsl.update(GAME).set(GAME.NAME_LOCAL, "Pocket Monsters").where(GAME.ID.eq(game)).execute();
+        dsl.update(CATALOG_CATEGORY).set(CATALOG_CATEGORY.NAME, "Booster Box")
+                .where(CATALOG_CATEGORY.ID.eq(category)).execute();
+        dsl.update(CATALOG_PRODUCT).set(CATALOG_PRODUCT.NAME_LOCAL, "Dracon")
+                .set(CATALOG_PRODUCT.CARD_NUMBER, "OP09-119")
+                .set(CATALOG_PRODUCT.CARD_SET_ID, set)
+                .where(CATALOG_PRODUCT.ID.eq(card.productId())).execute();
+
+        for (String typo : new String[] {"Monstres", "Boostre", "Temepst", "Dracno", "OP09-118"}) {
+            assertThat(publicSearch(game, typo).items())
+                    .as("search for %s", typo)
+                    .extracting(ProductSummaryResponse::id).containsExactly(card.productId());
+        }
     }
 }
