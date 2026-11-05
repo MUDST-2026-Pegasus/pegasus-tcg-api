@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.config.AuthProperties;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -26,6 +27,13 @@ public class RefreshCookie {
         this.name = name;
         this.domain = domain;
         this.secure = secure;
+        if (!List.of("Lax", "Strict", "None").contains(sameSite)) {
+            throw new IllegalStateException("Refresh cookie SameSite must be Lax, Strict or None: " + sameSite);
+        }
+        // Browsers drop SameSite=None cookies that are not Secure.
+        if ("None".equals(sameSite) && !secure) {
+            throw new IllegalStateException("Refresh cookie SameSite=None requires secure=true");
+        }
         this.sameSite = sameSite;
         this.maxAge = auth.refreshTokenTtl().toSeconds();
     }
