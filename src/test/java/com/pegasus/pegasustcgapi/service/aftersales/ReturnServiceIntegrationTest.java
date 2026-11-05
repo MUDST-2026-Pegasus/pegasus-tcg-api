@@ -25,6 +25,7 @@ import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.repository.payment.PaymentRepository;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -148,6 +149,8 @@ class ReturnServiceIntegrationTest extends PostgresIntegrationTest {
         refunds.startTransfer(refund.getId(), adminId, "1234567890");
         refunds.processed(refund.getId(), adminId, "REF-TEST");
 
+        // The forecast window excludes its end; move past the completed-at instant.
+        clock.advance(Duration.ofSeconds(1));
         var forecast = forecasts.detail(seller.userId(), listing.id());
         assertThat(dsl.select(SELLER_ORDER.COMPLETED_AT).from(SELLER_ORDER)
                 .where(SELLER_ORDER.ID.eq(suborderId)).fetchSingle(SELLER_ORDER.COMPLETED_AT)).isNotNull();
