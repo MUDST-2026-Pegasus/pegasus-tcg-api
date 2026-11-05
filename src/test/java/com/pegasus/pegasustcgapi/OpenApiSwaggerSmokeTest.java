@@ -64,6 +64,23 @@ class OpenApiSwaggerSmokeTest {
     }
 
     @Test
+    @DisplayName("documents the secured Buyer, Seller and Admin order summary PDF downloads")
+    void documentsOrderSummaryPdfDownloads() throws Exception {
+        mockMvc.perform(get("/v1/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/summary.pdf'].get.responses['200'].content['application/pdf'].schema.format")
+                        .value("binary"))
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/summary.pdf'].get.responses['401']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/sellers/me/orders/{id}/summary.pdf'].get.responses['200'].content['application/pdf'].schema.format")
+                        .value("binary"))
+                .andExpect(jsonPath("$.paths['/api/v1/sellers/me/orders/{id}/summary.pdf'].get.responses['401']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/admin/orders/{sellerOrderId}/summary.pdf'].get.responses['200'].content['application/pdf'].schema.format")
+                        .value("binary"))
+                .andExpect(jsonPath("$.paths['/api/v1/admin/orders/{sellerOrderId}/summary.pdf'].get.responses['403']")
+                        .exists());
+    }
+
+    @Test
     @DisplayName("documents public listing seller reputation and delivery fields")
     void documentsPublicListingSummary() throws Exception {
         mockMvc.perform(get("/v1/api-docs"))

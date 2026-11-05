@@ -9,7 +9,11 @@ import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.Summary;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.order.SellerOrderDeskService;
+import com.pegasus.pegasustcgapi.service.order.pdf.OrderSummaryPdfService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -17,6 +21,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,9 +41,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class SellerOrderController {
 
     private final SellerOrderDeskService desk;
+    private final OrderSummaryPdfService orderSummaryPdfs;
 
-    public SellerOrderController(SellerOrderDeskService desk) {
+    public SellerOrderController(SellerOrderDeskService desk, OrderSummaryPdfService orderSummaryPdfs) {
         this.desk = desk;
+        this.orderSummaryPdfs = orderSummaryPdfs;
     }
 
     @Operation(summary = "List seller orders",
@@ -80,6 +88,23 @@ public class SellerOrderController {
     @GetMapping("/{id}")
     public ApiResult<Detail> get(@PathVariable long id, AuthPrincipal principal) {
         return ApiResult.success(desk.detail(principal, id));
+    }
+
+    @Operation(summary = "Download seller order summary PDF",
+            description = "Downloads the authenticated seller's fulfillment and payout summary for their sub-order.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "PDF downloaded",
+                    content = @Content(mediaType = MediaType.APPLICATION_PDF_VALUE,
+                            schema = @Schema(type = "string", format = "binary")),
+                    headers = @Header(name = "Content-Disposition",
+                            description = "Attachment filename order-summary-{orderNumber}.pdf",
+                            schema = @Schema(type = "string"))),
+            @ApiResponse(responseCode = "401", description = "Unauthenticated"),
+            @ApiResponse(responseCode = "404", description = "Order not found")
+    })
+    @GetMapping(value = "/{id}/summary.pdf", produces = MediaType.APPLICATION_PDF_VALUE)
+    public ResponseEntity<byte[]> downloadSummary(@PathVariable long id, AuthPrincipal principal) {
+        return OrderSummaryPdfHttpResponse.from(orderSummaryPdfs.seller(principal, id));
     }
 
     @Operation(summary = "Accept order", description = "Takes a PAID sub-order on: PREPARING, with accepted_at set.")

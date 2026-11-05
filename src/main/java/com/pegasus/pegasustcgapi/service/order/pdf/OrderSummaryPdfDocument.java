@@ -8,9 +8,9 @@ import java.util.Objects;
 /**
  * Normalized, immutable input for the shared Order Summary PDF template.
  *
- * <p>The role-aware services in the next delivery map their own authorized order views into this
- * document. Keeping this type independent of controllers and persistence lets one renderer serve
- * Buyer, Seller, and Admin documents without widening any role's data access.
+ * <p>Role-scoped services map their authorized order views into this document. Keeping this type
+ * independent of controllers and persistence lets one renderer serve Buyer, Seller, and Admin
+ * documents without widening any role's data access.
  */
 public record OrderSummaryPdfDocument(
         OrderSummaryPdfRole role,

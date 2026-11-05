@@ -60,6 +60,18 @@ public class UserRepository {
                 .map(UserRepository::toAuthUser);
     }
 
+    /** The non-sensitive identity shown on a user's own order document. */
+    public Optional<UserIdentity> findIdentityById(long id) {
+        return dsl.select(USER_ACCOUNT.USERNAME, USER_ACCOUNT.DISPLAY_NAME)
+                .from(USER_ACCOUNT)
+                .where(USER_ACCOUNT.ID.eq(id))
+                .and(USER_ACCOUNT.DELETED_AT.isNull())
+                .fetchOptional(row -> new UserIdentity(row.value1(), row.value2()));
+    }
+
+    public record UserIdentity(String username, String displayName) {
+    }
+
     public boolean existsByEmail(String email) {
         return dsl.fetchExists(dsl.selectOne().from(USER_ACCOUNT).where(USER_ACCOUNT.EMAIL.eq(email)));
     }
