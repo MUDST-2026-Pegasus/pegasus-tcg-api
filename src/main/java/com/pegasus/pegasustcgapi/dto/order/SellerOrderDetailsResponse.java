@@ -38,9 +38,12 @@ public record SellerOrderDetailsResponse(
         BigDecimal sellerDiscount,
         /** What a Pegasus code took off this part; Pegasus pays it back at release. */
         BigDecimal platformDiscount,
-        /** What Pegasus will add to the shop's earnings at release, before any return. */
+        /**
+         * What Pegasus will add to the shop's earnings at release, before any return: its
+         * code's discount and its campaigns' sale discount [TCG-680].
+         */
         BigDecimal platformSubsidy,
-        /** Items less the shop's own discount: what commission is charged on. */
+        /** Items at the price Pegasus campaigns sold them against, less the shop's own discount: what commission is charged on. */
         BigDecimal commissionBase,
         List<AppliedPromotion> promotions,
         /** Cancelling now gives the codes back: true while the order is unpaid and holds a code. */

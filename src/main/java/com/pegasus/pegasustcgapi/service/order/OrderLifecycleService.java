@@ -36,6 +36,8 @@ import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
 import com.pegasus.pegasustcgapi.repository.promotion.PromotionRedemptionRepository;
+import com.pegasus.pegasustcgapi.service.sale.SaleCheckoutService;
+import com.pegasus.pegasustcgapi.dto.order.SaleDiscount;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
@@ -71,6 +73,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class OrderLifecycleService {
+
+    private SaleCheckoutService saleCheckout;
 
     private static final Logger log = LoggerFactory.getLogger(OrderLifecycleService.class);
 
@@ -814,6 +818,27 @@ public class OrderLifecycleService {
 
         orderRepository.updateSalesOrderStatus(salesOrderId, newStatus, paidAt, completedAt, cancelledAt);
         settlePromotions(salesOrderId, newStatus, paidAt, children);
+        settleSales(paidAt, children);
+    }
+
+    /**
+     * Flash quota and campaign budget follow the money the way codes do [TCG-680]:
+     * a part of the order cancelled or timed out before payment gives them back;
+     * once paid they stay spent, whatever happens after.
+     */
+    private void settleSales(OffsetDateTime paidAt, List<SellerOrderRecord> children) {
+        if (saleCheckout == null || paidAt != null) {
+            return;
+        }
+        children.stream()
+                .filter(child -> SellerOrderStatus.of(child.getStatus()) == SellerOrderStatus.CANCELLED)
+                .forEach(child -> saleCheckout.release(child.getId()));
+    }
+
+    /** Optional like {@link #setCheckoutPromotions}; Spring always supplies it. */
+    @Autowired(required = false)
+    void setSaleCheckout(SaleCheckoutService saleCheckout) {
+        this.saleCheckout = saleCheckout;
     }
 
     /** Codes still on these orders; none when the service was built without discount codes. */
@@ -1073,7 +1098,9 @@ public class OrderLifecycleService {
                                                 .subtract(money(oi.getSellerDiscountAllocated())),
                                         oi.getLineTotal().subtract(money(oi.getDiscountAllocated()))
                                                 .divide(BigDecimal.valueOf(oi.getQuantity()), 2,
-                                                        RoundingMode.HALF_UP));
+                                                        RoundingMode.HALF_UP),
+                                        SaleDiscount.listPrice(oi),
+                                        SaleDiscount.of(oi));
                             })
                             .toList();
 
@@ -1135,8 +1162,10 @@ public class OrderLifecycleService {
                     sellerNames.get(so.getSellerProfileId()),
                     money(so.getSellerDiscountAmount()),
                     money(so.getPlatformDiscountAmount()),
-                    money(so.getPlatformDiscountAmount()),
-                    so.getItemsSubtotal().subtract(money(so.getSellerDiscountAmount())),
+                    // A Pegasus code and a Pegasus campaign are both paid back at release [TCG-680].
+                    money(so.getPlatformDiscountAmount()).add(money(so.getSaleSubsidyAmount())),
+                    so.getItemsSubtotal().add(money(so.getSaleSubsidyAmount()))
+                            .subtract(money(so.getSellerDiscountAmount())),
                     promotions,
                     SellerOrderStatus.PENDING_PAYMENT.name().equals(so.getStatus()) && !promotions.isEmpty()));
         }
