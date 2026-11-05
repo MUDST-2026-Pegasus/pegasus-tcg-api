@@ -112,8 +112,13 @@ public class AdminMetricsService {
                 metrics.promotionCostBetween(previousFrom, from),
                 series(weeks, metrics.weeklyPromotionCost(sparkFrom, sparkTo, ZONE), BigDecimal.ZERO));
 
+        MoneyStat saleSubsidy = new MoneyStat(
+                metrics.saleSubsidyBetween(from, to),
+                metrics.saleSubsidyBetween(previousFrom, from),
+                series(weeks, metrics.weeklySaleSubsidy(sparkFrom, sparkTo, ZONE), BigDecimal.ZERO));
+
         Stats stats = new Stats(gmv, newSellers,
-                new ActiveListingsStat(active.listings(), active.sellers()), commission, promotionCost);
+                new ActiveListingsStat(active.listings(), active.sellers()), commission, promotionCost, saleSubsidy);
 
         return new Overview(
                 new Period(selected.toString(), from, to, previousFrom, from),

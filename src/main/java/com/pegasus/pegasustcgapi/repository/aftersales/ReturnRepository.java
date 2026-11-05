@@ -273,18 +273,32 @@ public class ReturnRepository {
      * @param shopShare   the part of their discount the shop's own code gave
      * @param pegasusShare the part a Pegasus code gave
      */
-    public record ReturnedValue(BigDecimal gross, BigDecimal shopShare, BigDecimal pegasusShare) {
+    /**
+     * @param gross            returned cards at what the buyer paid per card, before codes
+     * @param shopShare        the shop-code discount that went with them
+     * @param pegasusShare     the Pegasus-code discount that went with them
+     * @param saleSubsidyShare the Pegasus campaign discount on them, which Pegasus no
+     *                         longer owes the shop [TCG-680]
+     */
+    public record ReturnedValue(BigDecimal gross, BigDecimal shopShare, BigDecimal pegasusShare,
+                                BigDecimal saleSubsidyShare) {
 
         public static final ReturnedValue NONE =
-                new ReturnedValue(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+                new ReturnedValue(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+
+        public ReturnedValue(BigDecimal gross, BigDecimal shopShare, BigDecimal pegasusShare) {
+            this(gross, shopShare, pegasusShare, BigDecimal.ZERO);
+        }
     }
 
     public ReturnedValue returnedValue(long sellerOrderId) {
         BigDecimal gross = BigDecimal.ZERO;
         BigDecimal shop = BigDecimal.ZERO;
         BigDecimal pegasus = BigDecimal.ZERO;
+        BigDecimal saleSubsidy = BigDecimal.ZERO;
         for (var r : dsl.select(ORDER_ITEM.UNIT_PRICE, ORDER_ITEM.QUANTITY, ORDER_ITEM.DISCOUNT_ALLOCATED,
-                        ORDER_ITEM.SELLER_DISCOUNT_ALLOCATED, RETURN_ITEM.QUANTITY)
+                        ORDER_ITEM.SELLER_DISCOUNT_ALLOCATED, RETURN_ITEM.QUANTITY, ORDER_ITEM.SALE_DISCOUNT,
+                        ORDER_ITEM.SALE_FUNDED_BY)
                 .from(RETURN_ITEM)
                 .join(RETURN_REQUEST).on(RETURN_REQUEST.ID.eq(RETURN_ITEM.RETURN_REQUEST_ID))
                 .join(ORDER_ITEM).on(ORDER_ITEM.ID.eq(RETURN_ITEM.ORDER_ITEM_ID))
@@ -300,8 +314,11 @@ public class ReturnRepository {
             gross = gross.add(r.get(ORDER_ITEM.UNIT_PRICE).multiply(BigDecimal.valueOf(back)));
             shop = shop.add(share(shopPart, back, ordered));
             pegasus = pegasus.add(share(allocated.subtract(shopPart), back, ordered));
+            if ("PLATFORM".equals(r.get(ORDER_ITEM.SALE_FUNDED_BY))) {
+                saleSubsidy = saleSubsidy.add(r.get(ORDER_ITEM.SALE_DISCOUNT).multiply(BigDecimal.valueOf(back)));
+            }
         }
-        return new ReturnedValue(gross, shop, pegasus);
+        return new ReturnedValue(gross, shop, pegasus, saleSubsidy);
     }
 
     /**

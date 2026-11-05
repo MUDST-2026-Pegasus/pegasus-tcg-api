@@ -78,9 +78,13 @@ public class PriceSaleRepository {
         PriceSaleRecord r = apply(dsl.newRecord(PRICE_SALE), s);
         r.reset(PRICE_SALE.OWNER_TYPE);
         r.reset(PRICE_SALE.SELLER_PROFILE_ID);
+        // A bigger budget, or none, gives a campaign that ran short its money back [TCG-680].
+        var cap = DSL.val(s.budgetCap(), PRICE_SALE.BUDGET_CAP);
         dsl.update(PRICE_SALE)
                 .set(r)
                 .set(PRICE_SALE.VERSION, PRICE_SALE.VERSION.plus(1))
+                .set(PRICE_SALE.BUDGET_EXHAUSTED_AT, DSL.when(cap.isNull().or(cap.gt(PRICE_SALE.BUDGET_CAP)),
+                        DSL.castNull(PRICE_SALE.BUDGET_EXHAUSTED_AT)).otherwise(PRICE_SALE.BUDGET_EXHAUSTED_AT))
                 .where(PRICE_SALE.ID.eq(id))
                 .execute();
     }
@@ -197,7 +201,8 @@ public class PriceSaleRepository {
         return dsl.selectFrom(PRICE_SALE)
                 .where(notOver(now))
                 .and(PRICE_SALE.PAUSED_AT.isNull())
-                .and(PRICE_SALE.BUDGET_CAP.isNull().or(PRICE_SALE.SUBSIDY_RESERVED.lt(PRICE_SALE.BUDGET_CAP)))
+                .and(PRICE_SALE.BUDGET_CAP.isNull().or(PRICE_SALE.SUBSIDY_RESERVED.lt(PRICE_SALE.BUDGET_CAP)
+                        .and(PRICE_SALE.BUDGET_EXHAUSTED_AT.isNull())))
                 .orderBy(PRICE_SALE.ID)
                 .fetch(PriceSaleRepository::toSale);
     }
@@ -303,6 +308,7 @@ public class PriceSaleRepository {
                 r.getCreatedBy(),
                 r.getVersion(),
                 r.getCreatedAt(),
-                r.getUpdatedAt());
+                r.getUpdatedAt(),
+                r.getBudgetExhaustedAt());
     }
 }

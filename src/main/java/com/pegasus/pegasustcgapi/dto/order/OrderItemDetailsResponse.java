@@ -25,8 +25,35 @@ public record OrderItemDetailsResponse(
         BigDecimal sellerDiscountAllocated,
         BigDecimal platformDiscountAllocated,
         /** What returning one of these refunds: the unit price less its share of the discount. */
-        BigDecimal refundEstimatePerUnit
+        BigDecimal refundEstimatePerUnit,
+        /** The asking price per card; {@code unitPrice} is it less the sale discount [TCG-680]. */
+        BigDecimal listPrice,
+        /** What a sale took off this line, split by who pays for it [TCG-680]. */
+        SaleDiscount saleDiscount
 ) {
+    public OrderItemDetailsResponse(
+            long id,
+            Long listingId,
+            long catalogVariantId,
+            int quantity,
+            BigDecimal unitPrice,
+            BigDecimal lineTotal,
+            String productName,
+            String variantLabel,
+            String condition,
+            String gameName,
+            String imageKey,
+            String imageUrl,
+            List<Long> unitIds,
+            BigDecimal discountAllocated,
+            BigDecimal sellerDiscountAllocated,
+            BigDecimal platformDiscountAllocated,
+            BigDecimal refundEstimatePerUnit) {
+        this(id, listingId, catalogVariantId, quantity, unitPrice, lineTotal, productName, variantLabel, condition,
+                gameName, imageKey, imageUrl, unitIds, discountAllocated, sellerDiscountAllocated,
+                platformDiscountAllocated, refundEstimatePerUnit, unitPrice, SaleDiscount.NONE);
+    }
+
     public OrderItemDetailsResponse(
             long id,
             Long listingId,
