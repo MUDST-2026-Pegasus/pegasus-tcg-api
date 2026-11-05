@@ -51,7 +51,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -99,7 +98,6 @@ public class SellerAuctionService {
             GameRepository games,
             CardSetRepository cardSets,
             ListingCardRenderer cards,
-            DSLContext dsl,
             Clock clock) {
         this(auctions, units, inventoryService, sellers, ledgerPort,
                 new AuctionItemMapper(cards, variants, products, games, cardSets, auctions),

@@ -47,7 +47,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
-import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -100,8 +99,6 @@ class SellerAuctionServiceTest {
     @Mock
     private ListingCardRenderer cards;
 
-    @Mock
-    private DSLContext dsl;
 
     private SellerAuctionService service;
 
@@ -120,7 +117,6 @@ class SellerAuctionServiceTest {
                 games,
                 cardSets,
                 cards,
-                dsl,
                 FIXED_CLOCK);
 
         verifiedSeller = new SellerProfile(

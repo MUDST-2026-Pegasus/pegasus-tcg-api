@@ -446,15 +446,14 @@ public class AuctionRepository {
     }
 
     public Map<Filter, Long> publicFilterCounts(OffsetDateTime now) {
+        OffsetDateTime effectiveNow = now != null ? now : OffsetDateTime.now(clock);
         Map<Filter, Long> counts = new EnumMap<>(Filter.class);
-        var baseCond = AUCTION.STATUS.eq(AuctionStatus.LIVE.name());
-        if (now != null) {
-            baseCond = baseCond.and(AUCTION.ENDS_AT.gt(now));
-        }
-        counts.put(Filter.ENDING_SOON, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.ENDS_AT.le(now.plusHours(1)).and(AUCTION.ENDS_AT.gt(now)))));
+        var baseCond = AUCTION.STATUS.eq(AuctionStatus.LIVE.name())
+                .and(AUCTION.ENDS_AT.gt(effectiveNow));
+        counts.put(Filter.ENDING_SOON, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.ENDS_AT.le(effectiveNow.plusHours(1))).and(AUCTION.ENDS_AT.gt(effectiveNow))));
         counts.put(Filter.BUY_NOW, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.BUY_NOW_PRICE.isNotNull()).and(AUCTION.BID_COUNT.eq(0))));
         counts.put(Filter.NO_BIDS, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.BID_COUNT.eq(0))));
-        counts.put(Filter.NEW, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.STARTED_AT.ge(now.minusHours(24)))));
+        counts.put(Filter.NEW, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.STARTED_AT.ge(effectiveNow.minusHours(24)))));
         return counts;
     }
 
