@@ -42,6 +42,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.86'
     // Object storage. Talks S3 to MinIO in compose.yaml.
     implementation 'io.minio:minio:9.0.3'

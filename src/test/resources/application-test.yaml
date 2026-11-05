@@ -2,3 +2,15 @@ pegasus:
   payment:
     # Explicitly enabled by default for test profile
     mock-enabled: ${PAYMENT_MOCK_ENABLED:true}
+
+management:
+  tracing:
+    enabled: false
+    export:
+      enabled: false
+      otlp:
+        enabled: false
+  otlp:
+    metrics:
+      export:
+        enabled: false
