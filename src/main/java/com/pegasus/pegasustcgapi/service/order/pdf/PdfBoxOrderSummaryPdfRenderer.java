@@ -111,8 +111,16 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         List<String> sellerDetails = new ArrayList<>();
         sellerDetails.add(sellerName);
         if (sellerOrder != null) sellerDetails.add("Store order #" + sellerOrder);
-        if (document.shipping() != null && document.shipping().carrierName() != null) sellerDetails.add(document.shipping().carrierName());
-        if (document.shipping() != null && document.shipping().trackingNumber() != null) sellerDetails.add("Tracking: " + document.shipping().trackingNumber());
+        if (document.role() == OrderSummaryPdfRole.ADMIN && document.payment() != null && document.payment().hasAnyValue()) {
+            sellerDetails.add("Payment: " + valueOrUnavailable(document.payment().status()));
+        }
+        if (document.shipping() != null && document.shipping().carrierName() != null) {
+            String carrier = document.shipping().carrierName();
+            if (document.shipping().trackingNumber() != null) carrier += " · " + document.shipping().trackingNumber();
+            sellerDetails.add(carrier);
+        } else if (document.shipping() != null && document.shipping().trackingNumber() != null) {
+            sellerDetails.add("Tracking: " + document.shipping().trackingNumber());
+        }
         String sellerTitle = document.role() == OrderSummaryPdfRole.BUYER ? "SELLER" : "SELLER ACCOUNT";
         canvas.partyCard(MARGIN + cardWidth + 16f, cardWidth, sellerTitle, sellerDetails);
         canvas.move(106f);
@@ -136,7 +144,7 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         }
         for (OrderSummaryPdfDocument.LineItem item : items) {
             List<String> productLines = wrap(item.productName(), 300f, canvas.fonts.bold, 8.5f);
-            String details = itemDetails(item);
+            String details = itemDetails(item, currency);
             float rowHeight = Math.max(37f, (productLines.size() * 10.5f) + (details == null ? 12f : 22f));
             if (!canvas.fits(rowHeight)) {
                 canvas.openPage(false);
@@ -228,9 +236,12 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
                     + " · Tracking: " + valueOrUnavailable(shipping == null ? null : shipping.trackingNumber());
         } else {
             heading = "RISK & AUDIT";
-            firstLine = "Order status: " + document.status();
-            String event = document.statusHistory().isEmpty() ? "No dispute or audit notes are available." : document.statusHistory().getLast().note();
-            secondLine = event == null || event.isBlank() ? "No dispute or audit notes are available." : event;
+            OrderSummaryPdfDocument.Payment payment = document.payment();
+            firstLine = payment == null || !payment.hasAnyValue()
+                    ? "Order status: " + document.status()
+                    : "Payment: " + valueOrUnavailable(payment.method()) + " · " + valueOrUnavailable(payment.status())
+                            + " · " + money(payment.amount(), document.currency());
+            secondLine = statusHistorySummary(document.statusHistory());
         }
         canvas.text(heading, MARGIN + 12f, titleY, 9f, canvas.fonts.bold, INK);
         canvas.text(firstLine, MARGIN + 12f, titleY - 14f, 8.2f, canvas.fonts.regular, MUTED);
@@ -277,12 +288,25 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         }
     }
 
-    private static String itemDetails(OrderSummaryPdfDocument.LineItem item) {
+    private static String itemDetails(OrderSummaryPdfDocument.LineItem item, String currency) {
         List<String> details = new ArrayList<>();
         if (item.variantLabel() != null) details.add(item.variantLabel());
         if (item.condition() != null) details.add(item.condition());
         if (item.gameName() != null) details.add(item.gameName());
+        if (item.discount().signum() != 0) details.add("Discount: -" + money(item.discount().abs(), currency));
         return details.isEmpty() ? null : String.join(" · ", details);
+    }
+
+    private static String statusHistorySummary(List<OrderSummaryPdfDocument.StatusEvent> history) {
+        if (history.isEmpty()) {
+            return "Status history: No events recorded";
+        }
+        StringBuilder summary = new StringBuilder("Status history: ");
+        for (int index = 0; index < history.size(); index++) {
+            if (index > 0) summary.append(" -> ");
+            summary.append(history.get(index).status());
+        }
+        return summary.toString();
     }
 
     private static String money(BigDecimal value, String currency) {
