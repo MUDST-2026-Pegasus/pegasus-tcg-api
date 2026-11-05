@@ -987,7 +987,7 @@ public class CheckoutService {
      * either break the document — Postgres rejects a malformed jsonb and the buyer
      * can never check out again — or quietly change what the stored record says.
      */
-    private JSONB createAddressSnapshot(Address a) {
+    public JSONB createAddressSnapshot(Address a) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("id", a.id());
         snapshot.put("recipientName", a.recipientName());

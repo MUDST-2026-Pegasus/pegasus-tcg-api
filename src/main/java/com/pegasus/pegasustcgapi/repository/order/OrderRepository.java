@@ -6,6 +6,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIA
 import static com.pegasus.pegasustcgapi.jooq.tables.CollectionItem.COLLECTION_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.Game.GAME;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
+import static com.pegasus.pegasustcgapi.jooq.tables.ListingUnit.LISTING_UNIT;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItemUnit.ORDER_ITEM_UNIT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Payment.PAYMENT;
@@ -69,7 +70,7 @@ public class OrderRepository {
     }
 
     public record ListingSnapshotDetails(
-            long listingId,
+            Long listingId,
             long catalogVariantId,
             String condition,
             String productName,
@@ -234,6 +235,36 @@ public class OrderRepository {
                 });
     }
 
+    /** The same order-item snapshot for a physical card removed from its listing for auction. */
+    public Optional<ListingSnapshotDetails> findAuctionCardDetails(long unitId) {
+        return dsl.select(LISTING_UNIT.LISTING_ID, LISTING_UNIT.CATALOG_VARIANT_ID,
+                        LISTING_UNIT.CONDITION_CODE, CATALOG_PRODUCT.NAME,
+                        CATALOG_VARIANT.LANGUAGE_CODE, CATALOG_VARIANT.FINISH,
+                        CATALOG_VARIANT.EDITION, CATALOG_VARIANT.PRINTING_NOTE,
+                        GAME.NAME, CATALOG_IMAGE.IMAGE_KEY)
+                .from(LISTING_UNIT)
+                .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING_UNIT.CATALOG_VARIANT_ID))
+                .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                .leftJoin(GAME).on(GAME.ID.eq(CATALOG_PRODUCT.GAME_ID))
+                .leftJoin(CATALOG_IMAGE).on(CATALOG_IMAGE.CATALOG_PRODUCT_ID.eq(CATALOG_PRODUCT.ID)
+                        .and(CATALOG_IMAGE.IS_PRIMARY.isTrue()))
+                .where(LISTING_UNIT.ID.eq(unitId))
+                .fetchOptional(r -> {
+                    StringBuilder label = new StringBuilder(
+                            r.get(CATALOG_VARIANT.LANGUAGE_CODE) == null ? "EN" : r.get(CATALOG_VARIANT.LANGUAGE_CODE));
+                    for (String part : new String[]{r.get(CATALOG_VARIANT.FINISH),
+                            r.get(CATALOG_VARIANT.EDITION), r.get(CATALOG_VARIANT.PRINTING_NOTE)}) {
+                        if (part != null && !part.isBlank() && !"NOT_APPLICABLE".equals(part)) {
+                            label.append(" / ").append(part);
+                        }
+                    }
+                    return new ListingSnapshotDetails(r.get(LISTING_UNIT.LISTING_ID),
+                            r.get(LISTING_UNIT.CATALOG_VARIANT_ID), r.get(LISTING_UNIT.CONDITION_CODE),
+                            r.get(CATALOG_PRODUCT.NAME), label.toString(), r.get(GAME.NAME),
+                            r.get(CATALOG_IMAGE.IMAGE_KEY));
+                });
+    }
+
     public SalesOrderRecord insertSalesOrder(
             String orderNumber,
             long buyerId,
@@ -262,6 +293,13 @@ public class OrderRepository {
                 .set(SALES_ORDER.IDEMPOTENCY_KEY, idempotencyKey)
                 .returning()
                 .fetchSingle();
+    }
+
+    /** Set the source before committing the auction checkout. */
+    public void markAuctionSource(long orderId, long auctionId) {
+        dsl.update(SALES_ORDER).set(SALES_ORDER.SOURCE, "AUCTION")
+                .set(SALES_ORDER.AUCTION_ID, auctionId)
+                .where(SALES_ORDER.ID.eq(orderId)).execute();
     }
 
     /**
@@ -798,6 +836,7 @@ public class OrderRepository {
                         dsl.select(SALES_ORDER.ID)
                                 .from(SALES_ORDER)
                                 .where(SALES_ORDER.STATUS.eq("PENDING_PAYMENT"))
+                                .and(SALES_ORDER.SOURCE.eq("CART"))
                                 .and(SALES_ORDER.PLACED_AT.lt(cutoff))
                                 .andNotExists(dsl.selectOne().from(PAYMENT)
                                         .where(PAYMENT.SALES_ORDER_ID.eq(SALES_ORDER.ID))

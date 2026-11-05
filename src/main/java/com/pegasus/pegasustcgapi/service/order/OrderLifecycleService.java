@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.service.order;
 
 import com.pegasus.pegasustcgapi.service.payment.PaymentService;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.service.promotion.CheckoutPromotionService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 
@@ -99,6 +100,7 @@ public class OrderLifecycleService {
     private final Clock clock;
     private final StorageService storageService;
     private CheckoutPromotionService checkoutPromotions;
+    private final AuctionRepository auctionRepository;
 
     @Autowired
     public OrderLifecycleService(
@@ -109,7 +111,8 @@ public class OrderLifecycleService {
             LedgerPort ledgerPort,
             CollectionPort collectionPort,
             Clock clock,
-            @Autowired(required = false) StorageService storageService) {
+            @Autowired(required = false) StorageService storageService,
+            AuctionRepository auctionRepository) {
         this.orderRepository = orderRepository;
         this.sellerPort = sellerPort;
         this.platformSettingService = platformSettingService;
@@ -118,6 +121,14 @@ public class OrderLifecycleService {
         this.collectionPort = collectionPort;
         this.clock = clock != null ? clock : Clock.systemUTC();
         this.storageService = storageService;
+        this.auctionRepository = auctionRepository;
+    }
+
+    public OrderLifecycleService(OrderRepository orderRepository, SellerPort sellerPort,
+            PlatformSettingService platformSettingService, InventoryPort inventoryPort,
+            LedgerPort ledgerPort, CollectionPort collectionPort, Clock clock, StorageService storageService) {
+        this(orderRepository, sellerPort, platformSettingService, inventoryPort, ledgerPort,
+                collectionPort, clock, storageService, null);
     }
 
     public OrderLifecycleService(
@@ -466,6 +477,9 @@ public class OrderLifecycleService {
         }
 
         rollupSalesOrderStatus(salesOrder.getId());
+        if (salesOrder.getAuctionId() != null && auctionRepository != null) {
+            auctionRepository.markSoldForOrder(salesOrder.getAuctionId(), salesOrder.getId());
+        }
     }
 
     @Transactional(propagation = Propagation.MANDATORY)

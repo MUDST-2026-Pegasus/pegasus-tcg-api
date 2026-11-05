@@ -144,6 +144,21 @@ public class AuctionRepository {
                 .execute() == 1;
     }
 
+    public void attachSalesOrder(long auctionId, long orderId) {
+        dsl.update(AUCTION).set(AUCTION.SALES_ORDER_ID, orderId)
+                .where(AUCTION.ID.eq(auctionId)).execute();
+    }
+
+    public void markSoldForOrder(long auctionId, long orderId) {
+        dsl.update(AUCTION).set(AUCTION.STATUS, AuctionStatus.SOLD.name())
+                .set(AUCTION.VERSION, AUCTION.VERSION.plus(1))
+                .set(AUCTION.UPDATED_AT, OffsetDateTime.now(clock))
+                .where(AUCTION.ID.eq(auctionId))
+                .and(AUCTION.SALES_ORDER_ID.eq(orderId))
+                .and(AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name()))
+                .execute();
+    }
+
     public boolean recordBuyNowWin(
             long auctionId,
             long winnerId,

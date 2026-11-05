@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.controller.auction;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.AuctionCheckout;
+import com.pegasus.pegasustcgapi.service.auction.AuctionCheckoutService;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.PlaceBid;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.AuctionDetail;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.AuctionPage;
@@ -60,16 +61,19 @@ public class AuctionController {
     private final AuctionBrowseService auctionBrowseService;
     private final AuctionBidService auctionBidService;
     private final AuctionBuyNowService auctionBuyNowService;
+    private final AuctionCheckoutService auctionCheckoutService;
     private final Clock clock;
 
     public AuctionController(
             AuctionBrowseService auctionBrowseService,
             AuctionBidService auctionBidService,
             AuctionBuyNowService auctionBuyNowService,
+            AuctionCheckoutService auctionCheckoutService,
             Clock clock) {
         this.auctionBrowseService = auctionBrowseService;
         this.auctionBidService = auctionBidService;
         this.auctionBuyNowService = auctionBuyNowService;
+        this.auctionCheckoutService = auctionCheckoutService;
         this.clock = clock;
     }
 
@@ -178,8 +182,9 @@ public class AuctionController {
         if (idempotencyKey != null && idempotencyKey.length() > 64) {
             throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Idempotency-Key header must not exceed 64 characters");
         }
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResult.success("Order placed successfully", AuctionSamples.checkout(now())));
+        CheckoutResponse result = auctionCheckoutService.checkout(id, principal, idempotencyKey, request);
+        return ResponseEntity.status(result.replayed() ? HttpStatus.OK : HttpStatus.CREATED)
+                .body(ApiResult.success("Order placed successfully", result));
     }
 
     @Operation(summary = "The caller's auctions",
