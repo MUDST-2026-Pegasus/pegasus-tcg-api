@@ -4,6 +4,8 @@ import com.pegasus.pegasustcgapi.dto.listing.StockForecastResponse;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
+import com.pegasus.pegasustcgapi.model.listing.StockForecastStatus;
+import com.pegasus.pegasustcgapi.repository.listing.StockForecastRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
@@ -11,7 +13,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
-import org.jooq.DSLContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,40 +21,12 @@ public class StockForecastService {
     // Two completed units in the window are required before extrapolating a date.
     static final int MIN_SALES = 2;
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Bangkok");
-    private static final String FORECAST_SQL = """
-            SELECT l.id, p.name, l.status AS listing_status, l.quantity_available,
-                   COALESCE(s.units, 0) AS sales
-              FROM listing l
-              JOIN catalog_variant v ON v.id = l.catalog_variant_id
-              JOIN catalog_product p ON p.id = v.catalog_product_id
-              LEFT JOIN (
-                SELECT oi.listing_id, SUM(GREATEST(oi.quantity - COALESCE(returned.units, 0), 0)) AS units
-                  FROM order_item oi
-                  JOIN seller_order so ON so.id = oi.seller_order_id
-                  LEFT JOIN (
-                    SELECT ri.order_item_id, SUM(ri.quantity) AS units
-                      FROM return_item ri
-                      JOIN return_request rr ON rr.id = ri.return_request_id
-                     WHERE rr.status IN ('REFUNDED', 'CLOSED')
-                     GROUP BY ri.order_item_id
-                  ) returned ON returned.order_item_id = oi.id
-                 WHERE so.seller_profile_id = ?
-                   AND so.status = 'COMPLETED'
-                   AND so.completed_at >= CAST(? AS timestamptz)
-                   AND so.completed_at < CAST(? AS timestamptz)
-                   %s
-                 GROUP BY oi.listing_id
-              ) s ON s.listing_id = l.id
-             WHERE l.seller_profile_id = ? AND l.deleted_at IS NULL
-               %s
-             ORDER BY l.id
-            """;
-    private final DSLContext db;
+    private final StockForecastRepository forecasts;
     private final SellerPort sellers;
     private final Clock clock;
 
-    public StockForecastService(DSLContext db, SellerPort sellers, Clock clock) {
-        this.db = db;
+    public StockForecastService(StockForecastRepository forecasts, SellerPort sellers, Clock clock) {
+        this.forecasts = forecasts;
         this.sellers = sellers;
         this.clock = clock;
     }
@@ -63,10 +36,9 @@ public class StockForecastService {
         long sellerId = sellers.requireProfile(userId).id();
         OffsetDateTime end = OffsetDateTime.now(clock).withOffsetSameInstant(ZoneOffset.UTC);
         OffsetDateTime start = end.minusDays(30);
-        return db.fetch(FORECAST_SQL.formatted("", ""), sellerId, start, end, sellerId).map(row -> calculate(
-                row.get("id", Long.class), row.get("name", String.class),
-                row.get("listing_status", String.class), row.get("quantity_available", Integer.class),
-                row.get("sales", BigDecimal.class).intValueExact(), start, end));
+        return forecasts.list(sellerId, start, end).stream().map(row -> calculate(
+                row.listingId(), row.listingName(), row.listingStatus(), row.availableStock(), row.sales(),
+                start, end)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -74,20 +46,19 @@ public class StockForecastService {
         long sellerId = sellers.requireProfile(userId).id();
         OffsetDateTime end = OffsetDateTime.now(clock).withOffsetSameInstant(ZoneOffset.UTC);
         OffsetDateTime start = end.minusDays(30);
-        return db.fetch(FORECAST_SQL.formatted("AND oi.listing_id = ?", "AND l.id = ?"),
-                sellerId, start, end, listingId, sellerId, listingId).map(row -> calculate(
-                row.get("id", Long.class), row.get("name", String.class),
-                row.get("listing_status", String.class), row.get("quantity_available", Integer.class),
-                row.get("sales", BigDecimal.class).intValueExact(), start, end)).stream().findFirst()
+        return forecasts.detail(sellerId, listingId, start, end).map(row -> calculate(
+                row.listingId(), row.listingName(), row.listingStatus(), row.availableStock(), row.sales(),
+                start, end))
                 .orElseThrow(() -> new NotFoundException(ErrorCode.LISTING_NOT_FOUND));
     }
 
     static StockForecastResponse calculate(long id, String name, String listingStatus, int stock, int sales,
             OffsetDateTime start, OffsetDateTime end) {
         BigDecimal average = BigDecimal.valueOf(sales).divide(BigDecimal.valueOf(30), 4, RoundingMode.HALF_UP);
-        String status = stock == 0 ? "OUT_OF_STOCK" : sales == 0 ? "NO_SALES"
-                : sales < MIN_SALES ? "INSUFFICIENT_DATA" : "FORECAST_AVAILABLE";
-        Integer days = "FORECAST_AVAILABLE".equals(status)
+        StockForecastStatus status = stock == 0 ? StockForecastStatus.OUT_OF_STOCK
+                : sales == 0 ? StockForecastStatus.NO_SALES
+                : sales < MIN_SALES ? StockForecastStatus.INSUFFICIENT_DATA : StockForecastStatus.FORECAST_AVAILABLE;
+        Integer days = status == StockForecastStatus.FORECAST_AVAILABLE
                 ? BigDecimal.valueOf(stock).multiply(BigDecimal.valueOf(30))
                         .divide(BigDecimal.valueOf(sales), 0, RoundingMode.CEILING).intValueExact()
                 : null;
