@@ -271,7 +271,7 @@ class CatalogSearchServiceTest {
     void summariesCarryLowestPrice() {
         given(products.search(any())).willReturn(List.of(pikachu()));
         given(products.count(any())).willReturn(1L);
-        given(market.offersOf(anyCollection(), any())).willReturn(Map.of(501L, new Offer(new BigDecimal("150.00"), 3)));
+        given(market.offersOf(anyCollection(), any(), any())).willReturn(Map.of(501L, new Offer(new BigDecimal("150.00"), 3)));
 
         PageResponse<ProductSummaryResponse> page = searchWith(POKEMON, Map.of(), null, 0, 20);
 
@@ -313,7 +313,8 @@ class CatalogSearchServiceTest {
         CatalogProduct mew = new CatalogProduct(502L, POKEMON, 201, 301, ProductType.SINGLE_CARD, "Mew ex",
                 null, "mew-ex-151-165", "151/165", "SR", null, Map.of(), true,
                 9L, OffsetDateTime.now(), OffsetDateTime.now());
-        given(market.trending(eq(POKEMON), eq(OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC).minusDays(30)), eq(10)))
+        given(market.trending(eq(POKEMON), eq(OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC).minusDays(30)), eq(10),
+                eq(OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC))))
                 .willReturn(List.of(new TrendingRow(502L, 7), new TrendingRow(501L, 2)));
         given(products.findByIds(anyCollection())).willReturn(Map.of(501L, pikachu, 502L, mew));
 
@@ -352,7 +353,7 @@ class CatalogSearchServiceTest {
         assertThat(query.maxPrice()).isEqualByComparingTo("500");
         assertThat(query.sort()).isEqualTo(ProductSearchQuery.Sort.PRICE_DESC);
         assertThat(query.needsOffer()).isTrue();
-        verify(market).offersOf(List.of(501L), nearMint);
+        verify(market).offersOf(List.of(501L), nearMint, OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC));
     }
 
     @Test

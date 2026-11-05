@@ -37,6 +37,7 @@ public final class PriceSaleFixture {
     private OffsetDateTime endsAt = NOW.plusDays(1);
     private OffsetDateTime pausedAt;
     private OffsetDateTime endedAt;
+    private List<Long> excludedSellerIds = List.of();
 
     private PriceSaleFixture() {
     }
@@ -118,6 +119,12 @@ public final class PriceSaleFixture {
         return this;
     }
 
+    /** Shops a Pegasus campaign leaves out. */
+    public PriceSaleFixture excluding(Long... sellerProfileIds) {
+        excludedSellerIds = List.of(sellerProfileIds);
+        return this;
+    }
+
     public PriceSaleFixture endedAt(OffsetDateTime at) {
         endedAt = at;
         return this;
@@ -127,6 +134,7 @@ public final class PriceSaleFixture {
         return new PriceSale(id, "Sale " + id, "sale-" + id, ownerType, sellerProfileId, saleType,
                 discountType, discountValue, maxDiscountPerUnit, scopeType, scopeIds, conditions,
                 minUnitPrice, perListingQuota, null, budgetCap, subsidyReserved, null, false, null,
-                startsAt, endsAt, pausedAt, null, null, endedAt, null, 0, startsAt, startsAt);
+                startsAt, endsAt, pausedAt, null, null, endedAt, null, 0, startsAt, startsAt, null,
+                excludedSellerIds);
     }
 }

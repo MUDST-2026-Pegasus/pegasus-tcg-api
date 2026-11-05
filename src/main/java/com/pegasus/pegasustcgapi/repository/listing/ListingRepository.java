@@ -250,6 +250,22 @@ public class ListingRepository {
                 .fetchSingle(0, long.class);
     }
 
+    /**
+     * These listings as the market shows them, in id order: on sale or sold out,
+     * from a seller open for business; the rest are left out.
+     */
+    public List<PublicListing> findPublicByIds(Collection<Long> listingIds) {
+        if (listingIds.isEmpty()) {
+            return List.of();
+        }
+        return enrich(publicSelect()
+                .where(LISTING.ID.in(listingIds))
+                .and(sellerOpenForBusiness())
+                .and(LISTING.STATUS.in(ListingStatus.ACTIVE.name(), ListingStatus.SOLD_OUT.name()))
+                .orderBy(LISTING.ID)
+                .fetch(ListingRepository::toPublic));
+    }
+
     /** A page a buyer may open: on sale or sold out, from a seller who is open for business. */
     public Optional<PublicListing> findPublic(long listingId) {
         List<PublicListing> rows = publicSelect()
@@ -411,13 +427,16 @@ public class ListingRepository {
      * The listing's sale row while its sale still runs [TCG-679]. A row past its end
      * waits for the next refresh to be removed; until then it is not a sale price.
      */
-    private static Condition salePriceRunning(OffsetDateTime now) {
+    public static Condition salePriceRunning(OffsetDateTime now) {
         return LISTING_SALE_PRICE.LISTING_ID.eq(LISTING.ID)
                 .and(LISTING_SALE_PRICE.ENDS_AT.gt(now));
     }
 
-    /** What a card sells for now: the sale price while one runs, else the asking price. */
-    private static final Field<BigDecimal> EFFECTIVE_PRICE = DSL.coalesce(LISTING_SALE_PRICE.SALE_PRICE, LISTING.PRICE);
+    /**
+     * What a card sells for now: the sale price while one runs, else the asking price.
+     * Read it with {@link #salePriceRunning} left-joined, as every buyer page does.
+     */
+    public static final Field<BigDecimal> EFFECTIVE_PRICE = DSL.coalesce(LISTING_SALE_PRICE.SALE_PRICE, LISTING.PRICE);
 
     /** The discount as a share of the asking price; 0 off sale. */
     private static final Field<BigDecimal> DISCOUNT_SHARE = DSL.coalesce(

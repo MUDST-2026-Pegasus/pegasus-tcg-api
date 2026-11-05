@@ -163,7 +163,7 @@ public class CatalogProductRepository {
         final Field<Integer> listingCount;
 
         Offers(ProductSearchQuery query) {
-            table = ProductMarketRepository.offers(query.conditions());
+            table = ProductMarketRepository.offers(query.conditions(), query.now());
             productId = table.field(ProductMarketRepository.OFFER_PRODUCT_ID, Long.class);
             lowestPrice = table.field(ProductMarketRepository.OFFER_LOWEST_PRICE, BigDecimal.class);
             listingCount = table.field(ProductMarketRepository.OFFER_LISTING_COUNT, Integer.class);

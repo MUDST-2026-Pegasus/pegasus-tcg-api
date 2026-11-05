@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.repository.sale;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.PriceSale.PRICE_SALE;
+import static com.pegasus.pegasustcgapi.jooq.tables.PriceSaleListing.PRICE_SALE_LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
@@ -8,6 +9,7 @@ import com.pegasus.pegasustcgapi.model.sale.PriceSale;
 import com.pegasus.pegasustcgapi.model.sale.PriceSale.OwnerType;
 import com.pegasus.pegasustcgapi.model.sale.PriceSale.SaleType;
 import com.pegasus.pegasustcgapi.model.sale.SaleStatus;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -38,6 +40,35 @@ public class SaleBrowseRepository {
     }
 
     /**
+     * A flash sale's listing whose quota is used up: it no longer sells at the
+     * flash price, but the home strip still shows it, faded, as sold out.
+     *
+     * @param rowSalePrice the listing's own price under a FIXED_PRICE sale; null otherwise
+     */
+    public record SoldOutRow(long listingId, BigDecimal rowSalePrice, Integer quota) {
+    }
+
+    /**
+     * Up to {@code limit} listings of a flash sale that have sold their whole quota,
+     * the ones that sold out first first (lowest id as the tie-break).
+     */
+    public List<SoldOutRow> findSoldOut(PriceSale sale, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        Field<Integer> quota = DSL.coalesce(PRICE_SALE_LISTING.QUOTA,
+                DSL.val(sale.perListingQuota(), PRICE_SALE_LISTING.QUOTA));
+        return dsl.select(PRICE_SALE_LISTING.LISTING_ID, PRICE_SALE_LISTING.SALE_PRICE, PRICE_SALE_LISTING.QUOTA)
+                .from(PRICE_SALE_LISTING)
+                .where(PRICE_SALE_LISTING.SALE_ID.eq(sale.id()))
+                .and(quota.isNotNull())
+                .and(PRICE_SALE_LISTING.SOLD_COUNT.ge(quota))
+                .orderBy(PRICE_SALE_LISTING.LISTING_ID)
+                .limit(limit)
+                .fetch(r -> new SoldOutRow(r.value1(), r.value2(), r.value3()));
+    }
+
+    /**
      * A sale as buyers see it.
      *
      * @param shopUsername the shop of a SELLER sale; null for Pegasus
@@ -62,12 +93,17 @@ public class SaleBrowseRepository {
                 .fetch(r -> toCampaign(r, status));
     }
 
-    /** The campaigns an admin put on the home page that are open now, in their home order. */
+    /**
+     * The campaigns an admin put on the home page that are open now, in their home
+     * order. A flash sale that has sold every card stays until it ends, so the strip
+     * can show its cards as sold out rather than vanish.
+     */
     public List<Campaign> findFeatured(OffsetDateTime now) {
         Field<String> status = AdminSaleRepository.status(now);
         return select(status)
                 .where(PRICE_SALE.FEATURED_ON_HOME.isTrue())
-                .and(open(status, now))
+                .and(open(status, now).or(status.eq(SaleStatus.SOLD_OUT.name())
+                        .and(PRICE_SALE.SALE_TYPE.eq(SaleType.FLASH_SALE.name()))))
                 .orderBy(PRICE_SALE.HOME_SORT.asc().nullsLast(), PRICE_SALE.ID.asc())
                 .fetch(r -> toCampaign(r, status));
     }

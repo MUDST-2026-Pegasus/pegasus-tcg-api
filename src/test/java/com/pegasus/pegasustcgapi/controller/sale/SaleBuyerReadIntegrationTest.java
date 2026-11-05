@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.sale;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.PriceSale.PRICE_SALE;
+import static com.pegasus.pegasustcgapi.jooq.tables.PriceSaleListing.PRICE_SALE_LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -76,6 +77,13 @@ class SaleBuyerReadIntegrationTest extends PostgresIntegrationTest {
         assertThat(added.data().path("currentPrice").decimalValue()).isEqualByComparingTo("800");
         assertThat(added.data().path("unitPriceAtAdd").decimalValue()).isEqualByComparingTo("800");
         assertPricing(added.data().path("pricing"), "1000", "800", 20);
+
+        // The catalogue tile and its price filter use the same price, not the asking one.
+        String catalog = "/api/v1/catalog/products?gameId=" + game;
+        JsonNode tile = only(api.get(catalog, null));
+        assertThat(tile.path("lowestPrice").decimalValue()).isEqualByComparingTo("800");
+        assertThat(api.get(catalog + "&maxPrice=850", null).data().path("items")).hasSize(1);
+        assertThat(api.get(catalog + "&minPrice=850", null).data().path("items")).isEmpty();
     }
 
     @Test
@@ -167,6 +175,26 @@ class SaleBuyerReadIntegrationTest extends PostgresIntegrationTest {
         assertThat(pricing.path("sale").path("quotaLeft").asInt()).isEqualTo(3);
         assertThat(pricing.path("sale").path("perBuyerLimit").asInt()).isEqualTo(1);
         assertThat(running.path("listings").get(0).path("id").asLong()).isEqualTo(a.id());
+        assertThat(running.path("soldOut")).isEmpty();
+
+        // Its quota sold: the card leaves the flash price but stays on the strip, faded.
+        dsl.insertInto(PRICE_SALE_LISTING)
+                .set(PRICE_SALE_LISTING.SALE_ID, flashId)
+                .set(PRICE_SALE_LISTING.LISTING_ID, a.id())
+                .set(PRICE_SALE_LISTING.SOLD_COUNT, 3)
+                .onConflict(PRICE_SALE_LISTING.SALE_ID, PRICE_SALE_LISTING.LISTING_ID)
+                .doUpdate().set(PRICE_SALE_LISTING.SOLD_COUNT, 3)
+                .execute();
+        refresher.refreshAll();
+        JsonNode soldOut = api.get("/api/v1/sales/featured", null).data().path("flashSale");
+        assertThat(soldOut.path("sale").path("status").asString()).isEqualTo("SOLD_OUT");
+        assertThat(soldOut.path("listings")).isEmpty();
+        assertThat(soldOut.path("soldOut")).hasSize(1);
+        JsonNode faded = soldOut.path("soldOut").get(0);
+        assertThat(faded.path("listing").path("id").asLong()).isEqualTo(a.id());
+        assertThat(faded.path("flashPrice").decimalValue()).isEqualByComparingTo("700");
+        assertThat(faded.path("discountPercent").asInt()).isEqualTo(30);
+        assertPricing(faded.path("listing").path("pricing"), "1000", "1000", 0);
     }
 
     @Test
