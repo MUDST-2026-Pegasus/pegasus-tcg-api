@@ -108,7 +108,6 @@ class AuctionCloseSchedulerTest {
                 null,
                 null,
                 null,
-                null,
                 status,
                 null,
                 null,

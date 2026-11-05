@@ -86,18 +86,6 @@ public final class AuctionRequests {
             @Size(max = MAX_NOTE) String sellerNote) {
     }
 
-    /** What the seller does after the winner did not pay. */
-    public enum DecisionChoice {
-        /** Offer the card to the runner-up at their own bid (409 NO_SECOND_BIDDER when there is none). */
-        OFFER_TO_SECOND,
-        /** Put the card back in stock; the app then opens the new-auction form with the old settings. */
-        RELIST
-    }
-
-    @Schema(description = "The seller's choice after the winner did not pay")
-    public record SellerDecision(@NotNull DecisionChoice choice) {
-    }
-
     @Schema(description = "Why an admin stopped the auction; the seller and every bidder see it")
     public record SuspendAuction(
             @Schema(example = "พบรูปแบบบิดผิดปกติจากบัญชีที่เชื่อมกับผู้ขาย (บิดปั่นราคา)")

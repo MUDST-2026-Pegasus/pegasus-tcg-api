@@ -110,7 +110,6 @@ class AuctionBuyNowServiceTest {
                 status == AuctionStatus.AWAITING_PAYMENT ? NOW.minusMinutes(5) : null,
                 paymentDueAt,
                 null,
-                null,
                 status,
                 null,
                 null,

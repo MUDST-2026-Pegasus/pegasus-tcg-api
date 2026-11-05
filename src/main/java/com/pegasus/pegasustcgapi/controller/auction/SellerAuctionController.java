@@ -3,7 +3,6 @@ package com.pegasus.pegasustcgapi.controller.auction;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.CreateAuction;
-import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.SellerDecision;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.UpdateAuction;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.EligibleUnitPage;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionDetail;
@@ -121,20 +120,5 @@ public class SellerAuctionController {
     @PostMapping("/{id}/cancel")
     public ApiResult<SellerAuctionDetail> cancel(@PathVariable long id, AuthPrincipal principal) {
         return ApiResult.success(service.cancel(principal.userId(), id));
-    }
-
-    @Operation(summary = "Choose what happens after the winner did not pay",
-            description = "Only while AWAITING_SELLER_DECISION. OFFER_TO_SECOND sends the runner-up an offer at their "
-                    + "bid (24 hours to answer); RELIST puts the card back in stock so the app can open the "
-                    + "new-auction form with the old settings.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Choice recorded"),
-            @ApiResponse(responseCode = "409", description = "NO_SECOND_BIDDER, or AUCTION_CLOSED when the time "
-                    + "to choose has passed")
-    })
-    @PostMapping("/{id}/decision")
-    public ApiResult<SellerAuctionDetail> decide(@PathVariable long id, @Valid @RequestBody SellerDecision request,
-            AuthPrincipal principal) {
-        return ApiResult.success(service.decide(principal.userId(), id, request));
     }
 }

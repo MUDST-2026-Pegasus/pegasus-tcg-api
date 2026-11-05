@@ -25,7 +25,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.Optional;
@@ -40,8 +39,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Auctions for buyers [TCG-613]. Browsing is open to guests; bidding, buy-now, checkout
- * and the runner-up offer need sign-in.
+ * Auctions for buyers [TCG-613]. Browsing is open to guests; bidding, buy-now and checkout
+ * need sign-in.
  *
  * <p>Contract only: every endpoint returns {@link AuctionSamples} until BE-3 to BE-10 add the logic.
  *
@@ -172,34 +171,8 @@ public class AuctionController {
                 .body(ApiResult.success("Order placed successfully", AuctionSamples.checkout(now())));
     }
 
-    @Operation(summary = "Accept the seller's runner-up offer",
-            description = "Buy at the caller's own bid; then pay within 24 hours through the auction checkout. "
-                    + "Not paying counts as an unpaid win.")
-    @SecurityRequirement(name = "BearerAuth")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "The caller now has to pay"),
-            @ApiResponse(responseCode = "404", description = "AUCTION_NOT_FOUND, or no offer to the caller"),
-            @ApiResponse(responseCode = "409", description = "OFFER_EXPIRED")
-    })
-    @PostMapping(ApiPaths.AUCTIONS + "/{id}/second-chance/accept")
-    public ApiResult<AuctionWin> acceptOffer(@PathVariable long id, AuthPrincipal principal) {
-        return ApiResult.success(AuctionSamples.win(id, BigDecimal.valueOf(8300), now()));
-    }
-
-    @Operation(summary = "Decline the seller's runner-up offer",
-            description = "No penalty. The card goes back to the seller's stock.")
-    @SecurityRequirement(name = "BearerAuth")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Declined"),
-            @ApiResponse(responseCode = "409", description = "OFFER_EXPIRED")
-    })
-    @PostMapping(ApiPaths.AUCTIONS + "/{id}/second-chance/decline")
-    public ApiResult<Void> declineOffer(@PathVariable long id, AuthPrincipal principal) {
-        return ApiResult.success("Offer declined", null);
-    }
-
     @Operation(summary = "The caller's auctions",
-            description = "Every auction the caller has bid on or been offered, newest activity first, with tab counts "
+            description = "Every auction the caller has bid on or won, newest activity first, with tab counts "
                     + "and the caller's unpaid-win count.")
     @SecurityRequirement(name = "BearerAuth")
     @GetMapping(ApiPaths.ME_AUCTIONS)

@@ -15,8 +15,6 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.controller.auction.AuctionSamples;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.CreateAuction;
-import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.DecisionChoice;
-import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.SellerDecision;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.UpdateAuction;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.EligibleUnitPage;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionDetail;
@@ -228,22 +226,5 @@ class SellerAuctionControllerTest {
                 .andExpect(jsonPath("$.data.id").value(101));
 
         verify(service).cancel(eq(USER_ID), eq(101L));
-    }
-
-    @Test
-    @DisplayName("POST /sellers/me/auctions/{id}/decision records seller decision")
-    void decideAuction() throws Exception {
-        SellerDecision request = new SellerDecision(DecisionChoice.OFFER_TO_SECOND);
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-        SellerAuctionDetail decided = AuctionSamples.sellerDetail(101L, now);
-        when(service.decide(eq(USER_ID), eq(101L), any(SellerDecision.class))).thenReturn(decided);
-
-        mvc.perform(post(BASE_URL + "/{id}/decision", 101L)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.id").value(101));
-
-        verify(service).decide(eq(USER_ID), eq(101L), any(SellerDecision.class));
     }
 }

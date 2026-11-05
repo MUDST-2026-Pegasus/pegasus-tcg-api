@@ -18,8 +18,6 @@ import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionBid;
-import com.pegasus.pegasustcgapi.model.auction.AuctionOffer;
-import com.pegasus.pegasustcgapi.model.auction.AuctionOfferStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
@@ -285,8 +283,7 @@ public class AuctionBrowseService {
                 ownAuction,
                 blockers,
                 banUntil.orElse(null),
-                paymentDueAt,
-                null);
+                paymentDueAt);
     }
 
     private AuctionViewerState resolveViewerState(Auction a, Long userId) {
@@ -308,13 +305,6 @@ public class AuctionBrowseService {
         }
         if (a.status() == AuctionStatus.SOLD) {
             return Objects.equals(a.winnerId(), userId) ? AuctionViewerState.WON : AuctionViewerState.LOST;
-        }
-        if (a.status() == AuctionStatus.OFFERED_TO_SECOND) {
-            Optional<AuctionOffer> offer = auctions.findLatestOffer(a.id());
-            if (offer.isPresent() && offer.get().recipientId() == userId && offer.get().status() == AuctionOfferStatus.PENDING) {
-                return AuctionViewerState.SECOND_CHANCE;
-            }
-            return AuctionViewerState.LOST;
         }
         return AuctionViewerState.LOST;
     }

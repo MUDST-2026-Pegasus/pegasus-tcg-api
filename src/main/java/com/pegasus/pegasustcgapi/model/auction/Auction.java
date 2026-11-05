@@ -13,7 +13,7 @@ import java.time.OffsetDateTime;
  * @param leadingBidId    null while there are no bids
  * @param originalEndsAt  the closing time the seller picked
  * @param endsAt          the closing time now, after any 2-minute extensions
- * @param winnerId        whoever must pay now: the top bidder, a buy-now buyer or an accepting runner-up
+ * @param winnerId        whoever must pay now: the top bidder or a buy-now buyer
  * @param salesOrderId    the order placed by the auction checkout; null until then
  * @param relistedFromId  the auction this one was reopened from
  * @param version         bumped on every change
@@ -43,7 +43,6 @@ public record Auction(
         BigDecimal winningAmount,
         OffsetDateTime closedAt,
         OffsetDateTime paymentDueAt,
-        OffsetDateTime decisionDueAt,
         Long salesOrderId,
         AuctionStatus status,
         OffsetDateTime cancelledAt,
@@ -72,7 +71,6 @@ public record Auction(
 
     /** Whether the card is still locked by this auction. */
     public boolean open() {
-        return status == AuctionStatus.LIVE || status == AuctionStatus.AWAITING_PAYMENT
-                || status == AuctionStatus.AWAITING_SELLER_DECISION || status == AuctionStatus.OFFERED_TO_SECOND;
+        return status == AuctionStatus.LIVE || status == AuctionStatus.AWAITING_PAYMENT;
     }
 }

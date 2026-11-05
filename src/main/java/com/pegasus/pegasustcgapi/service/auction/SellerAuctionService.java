@@ -7,15 +7,12 @@ import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.ListingUnit.LISTING_UNIT;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItemUnit.ORDER_ITEM_UNIT;
-import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.CreateAuction;
-import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.DecisionChoice;
-import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.SellerDecision;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.UpdateAuction;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.AuctionItem;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Bid;
@@ -23,12 +20,9 @@ import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.EligibleUnit;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.EligibleUnitPage;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.Kpis;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.MarketGuide;
-import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.PendingDecision;
-import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SecondBidder;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionDetail;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionPage;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionRow;
-import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SentOffer;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.UnitAvailability;
 import com.pegasus.pegasustcgapi.dto.listing.ListingCard;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
@@ -38,7 +32,6 @@ import com.pegasus.pegasustcgapi.exception.ForbiddenException;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionBid;
-import com.pegasus.pegasustcgapi.model.auction.AuctionOffer;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.catalog.CardSet;
@@ -72,7 +65,6 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -348,23 +340,17 @@ public class SellerAuctionService {
     @Transactional
     public SellerAuctionDetail update(long userId, long auctionId, UpdateAuction request) {
         SellerProfile seller = requireVerifiedSeller(userId);
-
-        Auction auction = auctions.findByIdAndSeller(auctionId, seller.id())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.AUCTION_NOT_FOUND, "Auction not found"));
-
-        if (auction.bidCount() > 0) {
-            throw new ConflictException(ErrorCode.AUCTION_HAS_BIDS, "This auction already has bids, so it can no longer be changed or cancelled");
-        }
-        if (auction.status() != AuctionStatus.LIVE) {
-            throw new ConflictException(ErrorCode.AUCTION_CLOSED, "This auction is no longer open");
-        }
+        Auction auction = lockOwnAuction(auctionId, seller.id());
+        requireEditable(auction);
 
         if (request.buyNowPrice() != null && request.buyNowPrice().compareTo(auction.startingPrice()) <= 0) {
             throw new BadRequestException(ErrorCode.BUY_NOW_BELOW_START, "The buy-now price must be higher than the starting price");
         }
 
         OffsetDateTime now = OffsetDateTime.now(clock);
-        auctions.updateSettings(auctionId, seller.id(), request.buyNowPrice(), request.sellerNote(), now);
+        if (!auctions.updateSettings(auctionId, seller.id(), request.buyNowPrice(), request.sellerNote(), now)) {
+            throw new ConflictException(ErrorCode.AUCTION_HAS_BIDS, "This auction already has bids, so it can no longer be changed or cancelled");
+        }
 
         Auction updated = auctions.findById(auctionId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.AUCTION_NOT_FOUND, "Auction not found"));
@@ -376,19 +362,13 @@ public class SellerAuctionService {
     @Transactional
     public SellerAuctionDetail cancel(long userId, long auctionId) {
         SellerProfile seller = requireVerifiedSeller(userId);
-
-        Auction auction = auctions.findByIdAndSeller(auctionId, seller.id())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.AUCTION_NOT_FOUND, "Auction not found"));
-
-        if (auction.bidCount() > 0) {
-            throw new ConflictException(ErrorCode.AUCTION_HAS_BIDS, "This auction already has bids, so it can no longer be changed or cancelled");
-        }
-        if (auction.status() != AuctionStatus.LIVE) {
-            throw new ConflictException(ErrorCode.AUCTION_CLOSED, "This auction is no longer open");
-        }
+        Auction auction = lockOwnAuction(auctionId, seller.id());
+        requireEditable(auction);
 
         OffsetDateTime now = OffsetDateTime.now(clock);
-        auctions.cancel(auctionId, seller.id(), now);
+        if (!auctions.cancel(auctionId, seller.id(), now)) {
+            throw new ConflictException(ErrorCode.AUCTION_HAS_BIDS, "This auction already has bids, so it can no longer be changed or cancelled");
+        }
 
         // Revert listing_unit status from ON_AUCTION back to IN_STOCK
         units.revertFromAuction(auction.listingUnitId());
@@ -413,37 +393,27 @@ public class SellerAuctionService {
         return toSellerAuctionDetail(auction, seller);
     }
 
-    // ---------- Post-Auction Decision (TCG-613/BE-9 contract implementation) ----------
+    // ---------- Helpers ----------
 
-    @Transactional
-    public SellerAuctionDetail decide(long userId, long auctionId, SellerDecision request) {
-        SellerProfile seller = requireVerifiedSeller(userId);
-
-        Auction auction = auctions.findByIdAndSeller(auctionId, seller.id())
+    /**
+     * Locks the seller's own auction row, so a bid cannot land between the checks and the write.
+     * Another shop's auction is 404.
+     */
+    private Auction lockOwnAuction(long auctionId, long sellerProfileId) {
+        return auctions.lockById(auctionId)
+                .filter(a -> a.sellerProfileId() == sellerProfileId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.AUCTION_NOT_FOUND, "Auction not found"));
-
-        if (auction.status() != AuctionStatus.AWAITING_SELLER_DECISION) {
-            throw new ConflictException(ErrorCode.AUCTION_CLOSED, "Auction is not awaiting seller decision");
-        }
-
-        OffsetDateTime now = OffsetDateTime.now(clock);
-        if (request.choice() == DecisionChoice.OFFER_TO_SECOND) {
-            AuctionBid second = auctions.findHighestBidExcluding(auctionId, Objects.requireNonNullElse(auction.winnerId(), -1L))
-                    .orElseThrow(() -> new ConflictException(ErrorCode.NO_SECOND_BIDDER, "No second bidder available"));
-
-            auctions.insertOffer(auctionId, second.bidderId(), second.id(), second.amount(), now.plusHours(24));
-            auctions.transition(auctionId, AuctionStatus.AWAITING_SELLER_DECISION, AuctionStatus.OFFERED_TO_SECOND);
-        } else {
-            auctions.transition(auctionId, AuctionStatus.AWAITING_SELLER_DECISION, AuctionStatus.UNSOLD);
-            units.revertFromAuction(auction.listingUnitId());
-        }
-
-        Auction updated = auctions.findById(auctionId)
-                .orElseThrow(() -> new NotFoundException(ErrorCode.AUCTION_NOT_FOUND, "Auction not found"));
-        return toSellerAuctionDetail(updated, seller);
     }
 
-    // ---------- Helpers ----------
+    /** Buy-now, the note and cancelling may change only while LIVE with no bids. */
+    private static void requireEditable(Auction auction) {
+        if (auction.bidCount() > 0) {
+            throw new ConflictException(ErrorCode.AUCTION_HAS_BIDS, "This auction already has bids, so it can no longer be changed or cancelled");
+        }
+        if (auction.status() != AuctionStatus.LIVE) {
+            throw new ConflictException(ErrorCode.AUCTION_CLOSED, "This auction is no longer open");
+        }
+    }
 
     public ListingUnit resolveAndLockUnit(long sellerProfileId, UUID unitUid, Long listingUnitId) {
         if (unitUid != null) {
@@ -501,9 +471,7 @@ public class SellerAuctionService {
                 .where(AUCTION.LISTING_UNIT_ID.eq(listingUnitId))
                 .and(AUCTION.STATUS.in(
                         AuctionStatus.LIVE.name(),
-                        AuctionStatus.AWAITING_PAYMENT.name(),
-                        AuctionStatus.AWAITING_SELLER_DECISION.name(),
-                        AuctionStatus.OFFERED_TO_SECOND.name()))
+                        AuctionStatus.AWAITING_PAYMENT.name()))
                 .orderBy(AUCTION.CREATED_AT.desc())
                 .limit(1)
                 .fetchOptional(AUCTION.AUCTION_NUMBER);
@@ -521,16 +489,7 @@ public class SellerAuctionService {
     }
 
     private OffsetDateTime resolveDeadline(Auction a) {
-        if (a.status() == AuctionStatus.AWAITING_PAYMENT) {
-            return a.paymentDueAt();
-        }
-        if (a.status() == AuctionStatus.AWAITING_SELLER_DECISION) {
-            return a.decisionDueAt();
-        }
-        if (a.status() == AuctionStatus.OFFERED_TO_SECOND) {
-            return auctions.findLatestOffer(a.id()).map(AuctionOffer::expiresAt).orElse(null);
-        }
-        return null;
+        return a.status() == AuctionStatus.AWAITING_PAYMENT ? a.paymentDueAt() : null;
     }
 
     private SellerAuctionDetail toSellerAuctionDetail(Auction a, SellerProfile seller) {
@@ -573,44 +532,6 @@ public class SellerAuctionService {
             winnerAlias = maskUsername(uname);
         }
 
-        // Pending decision
-        PendingDecision decision = null;
-        if (a.status() == AuctionStatus.AWAITING_SELLER_DECISION) {
-            String orderNumber = null;
-            if (a.salesOrderId() != null) {
-                orderNumber = dsl.select(SALES_ORDER.ORDER_NUMBER)
-                        .from(SALES_ORDER)
-                        .where(SALES_ORDER.ID.eq(a.salesOrderId()))
-                        .fetchOne(SALES_ORDER.ORDER_NUMBER);
-            }
-            Optional<AuctionBid> secondBid = auctions.findHighestBidExcluding(a.id(), Objects.requireNonNullElse(a.winnerId(), -1L));
-            SecondBidder secondBidder = null;
-            if (secondBid.isPresent()) {
-                String uname = dsl.select(USER_ACCOUNT.USERNAME)
-                        .from(USER_ACCOUNT)
-                        .where(USER_ACCOUNT.ID.eq(secondBid.get().bidderId()))
-                        .fetchOne(USER_ACCOUNT.USERNAME);
-                CommissionQuote secondQuote = ledgerPort.quoteCommission(seller.id(), secondBid.get().amount());
-                BigDecimal secondFee = secondQuote != null ? secondQuote.amount() : secondBid.get().amount().multiply(new BigDecimal("0.05"));
-                BigDecimal secondPayout = secondBid.get().amount().subtract(secondFee);
-                secondBidder = new SecondBidder(maskUsername(uname), secondBid.get().amount(), secondPayout);
-            }
-            decision = new PendingDecision(winnerAlias, a.winningAmount(), orderNumber, a.decisionDueAt(), secondBidder);
-        }
-
-        // Sent offer
-        SentOffer offer = null;
-        if (a.status() == AuctionStatus.OFFERED_TO_SECOND) {
-            Optional<AuctionOffer> latest = auctions.findLatestOffer(a.id());
-            if (latest.isPresent()) {
-                String uname = dsl.select(USER_ACCOUNT.USERNAME)
-                        .from(USER_ACCOUNT)
-                        .where(USER_ACCOUNT.ID.eq(latest.get().recipientId()))
-                        .fetchOne(USER_ACCOUNT.USERNAME);
-                offer = new SentOffer(maskUsername(uname), latest.get().amount(), latest.get().status(), latest.get().expiresAt());
-            }
-        }
-
         return new SellerAuctionDetail(
                 a.id(),
                 a.auctionNumber(),
@@ -636,8 +557,6 @@ public class SellerAuctionService {
                 a.firstBidAt(),
                 winnerAlias,
                 a.paymentDueAt(),
-                decision,
-                offer,
                 a.salesOrderId(),
                 bids,
                 now);

@@ -113,7 +113,6 @@ class AuctionBidServiceTest {
                 null,
                 null,
                 null,
-                null,
                 status,
                 null,
                 null,

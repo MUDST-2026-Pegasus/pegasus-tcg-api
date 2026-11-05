@@ -2,7 +2,6 @@ package com.pegasus.pegasustcgapi.repository.auction;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.Auction.AUCTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.AuctionBid.AUCTION_BID;
-import static com.pegasus.pegasustcgapi.jooq.tables.AuctionOffer.AUCTION_OFFER;
 import static com.pegasus.pegasustcgapi.jooq.tables.BidderStrike.BIDDER_STRIKE;
 import static com.pegasus.pegasustcgapi.jooq.tables.BiddingBan.BIDDING_BAN;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
@@ -16,12 +15,9 @@ import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Filter;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Sort;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.Kpis;
 import com.pegasus.pegasustcgapi.jooq.tables.records.AuctionBidRecord;
-import com.pegasus.pegasustcgapi.jooq.tables.records.AuctionOfferRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.AuctionRecord;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionBid;
-import com.pegasus.pegasustcgapi.model.auction.AuctionOffer;
-import com.pegasus.pegasustcgapi.model.auction.AuctionOfferStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.BidStatus;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
@@ -39,7 +35,7 @@ import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
- * Shared reads and writes for auctions, bids, runner-up offers, strikes and bans [TCG-614, TCG-615, TCG-616].
+ * Shared reads and writes for auctions, bids, strikes and bans [TCG-614, TCG-615, TCG-616].
  *
  * <p>Only the building blocks every auction card needs live here, so BE-2 to BE-11 do
  * not each write their own. Business rules (who may bid, when an auction closes, what
@@ -210,9 +206,7 @@ public class AuctionRepository {
                 .where(AUCTION.LISTING_UNIT_ID.eq(listingUnitId))
                 .and(AUCTION.STATUS.in(
                         AuctionStatus.LIVE.name(),
-                        AuctionStatus.AWAITING_PAYMENT.name(),
-                        AuctionStatus.AWAITING_SELLER_DECISION.name(),
-                        AuctionStatus.OFFERED_TO_SECOND.name()))
+                        AuctionStatus.AWAITING_PAYMENT.name()))
                 .fetchOptional()
                 .map(AuctionRepository::toAuction);
     }
@@ -547,46 +541,6 @@ public class AuctionRepository {
                 .and(AUCTION_BID.STATUS.eq(BidStatus.ACTIVE.name())));
     }
 
-    /**
-     * The highest active bid by anyone other than {@code excludeBidderId}: the runner-up
-     * once the winner has not paid. Empty when only one person bid.
-     */
-    public Optional<AuctionBid> findHighestBidExcluding(long auctionId, long excludeBidderId) {
-        return dsl.selectFrom(AUCTION_BID)
-                .where(AUCTION_BID.AUCTION_ID.eq(auctionId)
-                        .and(AUCTION_BID.STATUS.eq(BidStatus.ACTIVE.name()))
-                        .and(AUCTION_BID.BIDDER_ID.ne(excludeBidderId)))
-                .orderBy(AUCTION_BID.AMOUNT.desc(), AUCTION_BID.CREATED_AT.asc())
-                .limit(1)
-                .fetchOptional()
-                .map(AuctionRepository::toBid);
-    }
-
-    // ---------- runner-up offers ----------
-
-    /** Throws {@code DuplicateKeyException} when the auction already has an open offer. */
-    public long insertOffer(long auctionId, long recipientId, long bidId, BigDecimal amount, OffsetDateTime expiresAt) {
-        return dsl.insertInto(AUCTION_OFFER)
-                .set(AUCTION_OFFER.AUCTION_ID, auctionId)
-                .set(AUCTION_OFFER.RECIPIENT_ID, recipientId)
-                .set(AUCTION_OFFER.BID_ID, bidId)
-                .set(AUCTION_OFFER.AMOUNT, amount)
-                .set(AUCTION_OFFER.STATUS, AuctionOfferStatus.PENDING.name())
-                .set(AUCTION_OFFER.EXPIRES_AT, expiresAt)
-                .returningResult(AUCTION_OFFER.ID)
-                .fetchSingle(AUCTION_OFFER.ID);
-    }
-
-    /** The newest offer on an auction, whatever its status. */
-    public Optional<AuctionOffer> findLatestOffer(long auctionId) {
-        return dsl.selectFrom(AUCTION_OFFER)
-                .where(AUCTION_OFFER.AUCTION_ID.eq(auctionId))
-                .orderBy(AUCTION_OFFER.CREATED_AT.desc(), AUCTION_OFFER.ID.desc())
-                .limit(1)
-                .fetchOptional()
-                .map(AuctionRepository::toOffer);
-    }
-
     // ---------- strikes and bans ----------
 
     /** Unpaid wins that still count towards a ban. */
@@ -665,7 +619,6 @@ public class AuctionRepository {
                 r.getWinningAmount(),
                 r.getClosedAt(),
                 r.getPaymentDueAt(),
-                r.getDecisionDueAt(),
                 r.getSalesOrderId(),
                 AuctionStatus.valueOf(r.getStatus()),
                 r.getCancelledAt(),
@@ -681,10 +634,5 @@ public class AuctionRepository {
     static AuctionBid toBid(AuctionBidRecord r) {
         return new AuctionBid(r.getId(), r.getAuctionId(), r.getBidderId(), r.getAmount(),
                 BidStatus.valueOf(r.getStatus()), r.getIdempotencyKey(), r.getCreatedAt());
-    }
-
-    static AuctionOffer toOffer(AuctionOfferRecord r) {
-        return new AuctionOffer(r.getId(), r.getAuctionId(), r.getRecipientId(), r.getBidId(), r.getAmount(),
-                AuctionOfferStatus.valueOf(r.getStatus()), r.getExpiresAt(), r.getRespondedAt(), r.getCreatedAt());
     }
 }

@@ -10,8 +10,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.CreateAuction;
-import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.DecisionChoice;
-import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.SellerDecision;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.UpdateAuction;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.AuctionItem;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionDetail;
@@ -176,7 +174,6 @@ class SellerAuctionServiceTest {
                 0,
                 null,
                 "Note",
-                null,
                 null,
                 null,
                 null,
@@ -388,7 +385,7 @@ class SellerAuctionServiceTest {
         @DisplayName("rejects update when auction already has bids (AUCTION_HAS_BIDS)")
         void rejectsUpdateWithBids() {
             Auction auctionWithBids = sampleAuction(AuctionStatus.LIVE, 1, new BigDecimal("1000.00"), new BigDecimal("2000.00"));
-            given(auctions.findByIdAndSeller(AUCTION_ID, SELLER_ID)).willReturn(Optional.of(auctionWithBids));
+            given(auctions.lockById(AUCTION_ID)).willReturn(Optional.of(auctionWithBids));
 
             UpdateAuction request = new UpdateAuction(new BigDecimal("2200.00"), "New note");
 
@@ -403,7 +400,7 @@ class SellerAuctionServiceTest {
         @DisplayName("rejects update when auction is not LIVE (AUCTION_CLOSED)")
         void rejectsUpdateWhenNotLive() {
             Auction closedAuction = sampleAuction(AuctionStatus.SOLD, 0, new BigDecimal("1000.00"), new BigDecimal("2000.00"));
-            given(auctions.findByIdAndSeller(AUCTION_ID, SELLER_ID)).willReturn(Optional.of(closedAuction));
+            given(auctions.lockById(AUCTION_ID)).willReturn(Optional.of(closedAuction));
 
             UpdateAuction request = new UpdateAuction(new BigDecimal("2200.00"), "New note");
 
@@ -418,7 +415,7 @@ class SellerAuctionServiceTest {
         @DisplayName("rejects update when buyNowPrice <= startingPrice (BUY_NOW_BELOW_START)")
         void rejectsUpdateBuyNowBelowStart() {
             Auction auction = sampleAuction(AuctionStatus.LIVE, 0, new BigDecimal("1000.00"), new BigDecimal("2000.00"));
-            given(auctions.findByIdAndSeller(AUCTION_ID, SELLER_ID)).willReturn(Optional.of(auction));
+            given(auctions.lockById(AUCTION_ID)).willReturn(Optional.of(auction));
 
             UpdateAuction request = new UpdateAuction(new BigDecimal("999.00"), "New note");
 
@@ -433,13 +430,15 @@ class SellerAuctionServiceTest {
         @DisplayName("updates buyNowPrice and sellerNote successfully when bidCount == 0")
         void updatesAuctionSuccessfully() {
             Auction auction = sampleAuction(AuctionStatus.LIVE, 0, new BigDecimal("1000.00"), new BigDecimal("2000.00"));
-            given(auctions.findByIdAndSeller(AUCTION_ID, SELLER_ID)).willReturn(Optional.of(auction));
+            given(auctions.lockById(AUCTION_ID)).willReturn(Optional.of(auction));
 
             Auction updatedAuction = sampleAuction(AuctionStatus.LIVE, 0, new BigDecimal("1000.00"), new BigDecimal("2500.00"));
             given(auctions.findById(AUCTION_ID)).willReturn(Optional.of(updatedAuction));
             given(cards.card(VARIANT_ID)).willReturn(new ListingCard(VARIANT_ID, "PKM-1", "NM", true, VARIANT_ID, "Card Name", "card-slug", (short) 1, null));
             given(ledgerPort.quoteCommission(SELLER_ID, new BigDecimal("1000.00")))
                     .willReturn(new CommissionQuote(new BigDecimal("5.0"), new BigDecimal("50.00")));
+
+            given(auctions.updateSettings(eq(AUCTION_ID), eq(SELLER_ID), any(), any(), any())).willReturn(true);
 
             UpdateAuction request = new UpdateAuction(new BigDecimal("2500.00"), "New note");
             SellerAuctionDetail result = service.update(USER_ID, AUCTION_ID, request);
@@ -465,7 +464,7 @@ class SellerAuctionServiceTest {
         @DisplayName("rejects cancel when auction already has bids (AUCTION_HAS_BIDS)")
         void rejectsCancelWithBids() {
             Auction auctionWithBids = sampleAuction(AuctionStatus.LIVE, 3, new BigDecimal("1000.00"), null);
-            given(auctions.findByIdAndSeller(AUCTION_ID, SELLER_ID)).willReturn(Optional.of(auctionWithBids));
+            given(auctions.lockById(AUCTION_ID)).willReturn(Optional.of(auctionWithBids));
 
             assertThatThrownBy(() -> service.cancel(USER_ID, AUCTION_ID))
                     .extracting(SellerAuctionServiceTest::codeOf)
@@ -479,7 +478,7 @@ class SellerAuctionServiceTest {
         @DisplayName("cancels auction when bidCount == 0, returns card to IN_STOCK, and records inventory movement")
         void cancelsAuctionSuccessfully() {
             Auction auctionWithoutBids = sampleAuction(AuctionStatus.LIVE, 0, new BigDecimal("1000.00"), null);
-            given(auctions.findByIdAndSeller(AUCTION_ID, SELLER_ID)).willReturn(Optional.of(auctionWithoutBids));
+            given(auctions.lockById(AUCTION_ID)).willReturn(Optional.of(auctionWithoutBids));
 
             ListingUnit unitOnAuction = sampleUnit(ListingUnitStatus.ON_AUCTION, null);
             given(units.findOfSeller(UNIT_ID, SELLER_ID)).willReturn(Optional.of(unitOnAuction));
@@ -489,6 +488,8 @@ class SellerAuctionServiceTest {
             given(cards.card(VARIANT_ID)).willReturn(new ListingCard(VARIANT_ID, "PKM-1", "NM", true, VARIANT_ID, "Card Name", "card-slug", (short) 1, null));
             given(ledgerPort.quoteCommission(SELLER_ID, new BigDecimal("1000.00")))
                     .willReturn(new CommissionQuote(new BigDecimal("5.0"), new BigDecimal("50.00")));
+
+            given(auctions.cancel(eq(AUCTION_ID), eq(SELLER_ID), any())).willReturn(true);
 
             SellerAuctionDetail result = service.cancel(USER_ID, AUCTION_ID);
 
@@ -524,7 +525,7 @@ class SellerAuctionServiceTest {
         @Test
         @DisplayName("updating another seller's auction returns 404 AUCTION_NOT_FOUND")
         void updateOtherSellerAuctionReturns404() {
-            given(auctions.findByIdAndSeller(AUCTION_ID, SELLER_ID)).willReturn(Optional.empty());
+            given(auctions.lockById(AUCTION_ID)).willReturn(Optional.empty());
 
             UpdateAuction request = new UpdateAuction(new BigDecimal("2500.00"), "Note");
 
@@ -536,82 +537,11 @@ class SellerAuctionServiceTest {
         @Test
         @DisplayName("cancelling another seller's auction returns 404 AUCTION_NOT_FOUND")
         void cancelOtherSellerAuctionReturns404() {
-            given(auctions.findByIdAndSeller(AUCTION_ID, SELLER_ID)).willReturn(Optional.empty());
+            given(auctions.lockById(AUCTION_ID)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.cancel(USER_ID, AUCTION_ID))
                     .extracting(SellerAuctionServiceTest::codeOf)
                     .isEqualTo(ErrorCode.AUCTION_NOT_FOUND);
-        }
-    }
-
-    // =========================================================================
-    // Rule 6: Decide After Unpaid Win
-    // =========================================================================
-    @Nested
-    @DisplayName("Rule 6: Decide After Unpaid Win")
-    class DecisionTests {
-
-        @BeforeEach
-        void initSeller() {
-            given(sellers.requireProfile(USER_ID)).willReturn(verifiedSeller);
-        }
-
-        @Test
-        @DisplayName("decide with OFFER_TO_SECOND inserts offer and transitions to OFFERED_TO_SECOND")
-        void decideOfferToSecond() {
-            Auction awaitingDecision = sampleAuction(AuctionStatus.AWAITING_SELLER_DECISION, 2, new BigDecimal("1000.00"), null);
-            given(auctions.findByIdAndSeller(AUCTION_ID, SELLER_ID)).willReturn(Optional.of(awaitingDecision));
-
-            AuctionBid secondBid = new AuctionBid(77L, AUCTION_ID, 99L, new BigDecimal("1100.00"), BidStatus.ACTIVE, "k", NOW);
-            given(auctions.findHighestBidExcluding(AUCTION_ID, -1L)).willReturn(Optional.of(secondBid));
-
-            Auction updated = sampleAuction(AuctionStatus.OFFERED_TO_SECOND, 2, new BigDecimal("1000.00"), null);
-            given(auctions.findById(AUCTION_ID)).willReturn(Optional.of(updated));
-            given(cards.card(VARIANT_ID)).willReturn(new ListingCard(VARIANT_ID, "PKM-1", "NM", true, VARIANT_ID, "Card Name", "card-slug", (short) 1, null));
-            given(ledgerPort.quoteCommission(SELLER_ID, new BigDecimal("1000.00")))
-                    .willReturn(new CommissionQuote(new BigDecimal("5.0"), new BigDecimal("50.00")));
-
-            SellerDecision request = new SellerDecision(DecisionChoice.OFFER_TO_SECOND);
-            SellerAuctionDetail result = service.decide(USER_ID, AUCTION_ID, request);
-
-            verify(auctions).insertOffer(eq(AUCTION_ID), eq(99L), eq(77L), eq(new BigDecimal("1100.00")), any());
-            verify(auctions).transition(AUCTION_ID, AuctionStatus.AWAITING_SELLER_DECISION, AuctionStatus.OFFERED_TO_SECOND);
-            assertThat(result.status()).isEqualTo(AuctionStatus.OFFERED_TO_SECOND);
-        }
-
-        @Test
-        @DisplayName("decide with OFFER_TO_SECOND fails with NO_SECOND_BIDDER when no second bidder exists")
-        void decideOfferToSecondNoSecondBidder() {
-            Auction awaitingDecision = sampleAuction(AuctionStatus.AWAITING_SELLER_DECISION, 1, new BigDecimal("1000.00"), null);
-            given(auctions.findByIdAndSeller(AUCTION_ID, SELLER_ID)).willReturn(Optional.of(awaitingDecision));
-            given(auctions.findHighestBidExcluding(AUCTION_ID, -1L)).willReturn(Optional.empty());
-
-            SellerDecision request = new SellerDecision(DecisionChoice.OFFER_TO_SECOND);
-            assertThatThrownBy(() -> service.decide(USER_ID, AUCTION_ID, request))
-                    .extracting(SellerAuctionServiceTest::codeOf)
-                    .isEqualTo(ErrorCode.NO_SECOND_BIDDER);
-
-            verify(auctions, never()).insertOffer(anyLong(), anyLong(), anyLong(), any(), any());
-        }
-
-        @Test
-        @DisplayName("decide with RELIST transitions to UNSOLD and reverts card to stock")
-        void decideRelist() {
-            Auction awaitingDecision = sampleAuction(AuctionStatus.AWAITING_SELLER_DECISION, 1, new BigDecimal("1000.00"), null);
-            given(auctions.findByIdAndSeller(AUCTION_ID, SELLER_ID)).willReturn(Optional.of(awaitingDecision));
-
-            Auction updated = sampleAuction(AuctionStatus.UNSOLD, 1, new BigDecimal("1000.00"), null);
-            given(auctions.findById(AUCTION_ID)).willReturn(Optional.of(updated));
-            given(cards.card(VARIANT_ID)).willReturn(new ListingCard(VARIANT_ID, "PKM-1", "NM", true, VARIANT_ID, "Card Name", "card-slug", (short) 1, null));
-            given(ledgerPort.quoteCommission(SELLER_ID, new BigDecimal("1000.00")))
-                    .willReturn(new CommissionQuote(new BigDecimal("5.0"), new BigDecimal("50.00")));
-
-            SellerDecision request = new SellerDecision(DecisionChoice.RELIST);
-            SellerAuctionDetail result = service.decide(USER_ID, AUCTION_ID, request);
-
-            verify(auctions).transition(AUCTION_ID, AuctionStatus.AWAITING_SELLER_DECISION, AuctionStatus.UNSOLD);
-            verify(units).revertFromAuction(UNIT_ID);
-            assertThat(result.status()).isEqualTo(AuctionStatus.UNSOLD);
         }
     }
 }

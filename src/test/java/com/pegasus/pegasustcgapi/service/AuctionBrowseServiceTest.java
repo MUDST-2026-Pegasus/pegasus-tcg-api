@@ -18,8 +18,6 @@ import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionBid;
-import com.pegasus.pegasustcgapi.model.auction.AuctionOffer;
-import com.pegasus.pegasustcgapi.model.auction.AuctionOfferStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
 import com.pegasus.pegasustcgapi.model.auction.BidStatus;
@@ -137,7 +135,6 @@ class AuctionBrowseServiceTest {
                 bidCount > 0 ? NOW.minusMinutes(30) : null,
                 "Seller note",
                 NOW.minusHours(1),
-                null,
                 null,
                 null,
                 null,
@@ -512,7 +509,6 @@ class AuctionBrowseServiceTest {
                     NOW.minusHours(1),
                     NOW.plusHours(23),
                     null,
-                    null,
                     AuctionStatus.AWAITING_PAYMENT,
                     null,
                     null,
@@ -536,27 +532,6 @@ class AuctionBrowseServiceTest {
             assertThat(viewer).isNotNull();
             assertThat(viewer.state()).isEqualTo(AuctionViewerState.WON_AWAITING_PAYMENT);
             assertThat(viewer.paymentDueAt()).isEqualTo(NOW.plusHours(23));
-        }
-
-        @Test
-        @DisplayName("resolveViewer identifies SECOND_CHANCE offer state")
-        void resolveViewer_SecondChanceOffer() {
-            Auction auction = sampleAuction(AuctionStatus.OFFERED_TO_SECOND, new BigDecimal("2000.00"), 3, null);
-            Address address = sampleAddress(USER_ID);
-            given(addresses.findByUserId(USER_ID)).willReturn(List.of(address));
-            given(userVerification.isEmailVerified(USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.empty());
-            given(auctions.countActiveStrikes(USER_ID)).willReturn(0);
-            given(auctions.findMaxBidByUser(AUCTION_ID, USER_ID)).willReturn(Optional.of(new BigDecimal("1800.00")));
-            given(auctions.hasBid(AUCTION_ID, USER_ID)).willReturn(true);
-
-            AuctionOffer offer = new AuctionOffer(10L, AUCTION_ID, USER_ID, 2L, new BigDecimal("1800.00"), AuctionOfferStatus.PENDING, NOW.plusHours(24), null, NOW);
-            given(auctions.findLatestOffer(AUCTION_ID)).willReturn(Optional.of(offer));
-
-            Viewer viewer = service.resolveViewer(auction, USER_ID, NOW);
-
-            assertThat(viewer).isNotNull();
-            assertThat(viewer.state()).isEqualTo(AuctionViewerState.SECOND_CHANCE);
         }
     }
 }
