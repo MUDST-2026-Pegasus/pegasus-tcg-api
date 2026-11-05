@@ -7,11 +7,13 @@ import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -25,14 +27,22 @@ public class AuctionBuyNowService {
     private final AuctionRepository auctions;
     private final AuctionEligibilityValidator validator;
     private final Clock clock;
+    private final PlatformSettingService settings;
 
+    @Autowired
     public AuctionBuyNowService(
             AuctionRepository auctions,
             AuctionEligibilityValidator validator,
-            Clock clock) {
+            Clock clock,
+            PlatformSettingService settings) {
         this.auctions = auctions;
         this.validator = validator;
         this.clock = clock;
+        this.settings = settings;
+    }
+
+    public AuctionBuyNowService(AuctionRepository auctions, AuctionEligibilityValidator validator, Clock clock) {
+        this(auctions, validator, clock, null);
     }
 
     /**
@@ -87,7 +97,9 @@ public class AuctionBuyNowService {
         validator.validateCanBid(auction, userId, now);
 
         // 7. Transition auction to AWAITING_PAYMENT
-        OffsetDateTime paymentDueAt = now.plus(AuctionPolicy.DEFAULT_PAYMENT_WINDOW);
+        OffsetDateTime paymentDueAt = now.plus(settings == null
+                ? AuctionPolicy.DEFAULT_PAYMENT_WINDOW
+                : settings.getHours(PlatformSettingService.AUCTION_PAYMENT_WINDOW_HOURS));
         boolean updated = auctions.recordBuyNowWin(auctionId, userId, auction.buyNowPrice(), now, paymentDueAt);
         if (!updated) {
             throw new ConflictException(ErrorCode.BUY_NOW_UNAVAILABLE, "Auction could not be bought now");

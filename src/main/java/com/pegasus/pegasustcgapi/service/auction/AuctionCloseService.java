@@ -6,10 +6,12 @@ import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.service.inventory.InventoryService;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.time.OffsetDateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,14 +27,23 @@ public class AuctionCloseService {
     private final AuctionRepository auctions;
     private final ListingUnitRepository units;
     private final InventoryService inventoryService;
+    private final PlatformSettingService settings;
 
+    @Autowired
     public AuctionCloseService(
             AuctionRepository auctions,
             ListingUnitRepository units,
-            InventoryService inventoryService) {
+            InventoryService inventoryService,
+            PlatformSettingService settings) {
         this.auctions = auctions;
         this.units = units;
         this.inventoryService = inventoryService;
+        this.settings = settings;
+    }
+
+    public AuctionCloseService(AuctionRepository auctions, ListingUnitRepository units,
+            InventoryService inventoryService) {
+        this(auctions, units, inventoryService, null);
     }
 
     /**
@@ -81,7 +92,9 @@ public class AuctionCloseService {
             return true;
         }
 
-        OffsetDateTime paymentDueAt = now.plus(AuctionPolicy.DEFAULT_PAYMENT_WINDOW);
+        OffsetDateTime paymentDueAt = now.plus(settings == null
+                ? AuctionPolicy.DEFAULT_PAYMENT_WINDOW
+                : settings.getHours(PlatformSettingService.AUCTION_PAYMENT_WINDOW_HOURS));
         boolean updated = auctions.recordAuctionWon(auction.id(), winnerId, auction.currentPrice(), now, paymentDueAt);
         if (updated) {
             log.info("Auction #{} closed: winner #{}, amount {}, payment due at {}",

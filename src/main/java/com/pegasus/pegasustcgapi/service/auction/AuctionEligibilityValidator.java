@@ -13,12 +13,14 @@ import com.pegasus.pegasustcgapi.port.UserVerificationPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.repository.user.AddressRepository;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * Validates buyer eligibility for bidding and buy-now actions [TCG-616, TCG-617, TCG-618].
@@ -30,16 +32,30 @@ public class AuctionEligibilityValidator {
     private final UserVerificationPort userVerification;
     private final AuctionRepository auctions;
     private final SellerPort sellers;
+    private final PlatformSettingService settings;
 
+    @Autowired
     public AuctionEligibilityValidator(
             AddressRepository addresses,
             UserVerificationPort userVerification,
             AuctionRepository auctions,
-            SellerPort sellers) {
+            SellerPort sellers,
+            PlatformSettingService settings) {
         this.addresses = addresses;
         this.userVerification = userVerification;
         this.auctions = auctions;
         this.sellers = sellers;
+        this.settings = settings;
+    }
+
+    public AuctionEligibilityValidator(AddressRepository addresses, UserVerificationPort userVerification,
+            AuctionRepository auctions, SellerPort sellers) {
+        this(addresses, userVerification, auctions, sellers, null);
+    }
+
+    private int strikeLimit() {
+        return settings == null ? AuctionPolicy.MAX_STRIKES_ALLOWED
+                : settings.getInt(PlatformSettingService.AUCTION_STRIKE_LIMIT);
     }
 
     /**
@@ -67,7 +83,7 @@ public class AuctionEligibilityValidator {
                     Map.of("bannedUntil", banUntil.get()));
         }
 
-        if (auctions.countActiveStrikes(userId) >= AuctionPolicy.MAX_STRIKES_ALLOWED) {
+        if (auctions.countActiveStrikes(userId) >= strikeLimit()) {
             throw new ForbiddenException(ErrorCode.BIDDING_BANNED, "User is banned from bidding due to unpaid wins");
         }
 
@@ -92,7 +108,7 @@ public class AuctionEligibilityValidator {
             return BidEligibility.EMAIL_NOT_VERIFIED;
         }
 
-        if (auctions.findActiveBanUntil(userId, now).isPresent() || auctions.countActiveStrikes(userId) >= AuctionPolicy.MAX_STRIKES_ALLOWED) {
+        if (auctions.findActiveBanUntil(userId, now).isPresent() || auctions.countActiveStrikes(userId) >= strikeLimit()) {
             return BidEligibility.BIDDING_PENALIZED;
         }
 
@@ -117,7 +133,7 @@ public class AuctionEligibilityValidator {
         if (!userVerification.isEmailVerified(userId)) {
             blockers.add(ErrorCode.EMAIL_NOT_VERIFIED);
         }
-        if (auctions.findActiveBanUntil(userId, now).isPresent() || auctions.countActiveStrikes(userId) >= AuctionPolicy.MAX_STRIKES_ALLOWED) {
+        if (auctions.findActiveBanUntil(userId, now).isPresent() || auctions.countActiveStrikes(userId) >= strikeLimit()) {
             blockers.add(ErrorCode.BIDDING_BANNED);
         }
         return blockers;
