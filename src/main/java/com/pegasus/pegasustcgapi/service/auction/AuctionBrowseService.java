@@ -13,19 +13,12 @@ import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Seller;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Sort;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Viewer;
 import com.pegasus.pegasustcgapi.dto.auction.BidEligibility;
-import com.pegasus.pegasustcgapi.dto.listing.ListingCard;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionBid;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
-import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
-import com.pegasus.pegasustcgapi.model.catalog.CardSet;
-import com.pegasus.pegasustcgapi.model.catalog.CatalogProduct;
-import com.pegasus.pegasustcgapi.model.catalog.CatalogVariant;
-import com.pegasus.pegasustcgapi.model.catalog.Game;
-import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
 import com.pegasus.pegasustcgapi.port.UserVerificationPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
@@ -45,29 +38,35 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Public and buyer-facing auction browsing service [TCG-613, TCG-616].
+ * Public and buyer-facing auction browsing service [TCG-613, TCG-616, ISSUE-001, ISSUE-010].
  * Handles live auction catalog browsing, auction detail with bidder eligibility evaluation,
  * and masked bid history.
  */
 @Service
 public class AuctionBrowseService {
 
-    private static final BigDecimal DEFAULT_SHIPPING = new BigDecimal("50.00");
-
     private final AuctionRepository auctions;
-    private final AddressRepository addresses;
-    private final SellerPort sellers;
-    private final UserVerificationPort userVerification;
-    private final CatalogVariantRepository variants;
-    private final CatalogProductRepository products;
-    private final GameRepository games;
-    private final CardSetRepository cardSets;
-    private final ListingCardRenderer cards;
+    private final AuctionEligibilityValidator validator;
+    private final AuctionItemMapper itemMapper;
     private final Clock clock;
+
+    @Autowired
+    public AuctionBrowseService(
+            AuctionRepository auctions,
+            AuctionEligibilityValidator validator,
+            AuctionItemMapper itemMapper,
+            Clock clock) {
+        this.auctions = auctions;
+        this.validator = validator;
+        this.itemMapper = itemMapper;
+        this.clock = clock;
+    }
 
     public AuctionBrowseService(
             AuctionRepository auctions,
@@ -80,16 +79,10 @@ public class AuctionBrowseService {
             CardSetRepository cardSets,
             ListingCardRenderer cards,
             Clock clock) {
-        this.auctions = auctions;
-        this.addresses = addresses;
-        this.sellers = sellers;
-        this.userVerification = userVerification;
-        this.variants = variants;
-        this.products = products;
-        this.games = games;
-        this.cardSets = cardSets;
-        this.cards = cards;
-        this.clock = clock;
+        this(auctions,
+             new AuctionEligibilityValidator(addresses, userVerification, auctions, sellers),
+             new AuctionItemMapper(cards, variants, products, games, cardSets, auctions),
+             clock);
     }
 
     // =========================================================================
@@ -124,9 +117,13 @@ public class AuctionBrowseService {
         List<Auction> auctionRows = auctions.findPublicCatalog(query);
         long total = auctions.countPublicCatalog(query);
 
+        Set<Long> variantIds = auctionRows.stream().map(Auction::catalogVariantId).collect(Collectors.toSet());
+        Set<Long> sellerIds = auctionRows.stream().map(Auction::sellerProfileId).collect(Collectors.toSet());
+        var bundle = itemMapper.buildAuctionItems(variantIds, sellerIds);
+
         List<AuctionSummary> summaries = auctionRows.stream().map(a -> {
-            AuctionItem item = buildAuctionItem(a.catalogVariantId(), a.condition());
-            String shopName = resolveShopName(a.sellerProfileId());
+            AuctionItem item = bundle.buildAuctionItem(a.catalogVariantId(), a.condition());
+            String shopName = bundle.resolveShopName(a.sellerProfileId());
             BigDecimal buyNowPrice = a.buyNowAvailable() ? a.buyNowPrice() : null;
             return new AuctionSummary(
                     a.id(),
@@ -157,7 +154,7 @@ public class AuctionBrowseService {
         Auction a = auctions.findById(auctionId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.AUCTION_NOT_FOUND, "Auction not found: " + auctionId));
 
-        AuctionItem item = buildAuctionItem(a.catalogVariantId(), a.condition());
+        AuctionItem item = itemMapper.buildAuctionItem(a.catalogVariantId(), a.condition());
         Seller seller = resolveSeller(a.sellerProfileId());
         List<Bid> recentBids = resolveRecentBids(a.id(), 5, userId);
         Viewer viewer = resolveViewer(a, userId, now);
@@ -185,7 +182,7 @@ public class AuctionBrowseService {
                 a.originalEndsAt(),
                 a.endsAt(),
                 a.extensionCount(),
-                DEFAULT_SHIPPING,
+                AuctionPolicy.DEFAULT_SHIPPING,
                 recentBids,
                 viewer,
                 now);
@@ -214,8 +211,8 @@ public class AuctionBrowseService {
             for (AuctionBid b : bidRows) {
                 String uname = usernames.get(b.bidderId());
                 boolean isMine = currentUserId != null && Objects.equals(b.bidderId(), currentUserId);
-                String alias = isMine ? uname : maskUsername(uname);
-                String initials = bidderInitials(uname);
+                String alias = isMine ? uname : AuctionItemMapper.maskUsername(uname);
+                String initials = AuctionItemMapper.bidderInitials(uname);
 
                 bids.add(new Bid(alias, initials, isMine, b.amount(), b.createdAt()));
             }
@@ -229,27 +226,7 @@ public class AuctionBrowseService {
     // =========================================================================
 
     public BidEligibility evaluateBidEligibility(Auction auction, Long userId, OffsetDateTime now) {
-        if (userId == null) {
-            return BidEligibility.UNAUTHENTICATED;
-        }
-
-        if (addresses.findByUserId(userId).isEmpty()) {
-            return BidEligibility.NO_SHIPPING_ADDRESS;
-        }
-
-        if (!userVerification.isEmailVerified(userId)) {
-            return BidEligibility.EMAIL_NOT_VERIFIED;
-        }
-
-        if (auctions.findActiveBanUntil(userId, now).isPresent() || auctions.countActiveStrikes(userId) >= 3) {
-            return BidEligibility.BIDDING_PENALIZED;
-        }
-
-        if (isOwnAuction(auction.sellerProfileId(), userId)) {
-            return BidEligibility.OWN_AUCTION;
-        }
-
-        return BidEligibility.ELIGIBLE;
+        return validator.evaluateBidEligibility(auction, userId, now);
     }
 
     public Viewer resolveViewer(Auction a, Long userId, OffsetDateTime now) {
@@ -257,22 +234,9 @@ public class AuctionBrowseService {
             return null;
         }
 
-        boolean ownAuction = isOwnAuction(a.sellerProfileId(), userId);
-        List<ErrorCode> blockers = new ArrayList<>();
-        if (ownAuction) {
-            blockers.add(ErrorCode.OWN_AUCTION);
-        }
-        if (addresses.findByUserId(userId).isEmpty()) {
-            blockers.add(ErrorCode.NO_SHIPPING_ADDRESS);
-        }
-        if (!userVerification.isEmailVerified(userId)) {
-            blockers.add(ErrorCode.EMAIL_NOT_VERIFIED);
-        }
+        boolean ownAuction = validator.isOwnAuction(a.sellerProfileId(), userId);
+        List<ErrorCode> blockers = validator.findBlockers(a, userId, now);
         Optional<OffsetDateTime> banUntil = auctions.findActiveBanUntil(userId, now);
-        if (banUntil.isPresent() || auctions.countActiveStrikes(userId) >= 3) {
-            blockers.add(ErrorCode.BIDDING_BANNED);
-        }
-
         BigDecimal myHighestBid = auctions.findMaxBidByUser(a.id(), userId).orElse(null);
         AuctionViewerState state = resolveViewerState(a, userId);
         OffsetDateTime paymentDueAt = (state == AuctionViewerState.WON_AWAITING_PAYMENT) ? a.paymentDueAt() : null;
@@ -309,38 +273,6 @@ public class AuctionBrowseService {
         return AuctionViewerState.LOST;
     }
 
-    private boolean isOwnAuction(long sellerProfileId, long userId) {
-        try {
-            SellerProfile profile = sellers.requireProfile(userId);
-            return profile != null && profile.id() == sellerProfileId;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private AuctionItem buildAuctionItem(long catalogVariantId, CardCondition condition) {
-        ListingCard card = cards.card(catalogVariantId);
-        CatalogVariant variant = variants.findById(catalogVariantId).orElse(null);
-        if (variant == null) {
-            return new AuctionItem(card, condition, null, null, null, null);
-        }
-        CatalogProduct product = products.findById(variant.catalogProductId()).orElse(null);
-        if (product == null) {
-            return new AuctionItem(card, condition, null, null, null, null);
-        }
-        String gameName = games.findById(product.gameId()).map(Game::name).orElse(null);
-        String setName = product.cardSetId() != null
-                ? cardSets.findById(product.cardSetId()).map(CardSet::name).orElse(null)
-                : null;
-        return new AuctionItem(card, condition, gameName, setName, product.cardNumber(), product.rarityCode());
-    }
-
-    private String resolveShopName(long sellerProfileId) {
-        return auctions.findSellerInfo(sellerProfileId)
-                .map(AuctionRepository.SellerInfo::shopName)
-                .orElse("Shop");
-    }
-
     private Seller resolveSeller(long sellerProfileId) {
         var info = auctions.findSellerInfo(sellerProfileId);
         String shopName = info.map(AuctionRepository.SellerInfo::shopName).orElse("Shop");
@@ -362,32 +294,18 @@ public class AuctionBrowseService {
         for (AuctionBid b : bidRows) {
             String uname = usernames.get(b.bidderId());
             boolean isMine = currentUserId != null && Objects.equals(b.bidderId(), currentUserId);
-            String alias = isMine ? uname : maskUsername(uname);
-            String initials = bidderInitials(uname);
+            String alias = isMine ? uname : AuctionItemMapper.maskUsername(uname);
+            String initials = AuctionItemMapper.bidderInitials(uname);
             bids.add(new Bid(alias, initials, isMine, b.amount(), b.createdAt()));
         }
         return bids;
     }
 
     public static String maskUsername(String username) {
-        if (username == null || username.isBlank()) {
-            return "Anonymous";
-        }
-        String s = username.strip();
-        if (s.length() <= 2) {
-            return s.toLowerCase() + "***";
-        }
-        return (s.charAt(0) + "***" + s.charAt(s.length() - 1)).toLowerCase();
+        return AuctionItemMapper.maskUsername(username);
     }
 
     public static String bidderInitials(String username) {
-        if (username == null || username.isBlank()) {
-            return "AN";
-        }
-        String s = username.strip().toUpperCase();
-        if (s.length() <= 1) {
-            return (s + s).substring(0, 2);
-        }
-        return "" + s.charAt(0) + s.charAt(s.length() - 1);
+        return AuctionItemMapper.bidderInitials(username);
     }
 }

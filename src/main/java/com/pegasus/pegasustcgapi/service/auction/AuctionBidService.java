@@ -24,8 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuctionBidService {
 
-    private static final long ANTI_SNIPING_WINDOW_SECONDS = 120;
-
     private final AuctionRepository auctions;
     private final AuctionEligibilityValidator validator;
     private final Clock clock;
@@ -77,6 +75,15 @@ public class AuctionBidService {
             }
         }
 
+        // Prevent self-outbidding: current leading bidder cannot bid against themselves
+        if (auction.leadingBidId() != null) {
+            auctions.findBidById(auction.leadingBidId()).ifPresent(leadingBid -> {
+                if (leadingBid.bidderId() == userId) {
+                    throw new ConflictException(ErrorCode.ALREADY_LEADING, "You are already the highest bidder");
+                }
+            });
+        }
+
         // 2. Buyer Eligibility & auction live status validation
         validator.validateCanBid(auction, userId, now);
 
@@ -94,31 +101,14 @@ public class AuctionBidService {
 
         // 5. Anti-sniping check: if within last 120s, push endsAt to now + 120s
         Duration remaining = Duration.between(now, auction.endsAt());
-        boolean extended = !remaining.isNegative() && remaining.getSeconds() < ANTI_SNIPING_WINDOW_SECONDS;
-        OffsetDateTime newEndsAt = extended ? now.plusSeconds(ANTI_SNIPING_WINDOW_SECONDS) : auction.endsAt();
+        boolean extended = !remaining.isNegative() && remaining.getSeconds() < AuctionPolicy.ANTI_SNIPING_WINDOW_SECONDS;
+        OffsetDateTime newEndsAt = extended ? now.plusSeconds(AuctionPolicy.ANTI_SNIPING_WINDOW_SECONDS) : auction.endsAt();
 
         // 6. Insert new bid record (guarded against duplicate idempotency key)
         long bidId;
         try {
             bidId = auctions.insertBid(auctionId, userId, amount, idempotencyKey);
         } catch (DuplicateKeyException e) {
-            Optional<AuctionBid> existing = auctions.findBidByIdempotencyKey(auctionId, idempotencyKey);
-            if (existing.isPresent()) {
-                AuctionBid eb = existing.get();
-                if (eb.bidderId() == userId && eb.amount().compareTo(amount) == 0) {
-                    boolean leading = Objects.equals(auction.leadingBidId(), eb.id());
-                    return new BidPlaced(
-                            auctionId,
-                            eb.amount(),
-                            leading,
-                            false,
-                            auction.currentPrice(),
-                            auction.minNextBid(),
-                            auction.bidCount(),
-                            auction.endsAt(),
-                            now);
-                }
-            }
             throw new ConflictException(ErrorCode.IDEMPOTENCY_KEY_CONFLICT, "Duplicate idempotency key");
         }
 

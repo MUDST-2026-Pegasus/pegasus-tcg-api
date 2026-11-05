@@ -1,15 +1,5 @@
 package com.pegasus.pegasustcgapi.service.auction;
 
-import static com.pegasus.pegasustcgapi.jooq.tables.Auction.AUCTION;
-import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
-import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
-import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
-import static com.pegasus.pegasustcgapi.jooq.tables.ListingUnit.LISTING_UNIT;
-import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
-import static com.pegasus.pegasustcgapi.jooq.tables.OrderItemUnit.ORDER_ITEM_UNIT;
-import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
-import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
-
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.CreateAuction;
@@ -24,7 +14,6 @@ import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionDet
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionPage;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionRow;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.UnitAvailability;
-import com.pegasus.pegasustcgapi.dto.listing.ListingCard;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -34,11 +23,6 @@ import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionBid;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
-import com.pegasus.pegasustcgapi.model.catalog.CardSet;
-import com.pegasus.pegasustcgapi.model.catalog.CatalogProduct;
-import com.pegasus.pegasustcgapi.model.catalog.CatalogVariant;
-import com.pegasus.pegasustcgapi.model.catalog.Game;
-import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
 import com.pegasus.pegasustcgapi.model.listing.ListingUnit;
 import com.pegasus.pegasustcgapi.model.listing.ListingUnitStatus;
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
@@ -58,24 +42,22 @@ import com.pegasus.pegasustcgapi.service.inventory.InventoryService;
 import com.pegasus.pegasustcgapi.service.listing.ListingCardRenderer;
 import java.math.BigDecimal;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import org.jooq.Condition;
+import java.util.stream.Collectors;
 import org.jooq.DSLContext;
-import org.jooq.impl.DSL;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Service driving seller auctions under {@code /sellers/me/auctions} [TCG-615].
+ * Service driving seller auctions under {@code /sellers/me/auctions} [TCG-615, ISSUE-001, ISSUE-002, ISSUE-003, ISSUE-004, ISSUE-011].
  */
 @Service
 public class SellerAuctionService {
@@ -85,13 +67,26 @@ public class SellerAuctionService {
     private final InventoryService inventoryService;
     private final SellerPort sellers;
     private final LedgerPort ledgerPort;
-    private final CatalogVariantRepository variants;
-    private final CatalogProductRepository products;
-    private final GameRepository games;
-    private final CardSetRepository cardSets;
-    private final ListingCardRenderer cards;
-    private final DSLContext dsl;
+    private final AuctionItemMapper auctionItemMapper;
     private final Clock clock;
+
+    @Autowired
+    public SellerAuctionService(
+            AuctionRepository auctions,
+            ListingUnitRepository units,
+            InventoryService inventoryService,
+            SellerPort sellers,
+            LedgerPort ledgerPort,
+            AuctionItemMapper auctionItemMapper,
+            Clock clock) {
+        this.auctions = auctions;
+        this.units = units;
+        this.inventoryService = inventoryService;
+        this.sellers = sellers;
+        this.ledgerPort = ledgerPort;
+        this.auctionItemMapper = auctionItemMapper;
+        this.clock = clock;
+    }
 
     public SellerAuctionService(
             AuctionRepository auctions,
@@ -106,19 +101,9 @@ public class SellerAuctionService {
             ListingCardRenderer cards,
             DSLContext dsl,
             Clock clock) {
-
-        this.auctions = auctions;
-        this.units = units;
-        this.inventoryService = inventoryService;
-        this.sellers = sellers;
-        this.ledgerPort = ledgerPort;
-        this.variants = variants;
-        this.products = products;
-        this.games = games;
-        this.cardSets = cardSets;
-        this.cards = cards;
-        this.dsl = dsl;
-        this.clock = clock;
+        this(auctions, units, inventoryService, sellers, ledgerPort,
+                new AuctionItemMapper(cards, variants, products, games, cardSets, auctions),
+                clock);
     }
 
     // ---------- Rule 1: Seller Verification ----------
@@ -137,6 +122,7 @@ public class SellerAuctionService {
 
     // ---------- Rule 6: List Auctions ----------
 
+    @Transactional(readOnly = true)
     public SellerAuctionPage list(long userId, AuctionStatus status, String q, int page, int size) {
         SellerProfile seller = requireVerifiedSeller(userId);
         Paging paging = Paging.of(page, size);
@@ -149,8 +135,11 @@ public class SellerAuctionService {
         Map<AuctionStatus, Long> statusCounts = auctions.statusCounts(seller.id());
         Kpis kpis = auctions.calculateKpis(seller.id(), now);
 
+        Set<Long> variantIds = rows.stream().map(Auction::catalogVariantId).collect(Collectors.toSet());
+        var bundle = auctionItemMapper.buildAuctionItems(variantIds, List.of());
+
         List<SellerAuctionRow> listRows = rows.stream().map(a -> {
-            AuctionItem item = buildAuctionItem(a.catalogVariantId(), a.condition());
+            AuctionItem item = bundle.buildAuctionItem(a.catalogVariantId(), a.condition());
             String unitLabel = formatUnitLabel(null, a.listingUnitId());
             OffsetDateTime deadline = resolveDeadline(a);
             return new SellerAuctionRow(
@@ -174,69 +163,27 @@ public class SellerAuctionService {
 
     // ---------- Rule 2: Eligible Card Units for Auction ----------
 
+    @Transactional(readOnly = true)
     public EligibleUnitPage eligibleUnits(long userId, String q, Short gameId, CardCondition condition, int page, int size) {
         SellerProfile seller = requireVerifiedSeller(userId);
         Paging paging = Paging.of(page, size);
 
-        Condition cond = LISTING_UNIT.SELLER_PROFILE_ID.eq(seller.id())
-                .and(LISTING_UNIT.STATUS.in(
-                        ListingUnitStatus.IN_STOCK.name(),
-                        ListingUnitStatus.LISTED.name(),
-                        ListingUnitStatus.ON_AUCTION.name(),
-                        ListingUnitStatus.RESERVED.name()))
-                .and(LISTING_UNIT.DELETED_AT.isNull());
+        long totalInStock = units.countInStock(seller.id());
+        List<ListingUnit> unitRows = units.findEligibleUnits(seller.id(), q, gameId, condition, paging.size(), paging.offset());
+        long count = units.countEligibleUnits(seller.id(), q, gameId, condition);
 
-        if (condition != null) {
-            cond = cond.and(LISTING_UNIT.CONDITION_CODE.eq(condition.name()));
-        }
+        Set<Long> variantIds = unitRows.stream().map(ListingUnit::catalogVariantId).collect(Collectors.toSet());
+        Set<Long> unitIds = unitRows.stream().map(ListingUnit::id).collect(Collectors.toSet());
 
-        if (gameId != null) {
-            cond = cond.and(DSL.exists(
-                    DSL.selectOne()
-                            .from(CATALOG_VARIANT)
-                            .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
-                            .where(CATALOG_VARIANT.ID.eq(LISTING_UNIT.CATALOG_VARIANT_ID))
-                            .and(CATALOG_PRODUCT.GAME_ID.eq(gameId))));
-        }
-
-        if (q != null && !q.isBlank()) {
-            String search = q.trim();
-            cond = cond.and(DSL.exists(
-                    DSL.selectOne()
-                            .from(CATALOG_VARIANT)
-                            .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
-                            .where(CATALOG_VARIANT.ID.eq(LISTING_UNIT.CATALOG_VARIANT_ID))
-                            .and(CATALOG_PRODUCT.NAME.containsIgnoreCase(search)
-                                    .or(CATALOG_PRODUCT.CARD_NUMBER.containsIgnoreCase(search))
-                                    .or(CATALOG_VARIANT.SKU.containsIgnoreCase(search)))));
-        }
-
-        long totalInStock = dsl.fetchCount(LISTING_UNIT,
-                LISTING_UNIT.SELLER_PROFILE_ID.eq(seller.id())
-                        .and(LISTING_UNIT.STATUS.in(
-                                ListingUnitStatus.IN_STOCK.name(),
-                                ListingUnitStatus.LISTED.name(),
-                                ListingUnitStatus.ON_AUCTION.name(),
-                                ListingUnitStatus.RESERVED.name()))
-                        .and(LISTING_UNIT.DELETED_AT.isNull()));
-
-        var orderField = DSL.case_()
-                .when(LISTING_UNIT.STATUS.in(ListingUnitStatus.IN_STOCK.name(), ListingUnitStatus.LISTED.name()), 0)
-                .otherwise(1);
-
-        List<ListingUnit> unitRows = dsl.selectFrom(LISTING_UNIT)
-                .where(cond)
-                .orderBy(orderField.asc(), LISTING_UNIT.CREATED_AT.desc(), LISTING_UNIT.ID.desc())
-                .limit(paging.size())
-                .offset(paging.offset())
-                .fetch(ListingUnitRepository::toUnit);
-
-        long count = dsl.fetchCount(LISTING_UNIT, cond);
+        var bundle = auctionItemMapper.buildAuctionItems(variantIds, List.of());
+        Map<Long, String> heldAuctions = auctions.findHeldAuctionNumbers(unitIds);
+        Map<Long, String> heldOrders = units.findHeldOrderNumbers(unitIds);
+        Map<AuctionRepository.VariantConditionKey, MarketGuide> marketGuides = auctions.findMarketGuides(variantIds);
 
         List<EligibleUnit> eligible = unitRows.stream().map(u -> {
-            AuctionItem item = buildAuctionItem(u.catalogVariantId(), u.condition());
+            AuctionItem item = bundle.buildAuctionItem(u.catalogVariantId(), u.condition());
             String unitLabel = formatUnitLabel(u.publicUid(), u.id());
-            MarketGuide market = calculateMarketGuide(u.catalogVariantId(), u.condition());
+            MarketGuide market = marketGuides.get(new AuctionRepository.VariantConditionKey(u.catalogVariantId(), u.condition().name()));
 
             UnitAvailability availability;
             String heldBy = null;
@@ -246,11 +193,13 @@ public class SellerAuctionService {
                 case LISTED -> availability = UnitAvailability.LISTED;
                 case ON_AUCTION -> {
                     availability = UnitAvailability.IN_AUCTION;
-                    heldBy = findHeldAuctionNumber(u.id()).map(num -> "#" + num).orElse("อยู่ในประมูล");
+                    String heldNum = heldAuctions.get(u.id());
+                    heldBy = heldNum != null ? "#" + heldNum : "อยู่ในประมูล";
                 }
                 case RESERVED -> {
                     availability = UnitAvailability.RESERVED;
-                    heldBy = findHeldOrderNumber(u.id()).map(num -> "#" + num).orElse("จองในคำสั่งซื้อ");
+                    String heldNum = heldOrders.get(u.id());
+                    heldBy = heldNum != null ? "#" + heldNum : "จองในคำสั่งซื้อ";
                 }
                 default -> availability = UnitAvailability.RESERVED;
             }
@@ -274,10 +223,10 @@ public class SellerAuctionService {
         Instant endsAt = request.endsAt().toInstant();
 
         // Duration validation: between 1 hour and 30 days
-        if (endsAt.isBefore(now.plus(Duration.ofHours(1)))) {
+        if (endsAt.isBefore(now.plus(AuctionPolicy.MIN_AUCTION_DURATION))) {
             throw new BadRequestException(ErrorCode.AUCTION_END_TOO_SOON, "The closing time must be at least 1 hour from now");
         }
-        if (endsAt.isAfter(now.plus(Duration.ofDays(30)))) {
+        if (endsAt.isAfter(now.plus(AuctionPolicy.MAX_AUCTION_DURATION))) {
             throw new BadRequestException(ErrorCode.AUCTION_END_TOO_FAR, "The closing time must be within 30 days from now");
         }
 
@@ -427,74 +376,13 @@ public class SellerAuctionService {
         throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Listing unit identifier is required");
     }
 
-    private AuctionItem buildAuctionItem(long catalogVariantId, CardCondition condition) {
-        ListingCard card = cards.card(catalogVariantId);
-        CatalogVariant variant = variants.findById(catalogVariantId).orElse(null);
-        if (variant == null) {
-            return new AuctionItem(card, condition, null, null, null, null);
-        }
-        CatalogProduct product = products.findById(variant.catalogProductId()).orElse(null);
-        if (product == null) {
-            return new AuctionItem(card, condition, null, null, null, null);
-        }
-        String gameName = games.findById(product.gameId()).map(Game::name).orElse(null);
-        String setName = product.cardSetId() != null
-                ? cardSets.findById(product.cardSetId()).map(CardSet::name).orElse(null)
-                : null;
-        return new AuctionItem(card, condition, gameName, setName, product.cardNumber(), product.rarityCode());
-    }
-
-    private MarketGuide calculateMarketGuide(long catalogVariantId, CardCondition condition) {
-        List<BigDecimal> prices = dsl.select(LISTING.PRICE)
-                .from(LISTING)
-                .where(LISTING.CATALOG_VARIANT_ID.eq(catalogVariantId))
-                .and(LISTING.CONDITION_CODE.eq(condition.name()))
-                .and(LISTING.STATUS.eq(ListingStatus.ACTIVE.name()))
-                .and(LISTING.DELETED_AT.isNull())
-                .orderBy(LISTING.PRICE.asc())
-                .fetch(LISTING.PRICE);
-
-        if (prices.isEmpty()) {
-            return null;
-        }
-
-        int count = prices.size();
-        BigDecimal min = prices.getFirst();
-        BigDecimal max = prices.getLast();
-        BigDecimal median = prices.get(count / 2);
-        return new MarketGuide(count, min, median, max);
-    }
-
-    private Optional<String> findHeldAuctionNumber(long listingUnitId) {
-        return dsl.select(AUCTION.AUCTION_NUMBER)
-                .from(AUCTION)
-                .where(AUCTION.LISTING_UNIT_ID.eq(listingUnitId))
-                .and(AUCTION.STATUS.in(
-                        AuctionStatus.LIVE.name(),
-                        AuctionStatus.AWAITING_PAYMENT.name()))
-                .orderBy(AUCTION.CREATED_AT.desc())
-                .limit(1)
-                .fetchOptional(AUCTION.AUCTION_NUMBER);
-    }
-
-    private Optional<String> findHeldOrderNumber(long listingUnitId) {
-        return dsl.select(SELLER_ORDER.SELLER_ORDER_NUMBER)
-                .from(ORDER_ITEM_UNIT)
-                .join(ORDER_ITEM).on(ORDER_ITEM.ID.eq(ORDER_ITEM_UNIT.ORDER_ITEM_ID))
-                .join(SELLER_ORDER).on(SELLER_ORDER.ID.eq(ORDER_ITEM.SELLER_ORDER_ID))
-                .where(ORDER_ITEM_UNIT.LISTING_UNIT_ID.eq(listingUnitId))
-                .orderBy(ORDER_ITEM_UNIT.CREATED_AT.desc())
-                .limit(1)
-                .fetchOptional(SELLER_ORDER.SELLER_ORDER_NUMBER);
-    }
-
     private OffsetDateTime resolveDeadline(Auction a) {
         return a.status() == AuctionStatus.AWAITING_PAYMENT ? a.paymentDueAt() : null;
     }
 
     private SellerAuctionDetail toSellerAuctionDetail(Auction a, SellerProfile seller) {
         OffsetDateTime now = OffsetDateTime.now(clock);
-        AuctionItem item = buildAuctionItem(a.catalogVariantId(), a.condition());
+        AuctionItem item = auctionItemMapper.buildAuctionItem(a.catalogVariantId(), a.condition());
         ListingUnit unit = units.findOfSeller(a.listingUnitId(), seller.id()).orElse(null);
         String unitLabel = unit != null ? formatUnitLabel(unit.publicUid(), unit.id()) : formatUnitLabel(null, a.listingUnitId());
 
@@ -509,15 +397,12 @@ public class SellerAuctionService {
         List<Bid> bids = new ArrayList<>();
         if (!bidRows.isEmpty()) {
             Set<Long> userIds = Set.copyOf(bidRows.stream().map(AuctionBid::bidderId).toList());
-            Map<Long, String> usernames = dsl.select(USER_ACCOUNT.ID, USER_ACCOUNT.USERNAME)
-                    .from(USER_ACCOUNT)
-                    .where(USER_ACCOUNT.ID.in(userIds))
-                    .fetchMap(USER_ACCOUNT.ID, USER_ACCOUNT.USERNAME);
+            Map<Long, String> usernames = auctions.findUsernames(userIds);
 
             for (AuctionBid b : bidRows) {
                 String uname = usernames.get(b.bidderId());
-                String alias = maskUsername(uname);
-                String initials = bidderInitials(uname);
+                String alias = AuctionItemMapper.maskUsername(uname);
+                String initials = AuctionItemMapper.bidderInitials(uname);
                 bids.add(new Bid(alias, initials, false, b.amount(), b.createdAt()));
             }
         }
@@ -525,11 +410,8 @@ public class SellerAuctionService {
         // Winner alias if auction ended with winner
         String winnerAlias = null;
         if (a.winnerId() != null) {
-            String uname = dsl.select(USER_ACCOUNT.USERNAME)
-                    .from(USER_ACCOUNT)
-                    .where(USER_ACCOUNT.ID.eq(a.winnerId()))
-                    .fetchOne(USER_ACCOUNT.USERNAME);
-            winnerAlias = maskUsername(uname);
+            String uname = auctions.findUsername(a.winnerId()).orElse(null);
+            winnerAlias = AuctionItemMapper.maskUsername(uname);
         }
 
         return new SellerAuctionDetail(
@@ -560,28 +442,6 @@ public class SellerAuctionService {
                 a.salesOrderId(),
                 bids,
                 now);
-    }
-
-    public static String maskUsername(String username) {
-        if (username == null || username.isBlank()) {
-            return "Anonymous";
-        }
-        String s = username.strip();
-        if (s.length() <= 2) {
-            return s.toLowerCase() + "***";
-        }
-        return (s.charAt(0) + "***" + s.charAt(s.length() - 1)).toLowerCase();
-    }
-
-    public static String bidderInitials(String username) {
-        if (username == null || username.isBlank()) {
-            return "AN";
-        }
-        String s = username.strip().toUpperCase();
-        if (s.length() <= 1) {
-            return (s + s).substring(0, 2);
-        }
-        return "" + s.charAt(0) + s.charAt(s.length() - 1);
     }
 
     private static String formatUnitLabel(UUID publicUid, long unitId) {

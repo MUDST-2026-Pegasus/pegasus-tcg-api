@@ -467,22 +467,37 @@ class AuctionBidServiceTest {
         }
 
         @Test
-        @DisplayName("Concurrent race condition causing DuplicateKeyException returns existing bid gracefully")
+        @DisplayName("Concurrent race condition causing DuplicateKeyException throws ConflictException(IDEMPOTENCY_KEY_CONFLICT)")
         void idempotency_ConcurrentDuplicateKeyException_ReturnsExistingBid() {
             stubEligibleUser(USER_ID);
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), new BigDecimal("50.00"), new BigDecimal("1000.00"), 0, NOW.plusHours(2));
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
             // First lookup finds nothing
             given(auctions.findBidByIdempotencyKey(AUCTION_ID, IDEM_KEY))
-                    .willReturn(Optional.empty())
-                    .willReturn(Optional.of(new AuctionBid(106L, AUCTION_ID, USER_ID, new BigDecimal("1000.00"), BidStatus.ACTIVE, IDEM_KEY, NOW)));
+                    .willReturn(Optional.empty());
 
             given(auctions.insertBid(AUCTION_ID, USER_ID, new BigDecimal("1000.00"), IDEM_KEY))
                     .willThrow(new DuplicateKeyException("duplicate key value violates unique constraint"));
 
-            BidPlaced result = service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1000.00"), IDEM_KEY);
+            assertThatThrownBy(() -> service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1000.00"), IDEM_KEY))
+                    .isInstanceOf(ConflictException.class)
+                    .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_KEY_CONFLICT));
+        }
 
-            assertThat(result.amount()).isEqualByComparingTo("1000.00");
+        @Test
+        @DisplayName("placeBid throws ConflictException(ALREADY_LEADING) when caller is already the highest bidder")
+        void placeBid_WhenAlreadyLeading_ThrowsConflict() {
+            Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), new BigDecimal("50.00"), new BigDecimal("1050.00"), 1, NOW.plusHours(2));
+            given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
+
+            AuctionBid leadingBid = new AuctionBid(100L, AUCTION_ID, USER_ID, new BigDecimal("1050.00"), BidStatus.ACTIVE, "k1", NOW.minusMinutes(10));
+            given(auctions.findBidById(100L)).willReturn(Optional.of(leadingBid));
+
+            assertThatThrownBy(() -> service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1100.00"), null))
+                    .isInstanceOf(ConflictException.class)
+                    .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.ALREADY_LEADING));
+
+            verify(auctions, never()).insertBid(anyLong(), anyLong(), any(), any());
         }
     }
 }

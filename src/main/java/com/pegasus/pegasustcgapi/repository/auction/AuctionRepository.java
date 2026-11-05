@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.repository.auction;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.Auction.AUCTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.AuctionBid.AUCTION_BID;
 import static com.pegasus.pegasustcgapi.jooq.tables.BidderStrike.BIDDER_STRIKE;
@@ -14,6 +15,10 @@ import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Filter;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Sort;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.Kpis;
+import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.MarketGuide;
+import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
+import java.util.Collection;
+import java.util.HashMap;
 import com.pegasus.pegasustcgapi.jooq.tables.records.AuctionBidRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.AuctionRecord;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
@@ -189,6 +194,18 @@ public class AuctionRepository {
                 .execute() == 1;
     }
 
+    public boolean recordAuctionSuspended(long auctionId, String reason, OffsetDateTime now) {
+        return dsl.update(AUCTION)
+                .set(AUCTION.STATUS, AuctionStatus.SUSPENDED.name())
+                .set(AUCTION.SUSPENDED_REASON, reason)
+                .set(AUCTION.SUSPENDED_AT, now)
+                .set(AUCTION.VERSION, AUCTION.VERSION.plus(1))
+                .set(AUCTION.UPDATED_AT, now)
+                .where(AUCTION.ID.eq(auctionId))
+                .and(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()))
+                .execute() == 1;
+    }
+
     public boolean recordAuctionUnsold(long auctionId, OffsetDateTime closedAt) {
         return dsl.update(AUCTION)
                 .set(AUCTION.STATUS, AuctionStatus.UNSOLD.name())
@@ -306,32 +323,40 @@ public class AuctionRepository {
     }
 
     public Kpis calculateKpis(long sellerProfileId, OffsetDateTime now) {
-        long liveCount = dsl.fetchCount(AUCTION,
-                AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId).and(AUCTION.STATUS.eq(AuctionStatus.LIVE.name())));
-        long liveWithBids = dsl.fetchCount(AUCTION,
-                AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
-                        .and(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()))
-                        .and(AUCTION.BID_COUNT.gt(0)));
-        long awaitingPaymentCount = dsl.fetchCount(AUCTION,
-                AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
-                        .and(AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name())));
-        OffsetDateTime nextPaymentDueAt = dsl.select(DSL.min(AUCTION.PAYMENT_DUE_AT))
-                .from(AUCTION)
-                .where(AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
-                        .and(AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name())))
-                .fetchOptional(0, OffsetDateTime.class)
-                .orElse(null);
         OffsetDateTime thirtyDaysAgo = now.minusDays(30);
-        BigDecimal soldLast30Days = dsl.select(DSL.coalesce(DSL.sum(AUCTION.WINNING_AMOUNT), BigDecimal.ZERO))
+
+        var liveCountField = DSL.count().filterWhere(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()));
+        var liveWithBidsField = DSL.count().filterWhere(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()).and(AUCTION.BID_COUNT.gt(0)));
+        var awaitingPaymentCountField = DSL.count().filterWhere(AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name()));
+        var nextPaymentDueAtField = DSL.min(AUCTION.PAYMENT_DUE_AT).filterWhere(AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name()));
+        var soldLast30DaysField = DSL.coalesce(
+                DSL.sum(AUCTION.WINNING_AMOUNT).filterWhere(AUCTION.STATUS.eq(AuctionStatus.SOLD.name()).and(AUCTION.CLOSED_AT.ge(thirtyDaysAgo))),
+                BigDecimal.ZERO);
+        var closedLast30DaysField = DSL.count().filterWhere(
+                AUCTION.STATUS.in(AuctionStatus.SOLD.name(), AuctionStatus.UNSOLD.name()).and(AUCTION.CLOSED_AT.ge(thirtyDaysAgo)));
+
+        var record = dsl.select(
+                liveCountField,
+                liveWithBidsField,
+                awaitingPaymentCountField,
+                nextPaymentDueAtField,
+                soldLast30DaysField,
+                closedLast30DaysField)
                 .from(AUCTION)
-                .where(AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
-                        .and(AUCTION.STATUS.eq(AuctionStatus.SOLD.name()))
-                        .and(AUCTION.CLOSED_AT.ge(thirtyDaysAgo)))
-                .fetchOne(0, BigDecimal.class);
-        long closedLast30Days = dsl.fetchCount(AUCTION,
-                AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
-                        .and(AUCTION.STATUS.in(AuctionStatus.SOLD.name(), AuctionStatus.UNSOLD.name()))
-                        .and(AUCTION.CLOSED_AT.ge(thirtyDaysAgo)));
+                .where(AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .fetchOne();
+
+        if (record == null) {
+            return new Kpis(0L, 0L, 0L, null, BigDecimal.ZERO, 0L, null);
+        }
+
+        long liveCount = record.get(liveCountField).longValue();
+        long liveWithBids = record.get(liveWithBidsField).longValue();
+        long awaitingPaymentCount = record.get(awaitingPaymentCountField).longValue();
+        OffsetDateTime nextPaymentDueAt = record.get(nextPaymentDueAtField);
+        BigDecimal soldLast30Days = record.get(soldLast30DaysField);
+        long closedLast30Days = record.get(closedLast30DaysField).longValue();
+
         return new Kpis(liveCount, liveWithBids, awaitingPaymentCount, nextPaymentDueAt,
                 soldLast30Days != null ? soldLast30Days : BigDecimal.ZERO, closedLast30Days, null);
     }
@@ -352,6 +377,9 @@ public class AuctionRepository {
 
     public Condition buildPublicConditions(PublicAuctionQuery query) {
         Condition cond = AUCTION.STATUS.eq(AuctionStatus.LIVE.name());
+        if (query.now() != null) {
+            cond = cond.and(AUCTION.ENDS_AT.gt(query.now()));
+        }
 
         if (query.filter() != null) {
             switch (query.filter()) {
@@ -420,6 +448,9 @@ public class AuctionRepository {
     public Map<Filter, Long> publicFilterCounts(OffsetDateTime now) {
         Map<Filter, Long> counts = new EnumMap<>(Filter.class);
         var baseCond = AUCTION.STATUS.eq(AuctionStatus.LIVE.name());
+        if (now != null) {
+            baseCond = baseCond.and(AUCTION.ENDS_AT.gt(now));
+        }
         counts.put(Filter.ENDING_SOON, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.ENDS_AT.le(now.plusHours(1)).and(AUCTION.ENDS_AT.gt(now)))));
         counts.put(Filter.BUY_NOW, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.BUY_NOW_PRICE.isNotNull()).and(AUCTION.BID_COUNT.eq(0))));
         counts.put(Filter.NO_BIDS, (long) dsl.fetchCount(AUCTION, baseCond.and(AUCTION.BID_COUNT.eq(0))));
@@ -581,7 +612,7 @@ public class AuctionRepository {
         return Optional.of(new SellerInfo(shopName, username, rating));
     }
 
-    public Map<Long, String> findUsernames(java.util.Set<Long> userIds) {
+    public Map<Long, String> findUsernames(Collection<Long> userIds) {
         if (userIds == null || userIds.isEmpty()) {
             return java.util.Map.of();
         }
@@ -589,6 +620,91 @@ public class AuctionRepository {
                 .from(USER_ACCOUNT)
                 .where(USER_ACCOUNT.ID.in(userIds))
                 .fetchMap(USER_ACCOUNT.ID, USER_ACCOUNT.USERNAME);
+    }
+
+    public Optional<String> findUsername(long userId) {
+        return Optional.ofNullable(findUsernames(List.of(userId)).get(userId));
+    }
+
+    public record VariantConditionKey(long catalogVariantId, String conditionCode) {}
+
+    public Map<VariantConditionKey, MarketGuide> findMarketGuides(Collection<Long> catalogVariantIds) {
+        if (catalogVariantIds == null || catalogVariantIds.isEmpty()) {
+            return Map.of();
+        }
+
+        var medianField = DSL.field("percentile_disc(0.5) WITHIN GROUP (ORDER BY {0})", BigDecimal.class, LISTING.PRICE);
+        var countField = DSL.count();
+        var minField = DSL.min(LISTING.PRICE);
+        var maxField = DSL.max(LISTING.PRICE);
+
+        var records = dsl.select(
+                LISTING.CATALOG_VARIANT_ID,
+                LISTING.CONDITION_CODE,
+                countField,
+                minField,
+                maxField,
+                medianField)
+                .from(LISTING)
+                .where(LISTING.CATALOG_VARIANT_ID.in(catalogVariantIds))
+                .and(LISTING.STATUS.eq(ListingStatus.ACTIVE.name()))
+                .and(LISTING.DELETED_AT.isNull())
+                .groupBy(LISTING.CATALOG_VARIANT_ID, LISTING.CONDITION_CODE)
+                .fetch();
+
+        Map<VariantConditionKey, MarketGuide> result = new HashMap<>();
+        for (var r : records) {
+            long variantId = r.get(LISTING.CATALOG_VARIANT_ID);
+            String condition = r.get(LISTING.CONDITION_CODE);
+            int count = r.get(countField);
+            BigDecimal min = r.get(minField);
+            BigDecimal max = r.get(maxField);
+            BigDecimal median = r.get(medianField);
+            result.put(new VariantConditionKey(variantId, condition), new MarketGuide(count, min, median, max));
+        }
+        return result;
+    }
+
+    public Map<Long, String> findHeldAuctionNumbers(Collection<Long> listingUnitIds) {
+        if (listingUnitIds == null || listingUnitIds.isEmpty()) {
+            return Map.of();
+        }
+        var records = dsl.select(AUCTION.LISTING_UNIT_ID, AUCTION.AUCTION_NUMBER)
+                .distinctOn(AUCTION.LISTING_UNIT_ID)
+                .from(AUCTION)
+                .where(AUCTION.LISTING_UNIT_ID.in(listingUnitIds))
+                .and(AUCTION.STATUS.in(
+                        AuctionStatus.LIVE.name(),
+                        AuctionStatus.AWAITING_PAYMENT.name()))
+                .orderBy(AUCTION.LISTING_UNIT_ID, AUCTION.CREATED_AT.desc())
+                .fetch();
+
+        Map<Long, String> result = new HashMap<>();
+        for (var r : records) {
+            result.put(r.get(AUCTION.LISTING_UNIT_ID), r.get(AUCTION.AUCTION_NUMBER));
+        }
+        return result;
+    }
+
+    public Map<Long, String> findShopNames(Collection<Long> sellerProfileIds) {
+        if (sellerProfileIds == null || sellerProfileIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(SELLER_PROFILE.ID, USER_ACCOUNT.DISPLAY_NAME, USER_ACCOUNT.USERNAME)
+                .from(SELLER_PROFILE)
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .where(SELLER_PROFILE.ID.in(sellerProfileIds))
+                .fetchMap(
+                        r -> r.get(SELLER_PROFILE.ID),
+                        r -> {
+                            String displayName = r.get(USER_ACCOUNT.DISPLAY_NAME);
+                            if (displayName != null && !displayName.isBlank()) {
+                                return displayName;
+                            }
+                            String username = r.get(USER_ACCOUNT.USERNAME);
+                            return username != null && !username.isBlank() ? username : "Shop";
+                        }
+                );
     }
 
     // ---------- mapping ----------

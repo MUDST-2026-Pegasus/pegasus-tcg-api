@@ -6,7 +6,6 @@ import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.service.inventory.InventoryService;
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,14 +14,13 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Service to execute the close transition of a single auction [TCG-619].
+ * Service to execute the close transition of a single auction [TCG-619, ISSUE-006].
  * Runs in its own transaction (REQUIRES_NEW) so failure on one auction does not impact others.
  */
 @Service
 public class AuctionCloseService {
 
     private static final Logger log = LoggerFactory.getLogger(AuctionCloseService.class);
-    private static final Duration DEFAULT_PAYMENT_WINDOW = Duration.ofHours(24);
 
     private final AuctionRepository auctions;
     private final ListingUnitRepository units;
@@ -42,29 +40,30 @@ public class AuctionCloseService {
      *
      * @param auctionId the auction to close
      * @param now       the current evaluation timestamp from Clock
+     * @return true if the auction was transitioned (won, unsold, suspended); false if skipped
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void closeAuction(long auctionId, OffsetDateTime now) {
+    public boolean closeAuction(long auctionId, OffsetDateTime now) {
         Auction auction = auctions.lock(auctionId).orElse(null);
         if (auction == null || auction.status() != AuctionStatus.LIVE) {
-            return;
+            return false;
         }
 
         // Anti-sniping safety check: skip if endsAt was extended past now
         if (now.isBefore(auction.endsAt())) {
             log.info("Auction #{} endsAt {} was extended past now {}; skipping close",
                     auctionId, auction.endsAt(), now);
-            return;
+            return false;
         }
 
         if (auction.bidCount() > 0) {
-            closeWithWinner(auction, now);
+            return closeWithWinner(auction, now);
         } else {
-            closeUnsold(auction, now);
+            return closeUnsold(auction, now);
         }
     }
 
-    private void closeWithWinner(Auction auction, OffsetDateTime now) {
+    private boolean closeWithWinner(Auction auction, OffsetDateTime now) {
         Long winnerId = null;
         if (auction.leadingBidId() != null) {
             winnerId = auctions.findBidById(auction.leadingBidId())
@@ -76,23 +75,25 @@ public class AuctionCloseService {
         }
 
         if (winnerId == null) {
-            log.error("Auction #{} has bidCount {} but no leading bidder found; cannot close with winner",
+            log.error("Auction #{} has bidCount {} but no leading bidder found; moving to SUSPENDED to prevent scheduler starvation",
                     auction.id(), auction.bidCount());
-            return;
+            auctions.recordAuctionSuspended(auction.id(), "Stuck auction: bidCount > 0 but winner could not be resolved", now);
+            return true;
         }
 
-        OffsetDateTime paymentDueAt = now.plus(DEFAULT_PAYMENT_WINDOW);
+        OffsetDateTime paymentDueAt = now.plus(AuctionPolicy.DEFAULT_PAYMENT_WINDOW);
         boolean updated = auctions.recordAuctionWon(auction.id(), winnerId, auction.currentPrice(), now, paymentDueAt);
         if (updated) {
             log.info("Auction #{} closed: winner #{}, amount {}, payment due at {}",
                     auction.id(), winnerId, auction.currentPrice(), paymentDueAt);
         }
+        return updated;
     }
 
-    private void closeUnsold(Auction auction, OffsetDateTime now) {
+    private boolean closeUnsold(Auction auction, OffsetDateTime now) {
         boolean updated = auctions.recordAuctionUnsold(auction.id(), now);
         if (!updated) {
-            return;
+            return false;
         }
 
         // Return card to stock (listing_unit status becomes IN_STOCK)
@@ -104,5 +105,6 @@ public class AuctionCloseService {
 
         log.info("Auction #{} closed UNSOLD; card #{} returned to stock",
                 auction.id(), auction.listingUnitId());
+        return true;
     }
 }

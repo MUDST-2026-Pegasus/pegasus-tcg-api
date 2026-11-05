@@ -27,12 +27,12 @@ class DefaultUserVerificationPortTest {
     private DefaultUserVerificationPort port;
 
     @Test
-    @DisplayName("returns true when user exists and email is not blank")
-    void isEmailVerified_WhenUserHasEmail_ReturnsTrue() {
+    @DisplayName("returns true when user exists and email is verified")
+    void isEmailVerified_WhenUserHasVerifiedEmail_ReturnsTrue() {
         AuthUser user = new AuthUser(
                 1L, "user@example.com", "username", "Display", "hash",
                 null, "0812345678", null, UserStatus.ACTIVE, (short) 0,
-                null, null, OffsetDateTime.now(), Set.of());
+                null, null, OffsetDateTime.now(), Set.of(), false, OffsetDateTime.now());
         given(userRepository.findById(1L)).willReturn(Optional.of(user));
 
         boolean verified = port.isEmailVerified(1L);
@@ -51,12 +51,12 @@ class DefaultUserVerificationPortTest {
     }
 
     @Test
-    @DisplayName("returns false when user exists but email is blank")
-    void isEmailVerified_WhenEmailIsBlank_ReturnsFalse() {
+    @DisplayName("returns false when user exists but email is not verified")
+    void isEmailVerified_WhenEmailNotVerified_ReturnsFalse() {
         AuthUser user = new AuthUser(
-                2L, "  ", "username2", "Display", "hash",
+                2L, "user2@example.com", "username2", "Display", "hash",
                 null, null, null, UserStatus.ACTIVE, (short) 0,
-                null, null, OffsetDateTime.now(), Set.of());
+                null, null, OffsetDateTime.now(), Set.of(), false, null);
         given(userRepository.findById(2L)).willReturn(Optional.of(user));
 
         boolean verified = port.isEmailVerified(2L);

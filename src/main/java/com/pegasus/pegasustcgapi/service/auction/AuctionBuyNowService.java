@@ -9,7 +9,6 @@ import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
@@ -22,9 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class AuctionBuyNowService {
-
-    private static final BigDecimal DEFAULT_SHIPPING = new BigDecimal("50.00");
-    private static final Duration DEFAULT_PAYMENT_WINDOW = Duration.ofHours(24);
 
     private final AuctionRepository auctions;
     private final AuctionEligibilityValidator validator;
@@ -56,12 +52,12 @@ public class AuctionBuyNowService {
         // 1. Idempotency: if caller already won this auction via buy-now
         if (auction.status() == AuctionStatus.AWAITING_PAYMENT && Objects.equals(auction.winnerId(), userId)) {
             BigDecimal price = auction.winningAmount() != null ? auction.winningAmount() : auction.buyNowPrice();
-            BigDecimal total = price.add(DEFAULT_SHIPPING);
+            BigDecimal total = price.add(AuctionPolicy.DEFAULT_SHIPPING);
             return new AuctionWin(
                     auction.id(),
                     auction.auctionNumber(),
                     price,
-                    DEFAULT_SHIPPING,
+                    AuctionPolicy.DEFAULT_SHIPPING,
                     total,
                     auction.paymentDueAt(),
                     now);
@@ -91,20 +87,20 @@ public class AuctionBuyNowService {
         validator.validateCanBid(auction, userId, now);
 
         // 7. Transition auction to AWAITING_PAYMENT
-        OffsetDateTime paymentDueAt = now.plus(DEFAULT_PAYMENT_WINDOW);
+        OffsetDateTime paymentDueAt = now.plus(AuctionPolicy.DEFAULT_PAYMENT_WINDOW);
         boolean updated = auctions.recordBuyNowWin(auctionId, userId, auction.buyNowPrice(), now, paymentDueAt);
         if (!updated) {
             throw new ConflictException(ErrorCode.BUY_NOW_UNAVAILABLE, "Auction could not be bought now");
         }
 
         BigDecimal price = auction.buyNowPrice();
-        BigDecimal total = price.add(DEFAULT_SHIPPING);
+        BigDecimal total = price.add(AuctionPolicy.DEFAULT_SHIPPING);
 
         return new AuctionWin(
                 auction.id(),
                 auction.auctionNumber(),
                 price,
-                DEFAULT_SHIPPING,
+                AuctionPolicy.DEFAULT_SHIPPING,
                 total,
                 paymentDueAt,
                 now);

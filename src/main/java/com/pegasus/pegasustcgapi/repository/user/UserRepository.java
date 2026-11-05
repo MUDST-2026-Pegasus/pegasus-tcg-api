@@ -64,6 +64,14 @@ public class UserRepository {
         return dsl.fetchExists(dsl.selectOne().from(USER_ACCOUNT).where(USER_ACCOUNT.EMAIL.eq(email)));
     }
 
+    public boolean isEmailVerified(long userId) {
+        return dsl.fetchExists(dsl.selectOne()
+                .from(USER_ACCOUNT)
+                .where(USER_ACCOUNT.ID.eq(userId))
+                .and(USER_ACCOUNT.EMAIL_VERIFIED_AT.isNotNull())
+                .and(USER_ACCOUNT.DELETED_AT.isNull()));
+    }
+
     public boolean existsByUsername(String username) {
         return dsl.fetchExists(dsl.selectOne().from(USER_ACCOUNT).where(USER_ACCOUNT.USERNAME.eq(username)));
     }
@@ -252,7 +260,7 @@ public class UserRepository {
                 r.getLastLoginAt(),
                 r.getLockedUntil(),
                 r.getCreatedAt(),
-                Set.of(), r.getPhonePublic());
+                Set.of(), r.getPhonePublic(), r.getEmailVerifiedAt());
     }
 
     /** Fields a registration supplies; everything else comes from column defaults. */

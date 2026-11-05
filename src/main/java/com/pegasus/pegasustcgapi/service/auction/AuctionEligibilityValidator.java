@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.ForbiddenException;
+import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
@@ -13,6 +14,8 @@ import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.repository.user.AddressRepository;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.stereotype.Component;
@@ -64,7 +67,7 @@ public class AuctionEligibilityValidator {
                     Map.of("bannedUntil", banUntil.get()));
         }
 
-        if (auctions.countActiveStrikes(userId) >= 3) {
+        if (auctions.countActiveStrikes(userId) >= AuctionPolicy.MAX_STRIKES_ALLOWED) {
             throw new ForbiddenException(ErrorCode.BIDDING_BANNED, "User is banned from bidding due to unpaid wins");
         }
 
@@ -89,7 +92,7 @@ public class AuctionEligibilityValidator {
             return BidEligibility.EMAIL_NOT_VERIFIED;
         }
 
-        if (auctions.findActiveBanUntil(userId, now).isPresent() || auctions.countActiveStrikes(userId) >= 3) {
+        if (auctions.findActiveBanUntil(userId, now).isPresent() || auctions.countActiveStrikes(userId) >= AuctionPolicy.MAX_STRIKES_ALLOWED) {
             return BidEligibility.BIDDING_PENALIZED;
         }
 
@@ -100,11 +103,31 @@ public class AuctionEligibilityValidator {
         return BidEligibility.ELIGIBLE;
     }
 
+    /**
+     * Finds any error codes that block the user from bidding on this auction.
+     */
+    public List<ErrorCode> findBlockers(Auction auction, long userId, OffsetDateTime now) {
+        List<ErrorCode> blockers = new ArrayList<>();
+        if (isOwnAuction(auction.sellerProfileId(), userId)) {
+            blockers.add(ErrorCode.OWN_AUCTION);
+        }
+        if (addresses.findByUserId(userId).isEmpty()) {
+            blockers.add(ErrorCode.NO_SHIPPING_ADDRESS);
+        }
+        if (!userVerification.isEmailVerified(userId)) {
+            blockers.add(ErrorCode.EMAIL_NOT_VERIFIED);
+        }
+        if (auctions.findActiveBanUntil(userId, now).isPresent() || auctions.countActiveStrikes(userId) >= AuctionPolicy.MAX_STRIKES_ALLOWED) {
+            blockers.add(ErrorCode.BIDDING_BANNED);
+        }
+        return blockers;
+    }
+
     public boolean isOwnAuction(long sellerProfileId, long userId) {
         try {
             SellerProfile profile = sellers.requireProfile(userId);
             return profile != null && profile.id() == sellerProfileId;
-        } catch (Exception e) {
+        } catch (NotFoundException e) {
             return false;
         }
     }

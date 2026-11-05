@@ -1,7 +1,12 @@
 package com.pegasus.pegasustcgapi.repository.listing;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.ListingUnit.LISTING_UNIT;
+import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
+import static com.pegasus.pegasustcgapi.jooq.tables.OrderItemUnit.ORDER_ITEM_UNIT;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
@@ -15,7 +20,9 @@ import com.pegasus.pegasustcgapi.model.user.UserStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.jooq.Condition;
@@ -331,6 +338,91 @@ public class ListingUnitRepository {
             condition = condition.and(LISTING_UNIT.CONDITION_CODE.eq(query.condition().name()));
         }
         return condition;
+    }
+
+    public long countInStock(long sellerProfileId) {
+        return dsl.fetchCount(LISTING_UNIT,
+                LISTING_UNIT.SELLER_PROFILE_ID.eq(sellerProfileId)
+                        .and(LISTING_UNIT.STATUS.in(
+                                ListingUnitStatus.IN_STOCK.name(),
+                                ListingUnitStatus.LISTED.name(),
+                                ListingUnitStatus.ON_AUCTION.name(),
+                                ListingUnitStatus.RESERVED.name()))
+                        .and(LISTING_UNIT.DELETED_AT.isNull()));
+    }
+
+    public List<ListingUnit> findEligibleUnits(long sellerProfileId, String q, Short gameId, CardCondition condition, int limit, int offset) {
+        Condition cond = buildEligibleCondition(sellerProfileId, q, gameId, condition);
+        var orderField = DSL.case_()
+                .when(LISTING_UNIT.STATUS.in(ListingUnitStatus.IN_STOCK.name(), ListingUnitStatus.LISTED.name()), 0)
+                .otherwise(1);
+
+        return dsl.selectFrom(LISTING_UNIT)
+                .where(cond)
+                .orderBy(orderField.asc(), LISTING_UNIT.CREATED_AT.desc(), LISTING_UNIT.ID.desc())
+                .limit(limit)
+                .offset(offset)
+                .fetch(ListingUnitRepository::toUnit);
+    }
+
+    public long countEligibleUnits(long sellerProfileId, String q, Short gameId, CardCondition condition) {
+        return dsl.fetchCount(LISTING_UNIT, buildEligibleCondition(sellerProfileId, q, gameId, condition));
+    }
+
+    private Condition buildEligibleCondition(long sellerProfileId, String q, Short gameId, CardCondition condition) {
+        Condition cond = LISTING_UNIT.SELLER_PROFILE_ID.eq(sellerProfileId)
+                .and(LISTING_UNIT.STATUS.in(
+                        ListingUnitStatus.IN_STOCK.name(),
+                        ListingUnitStatus.LISTED.name(),
+                        ListingUnitStatus.ON_AUCTION.name(),
+                        ListingUnitStatus.RESERVED.name()))
+                .and(LISTING_UNIT.DELETED_AT.isNull());
+
+        if (condition != null) {
+            cond = cond.and(LISTING_UNIT.CONDITION_CODE.eq(condition.name()));
+        }
+
+        if (gameId != null) {
+            cond = cond.and(DSL.exists(
+                    DSL.selectOne()
+                            .from(CATALOG_VARIANT)
+                            .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                            .where(CATALOG_VARIANT.ID.eq(LISTING_UNIT.CATALOG_VARIANT_ID))
+                            .and(CATALOG_PRODUCT.GAME_ID.eq(gameId))));
+        }
+
+        if (q != null && !q.isBlank()) {
+            String search = q.trim();
+            cond = cond.and(DSL.exists(
+                    DSL.selectOne()
+                            .from(CATALOG_VARIANT)
+                            .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                            .where(CATALOG_VARIANT.ID.eq(LISTING_UNIT.CATALOG_VARIANT_ID))
+                            .and(CATALOG_PRODUCT.NAME.containsIgnoreCase(search)
+                                    .or(CATALOG_PRODUCT.CARD_NUMBER.containsIgnoreCase(search))
+                                    .or(CATALOG_VARIANT.SKU.containsIgnoreCase(search)))));
+        }
+        return cond;
+    }
+
+    public Map<Long, String> findHeldOrderNumbers(Collection<Long> listingUnitIds) {
+        if (listingUnitIds == null || listingUnitIds.isEmpty()) {
+            return Map.of();
+        }
+        var records = dsl.select(ORDER_ITEM_UNIT.LISTING_UNIT_ID, SELLER_ORDER.SELLER_ORDER_NUMBER)
+                .distinctOn(ORDER_ITEM_UNIT.LISTING_UNIT_ID)
+                .from(ORDER_ITEM_UNIT)
+                .join(ORDER_ITEM).on(ORDER_ITEM.ID.eq(ORDER_ITEM_UNIT.ORDER_ITEM_ID))
+                .join(SELLER_ORDER).on(SELLER_ORDER.ID.eq(ORDER_ITEM.SELLER_ORDER_ID))
+                .where(ORDER_ITEM_UNIT.LISTING_UNIT_ID.in(listingUnitIds))
+                .orderBy(ORDER_ITEM_UNIT.LISTING_UNIT_ID, ORDER_ITEM_UNIT.CREATED_AT.desc())
+                .fetch();
+
+        Map<Long, String> result = new HashMap<>();
+        for (var r : records) {
+            result.put(r.get(ORDER_ITEM_UNIT.LISTING_UNIT_ID), r.get(SELLER_ORDER.SELLER_ORDER_NUMBER));
+        }
+        return result;
     }
 
     public static ListingUnit toUnit(ListingUnitRecord r) {

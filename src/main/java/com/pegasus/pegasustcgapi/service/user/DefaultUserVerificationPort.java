@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service.user;
 
+import com.pegasus.pegasustcgapi.model.auth.AuthUser;
 import com.pegasus.pegasustcgapi.port.UserVerificationPort;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
 import org.springframework.stereotype.Component;
@@ -19,7 +20,7 @@ public class DefaultUserVerificationPort implements UserVerificationPort {
     @Override
     public boolean isEmailVerified(long userId) {
         return userRepository.findById(userId)
-                .map(user -> user.email() != null && !user.email().isBlank())
+                .map(AuthUser::isEmailVerified)
                 .orElse(false);
     }
 }

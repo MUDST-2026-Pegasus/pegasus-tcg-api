@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 /**
  * Sweeps LIVE auctions whose ends_at has arrived, determines the outcome
  * (AWAITING_PAYMENT for winners, UNSOLD for auctions without bids), and
- * returns unsold cards to seller stock [TCG-613, TCG-619].
+ * returns unsold cards to seller stock [TCG-613, TCG-619, ISSUE-006].
  *
  * <p>Uses {@link JobLock} advisory locking to run exclusively across instances,
  * and processes each auction in its own transaction via {@link AuctionCloseService}.
@@ -78,15 +78,24 @@ public class AuctionCloseScheduler {
             }
 
             log.info("Processing {} auctions that reached ends_at", expiredIds.size());
+            int progressCount = 0;
             for (Long auctionId : expiredIds) {
                 try {
-                    auctionCloseService.closeAuction(auctionId, now);
+                    boolean progress = auctionCloseService.closeAuction(auctionId, now);
+                    if (progress) {
+                        progressCount++;
+                    }
                 } catch (Exception e) {
                     log.error("Failed to close auction #{}", auctionId, e);
                 }
             }
 
             if (expiredIds.size() < batchSize) {
+                return;
+            }
+
+            if (progressCount == 0) {
+                log.warn("Terminating auction close sweep early at round {} because no auctions made progress", round);
                 return;
             }
         }

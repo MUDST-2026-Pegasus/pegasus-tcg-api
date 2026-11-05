@@ -175,6 +175,26 @@ class AuctionCloseSchedulerTest {
             verify(mockAuctionCloseService).closeAuction(101L, NOW);
             verify(mockAuctionCloseService).closeAuction(102L, NOW);
         }
+
+        @Test
+        @DisplayName("full batch with zero progress terminates early to prevent infinite busy spinning")
+        void fullBatch_ZeroProgress_TerminatesEarly() {
+            lockGranted();
+            given(auctions.findExpiredLiveAuctionIds(NOW, 3))
+                    .willReturn(List.of(101L, 102L, 103L));
+            given(mockAuctionCloseService.closeAuction(anyLong(), eq(NOW)))
+                    .willReturn(false);
+
+            AuctionCloseScheduler scheduler = new AuctionCloseScheduler(
+                    auctions, mockAuctionCloseService, jobLock, FIXED_CLOCK, 3);
+            scheduler.runAuctionClose();
+
+            // Verified that it called findExpiredLiveAuctionIds only once
+            verify(auctions).findExpiredLiveAuctionIds(NOW, 3);
+            verify(mockAuctionCloseService).closeAuction(101L, NOW);
+            verify(mockAuctionCloseService).closeAuction(102L, NOW);
+            verify(mockAuctionCloseService).closeAuction(103L, NOW);
+        }
     }
 
     @Nested
@@ -244,6 +264,23 @@ class AuctionCloseSchedulerTest {
 
             realCloseService.closeAuction(auctionId, NOW);
 
+            verify(auctions, never()).recordAuctionWon(anyLong(), anyLong(), any(), any(), any());
+            verify(auctions, never()).recordAuctionUnsold(anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("Case 3: Stuck auction with bids but missing leading bid transitions to SUSPENDED")
+        void closeAuction_WithBids_MissingLeadingBid_TransitionsToSuspended() {
+            long auctionId = 505L;
+            Auction auction = sampleAuction(auctionId, AuctionStatus.LIVE, 2, new BigDecimal("1500.00"), NOW.minusSeconds(10), LEADING_BID_ID);
+            given(auctions.lock(auctionId)).willReturn(Optional.of(auction));
+            given(auctions.findBidById(LEADING_BID_ID)).willReturn(Optional.empty());
+            given(auctions.recordAuctionSuspended(eq(auctionId), anyString(), eq(NOW))).willReturn(true);
+
+            boolean progress = realCloseService.closeAuction(auctionId, NOW);
+
+            assertThat(progress).isTrue();
+            verify(auctions).recordAuctionSuspended(eq(auctionId), anyString(), eq(NOW));
             verify(auctions, never()).recordAuctionWon(anyLong(), anyLong(), any(), any(), any());
             verify(auctions, never()).recordAuctionUnsold(anyLong(), any());
         }

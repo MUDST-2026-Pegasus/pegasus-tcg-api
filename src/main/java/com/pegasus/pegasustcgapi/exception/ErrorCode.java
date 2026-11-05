@@ -111,6 +111,7 @@ public enum ErrorCode {
     PROMO_USED_UP(HttpStatus.CONFLICT, "This discount code has no uses left"),
     AUCTION_CLOSED(HttpStatus.CONFLICT, "This auction is no longer open"),
     BID_TOO_LOW(HttpStatus.CONFLICT, "The bid is below the current minimum"),
+    ALREADY_LEADING(HttpStatus.CONFLICT, "You are already the highest bidder"),
     BUY_NOW_UNAVAILABLE(HttpStatus.CONFLICT, "Buy now is no longer available on this auction"),
     AUCTION_HAS_BIDS(HttpStatus.CONFLICT, "This auction already has bids, so it can no longer be changed or cancelled"),
     UNIT_NOT_AVAILABLE(HttpStatus.CONFLICT, "This card is held by an order or another auction"),

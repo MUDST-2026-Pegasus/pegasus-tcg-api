@@ -14,6 +14,8 @@ import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.MyAuctionPage;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.MyTab;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Sort;
 import com.pegasus.pegasustcgapi.dto.order.CheckoutResponse;
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
+import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBidService;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBuyNowService;
@@ -25,11 +27,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -49,6 +53,7 @@ import org.springframework.web.bind.annotation.RestController;
  * seller (OWN_AUCTION).
  */
 @Tag(name = "Auctions", description = "Browse auctions, bid, buy now and pay for a win")
+@Validated
 @RestController
 public class AuctionController {
 
@@ -126,8 +131,11 @@ public class AuctionController {
     public ResponseEntity<ApiResult<BidPlaced>> placeBid(
             @PathVariable long id,
             @Parameter(description = "Optional idempotency key to prevent double-bidding")
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key", required = false) @Size(max = 64) String idempotencyKey,
             @Valid @RequestBody PlaceBid request, AuthPrincipal principal) {
+        if (idempotencyKey != null && idempotencyKey.length() > 64) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Idempotency-Key header must not exceed 64 characters");
+        }
         BidPlaced placed = auctionBidService.placeBid(id, principal.userId(), request.amount(), idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResult.success(placed));
     }
@@ -165,8 +173,11 @@ public class AuctionController {
     @PostMapping(ApiPaths.AUCTIONS + "/{id}/checkout")
     public ResponseEntity<ApiResult<CheckoutResponse>> checkout(@PathVariable long id,
             @Parameter(description = "Required unique key for this checkout (1–64 characters)", required = true)
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key", required = false) @Size(max = 64) String idempotencyKey,
             @Valid @RequestBody AuctionCheckout request, AuthPrincipal principal) {
+        if (idempotencyKey != null && idempotencyKey.length() > 64) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Idempotency-Key header must not exceed 64 characters");
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResult.success("Order placed successfully", AuctionSamples.checkout(now())));
     }
