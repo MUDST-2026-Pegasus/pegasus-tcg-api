@@ -1,0 +1,36 @@
+package com.pegasus.pegasustcgapi.service.listing;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import org.junit.jupiter.api.Test;
+
+class StockForecastServiceTest {
+    private static final OffsetDateTime END = OffsetDateTime.of(2026, 11, 4, 0, 0, 0, 0, ZoneOffset.UTC);
+    private static final OffsetDateTime START = END.minusDays(30);
+
+    @Test
+    void forecastsFromCompletedUnitsAndAvailableStock() {
+        var result = StockForecastService.calculate(7, "Card", "ACTIVE", 3, 10, START, END);
+        assertThat(result.status()).isEqualTo("FORECAST_AVAILABLE");
+        assertThat(result.daysRemaining()).isEqualTo(9);
+        assertThat(result.estimatedStockoutDate()).isEqualTo(END.toLocalDate().plusDays(9));
+        assertThat(result.completedSales30Days()).isEqualTo(10);
+    }
+
+    @Test
+    void doesNotInventDateWithoutEnoughSalesOrStock() {
+        for (var sample : new int[][] {{4, 0}, {4, 1}, {0, 10}}) {
+            var result = StockForecastService.calculate(7, "Card", "ACTIVE", sample[0], sample[1], START, END);
+            assertThat(result.daysRemaining()).isNull();
+            assertThat(result.estimatedStockoutDate()).isNull();
+        }
+        assertThat(StockForecastService.calculate(7, "Card", "ACTIVE", 4, 0, START, END).status())
+                .isEqualTo("NO_SALES");
+        assertThat(StockForecastService.calculate(7, "Card", "ACTIVE", 4, 1, START, END).status())
+                .isEqualTo("INSUFFICIENT_DATA");
+        assertThat(StockForecastService.calculate(7, "Card", "SOLD_OUT", 0, 10, START, END).status())
+                .isEqualTo("OUT_OF_STOCK");
+    }
+}

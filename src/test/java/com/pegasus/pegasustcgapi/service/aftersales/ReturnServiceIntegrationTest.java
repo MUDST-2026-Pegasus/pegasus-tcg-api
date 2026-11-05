@@ -4,6 +4,7 @@ import com.pegasus.pegasustcgapi.service.cart.CartService;
 import com.pegasus.pegasustcgapi.service.finance.refund.RefundService;
 import com.pegasus.pegasustcgapi.service.order.CheckoutService;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
+import com.pegasus.pegasustcgapi.service.listing.StockForecastService;
 import com.pegasus.pegasustcgapi.service.payment.PaymentService;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.EscrowHold.ESCROW_HOLD;
@@ -39,6 +40,7 @@ class ReturnServiceIntegrationTest extends PostgresIntegrationTest {
     @Autowired OrderLifecycleService orders;
     @Autowired ReturnService returns;
     @Autowired RefundService refunds;
+    @Autowired StockForecastService forecasts;
 
     @Test
     void rejectingAClaimResumesTheOriginalReleaseClock() {
@@ -123,8 +125,8 @@ class ReturnServiceIntegrationTest extends PostgresIntegrationTest {
         var seller = data.seller();
         var buyer = data.buyer();
         var card = data.card(data.game("Pokemon"), "Returnable " + data.tag(), "AR");
-        var listing = data.onSale(seller, card, CardCondition.NM, 2, "100.00");
-        cart.addItem(buyer, null, new CartItemRequest(listing.id(), 2));
+        var listing = data.onSale(seller, card, CardCondition.NM, 3, "100.00");
+        cart.addItem(buyer, null, new CartItemRequest(listing.id(), 3));
         var order = checkout.checkout(buyer, "return-units-" + data.tag(), null, null);
         long suborderId = order.sellerOrders().getFirst().id();
         long itemId = order.sellerOrders().getFirst().items().getFirst().id();
@@ -136,9 +138,9 @@ class ReturnServiceIntegrationTest extends PostgresIntegrationTest {
                 new ShipOrderRequest("Thailand Post", "TEST-456", "TH_POST", null, null));
 
         var request = returns.request(buyer.userId(), suborderId, "NOT_AS_DESCRIBED",
-                "One damaged card", List.of(), List.of(new ReturnService.Item(itemId, 1)));
+                "Two damaged cards", List.of(), List.of(new ReturnService.Item(itemId, 2)));
         returns.approve(seller.userId(), request.getId(), "PARTIAL_REFUND",
-                new BigDecimal("100.00"), true);
+                new BigDecimal("200.00"), true);
         returns.ship(buyer.userId(), suborderId, request.getId(), "RETURN-456");
         returns.receive(seller.userId(), request.getId(), true);
         var refund = dsl.selectFrom(REFUND).where(REFUND.RETURN_REQUEST_ID.eq(request.getId())).fetchSingle();
@@ -146,10 +148,17 @@ class ReturnServiceIntegrationTest extends PostgresIntegrationTest {
         refunds.startTransfer(refund.getId(), adminId, "1234567890");
         refunds.processed(refund.getId(), adminId, "REF-TEST");
 
+        var forecast = forecasts.detail(seller.userId(), listing.id());
+        assertThat(dsl.select(SELLER_ORDER.COMPLETED_AT).from(SELLER_ORDER)
+                .where(SELLER_ORDER.ID.eq(suborderId)).fetchSingle(SELLER_ORDER.COMPLETED_AT)).isNotNull();
+        assertThat(forecast.availableStock()).isEqualTo(2);
+        assertThat(forecast.completedSales30Days()).isEqualTo(1);
+        assertThat(forecast.status()).isEqualTo("INSUFFICIENT_DATA");
+
         assertThat(dsl.selectCount().from(LISTING_UNIT)
                 .join(ORDER_ITEM_UNIT).on(ORDER_ITEM_UNIT.LISTING_UNIT_ID.eq(LISTING_UNIT.ID))
                 .where(ORDER_ITEM_UNIT.ORDER_ITEM_ID.eq(itemId))
-                .and(LISTING_UNIT.STATUS.eq("RETURNED")).fetchSingle(0, int.class)).isEqualTo(1);
+                .and(LISTING_UNIT.STATUS.eq("RETURNED")).fetchSingle(0, int.class)).isEqualTo(2);
         assertThat(dsl.selectCount().from(COLLECTION_ITEM)
                 .where(COLLECTION_ITEM.SOURCE_ORDER_ITEM_ID.eq(itemId))
                 .fetchSingle(0, int.class)).isEqualTo(1);
