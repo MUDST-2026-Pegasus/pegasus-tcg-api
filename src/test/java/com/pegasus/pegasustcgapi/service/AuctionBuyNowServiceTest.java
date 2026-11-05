@@ -147,7 +147,7 @@ class AuctionBuyNowServiceTest {
             OffsetDateTime expectedPaymentDueAt = NOW.plusHours(24);
             given(auctions.recordBuyNowWin(AUCTION_ID, USER_ID, new BigDecimal("3500.00"), NOW, expectedPaymentDueAt)).willReturn(true);
 
-            AuctionWin win = service.buyNow(AUCTION_ID, USER_ID, "key-buy-now-1");
+            AuctionWin win = service.buyNow(AUCTION_ID, USER_ID);
 
             assertThat(win.auctionId()).isEqualTo(AUCTION_ID);
             assertThat(win.auctionNumber()).isEqualTo("AUC-20261102-0001");
@@ -170,7 +170,7 @@ class AuctionBuyNowServiceTest {
         void buyNow_AuctionNotFound() {
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID, null))
+            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID))
                     .isInstanceOf(NotFoundException.class)
                     .satisfies(ex -> assertThat(((NotFoundException) ex).errorCode()).isEqualTo(ErrorCode.AUCTION_NOT_FOUND));
 
@@ -183,7 +183,7 @@ class AuctionBuyNowServiceTest {
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("3500.00"), 0, NOW.minusSeconds(1), null, null, null);
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
 
-            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID, null))
+            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID))
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.AUCTION_CLOSED));
         }
@@ -194,7 +194,7 @@ class AuctionBuyNowServiceTest {
             Auction auction = sampleAuction(AuctionStatus.CANCELLED, new BigDecimal("3500.00"), 0, NOW.plusHours(5), null, null, null);
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
 
-            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID, null))
+            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID))
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.BUY_NOW_UNAVAILABLE));
         }
@@ -205,7 +205,7 @@ class AuctionBuyNowServiceTest {
             Auction auction = sampleAuction(AuctionStatus.LIVE, null, 0, NOW.plusHours(5), null, null, null);
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
 
-            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID, null))
+            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID))
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.BUY_NOW_UNAVAILABLE));
         }
@@ -216,7 +216,7 @@ class AuctionBuyNowServiceTest {
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("3500.00"), 1, NOW.plusHours(5), null, null, null);
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
 
-            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID, null))
+            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID))
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.BUY_NOW_UNAVAILABLE));
         }
@@ -239,7 +239,7 @@ class AuctionBuyNowServiceTest {
         void eligibility_NoAddress() {
             given(addresses.findByUserId(USER_ID)).willReturn(List.of());
 
-            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID, null))
+            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID))
                     .isInstanceOf(BadRequestException.class)
                     .satisfies(ex -> assertThat(((BadRequestException) ex).errorCode()).isEqualTo(ErrorCode.NO_SHIPPING_ADDRESS));
         }
@@ -250,7 +250,7 @@ class AuctionBuyNowServiceTest {
             given(addresses.findByUserId(USER_ID)).willReturn(List.of(sampleAddress(USER_ID)));
             given(userVerification.isEmailVerified(USER_ID)).willReturn(false);
 
-            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID, null))
+            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID))
                     .isInstanceOf(ForbiddenException.class)
                     .satisfies(ex -> assertThat(((ForbiddenException) ex).errorCode()).isEqualTo(ErrorCode.EMAIL_NOT_VERIFIED));
         }
@@ -262,7 +262,7 @@ class AuctionBuyNowServiceTest {
             given(userVerification.isEmailVerified(USER_ID)).willReturn(true);
             given(auctions.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.of(NOW.plusDays(3)));
 
-            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID, null))
+            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID))
                     .isInstanceOf(ForbiddenException.class)
                     .satisfies(ex -> assertThat(((ForbiddenException) ex).errorCode()).isEqualTo(ErrorCode.BIDDING_BANNED));
         }
@@ -278,7 +278,7 @@ class AuctionBuyNowServiceTest {
             SellerProfile profile = new SellerProfile(SELLER_PROFILE_ID, SELLER_USER_ID, SellerStatus.VERIFIED, NOW, null, (short) 1, false, true, NOW);
             given(sellers.requireProfile(SELLER_USER_ID)).willReturn(profile);
 
-            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, SELLER_USER_ID, null))
+            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, SELLER_USER_ID))
                     .isInstanceOf(ForbiddenException.class)
                     .satisfies(ex -> assertThat(((ForbiddenException) ex).errorCode()).isEqualTo(ErrorCode.OWN_AUCTION));
         }
@@ -303,7 +303,7 @@ class AuctionBuyNowServiceTest {
 
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(wonAuction));
 
-            AuctionWin win = service.buyNow(AUCTION_ID, USER_ID, "key-buy-now-dup");
+            AuctionWin win = service.buyNow(AUCTION_ID, USER_ID);
 
             assertThat(win.auctionId()).isEqualTo(AUCTION_ID);
             assertThat(win.price()).isEqualByComparingTo("3500.00");
@@ -328,7 +328,7 @@ class AuctionBuyNowServiceTest {
 
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(wonAuction));
 
-            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID, "key-buy-now-diff"))
+            assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID))
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.BUY_NOW_UNAVAILABLE));
         }

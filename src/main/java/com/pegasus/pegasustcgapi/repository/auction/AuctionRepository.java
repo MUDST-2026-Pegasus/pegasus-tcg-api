@@ -434,7 +434,11 @@ public class AuctionRepository {
     }
 
     public long countLiveAuctions(OffsetDateTime now) {
-        return dsl.fetchCount(AUCTION, AUCTION.STATUS.eq(AuctionStatus.LIVE.name()));
+        var cond = AUCTION.STATUS.eq(AuctionStatus.LIVE.name());
+        if (now != null) {
+            cond = cond.and(AUCTION.ENDS_AT.gt(now));
+        }
+        return dsl.fetchCount(AUCTION, cond);
     }
 
     public Optional<Long> findLeadingBidderId(long auctionId) {

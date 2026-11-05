@@ -146,10 +146,8 @@ public class AuctionController {
     @PostMapping(ApiPaths.AUCTIONS + "/{id}/buy-now")
     public ApiResult<AuctionWin> buyNow(
             @PathVariable long id,
-            @Parameter(description = "Optional idempotency key to prevent double buy-now")
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             AuthPrincipal principal) {
-        return ApiResult.success(auctionBuyNowService.buyNow(id, principal.userId(), idempotencyKey));
+        return ApiResult.success(auctionBuyNowService.buyNow(id, principal.userId()));
     }
 
     @Operation(summary = "Pay for a won auction",

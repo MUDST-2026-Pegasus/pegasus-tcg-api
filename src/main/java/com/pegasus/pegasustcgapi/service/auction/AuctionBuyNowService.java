@@ -42,13 +42,12 @@ public class AuctionBuyNowService {
     /**
      * Executes buy-now for an active auction without prior bids.
      *
-     * @param auctionId      the auction to buy
-     * @param userId         the purchasing buyer's ID
-     * @param idempotencyKey optional idempotency key
+     * @param auctionId the auction to buy
+     * @param userId    the purchasing buyer's ID
      * @return the win summary with price, shipping, and payment deadline
      */
     @Transactional
-    public AuctionWin buyNow(long auctionId, long userId, String idempotencyKey) {
+    public AuctionWin buyNow(long auctionId, long userId) {
         OffsetDateTime now = OffsetDateTime.now(clock);
 
         Auction auction = auctions.lock(auctionId)
