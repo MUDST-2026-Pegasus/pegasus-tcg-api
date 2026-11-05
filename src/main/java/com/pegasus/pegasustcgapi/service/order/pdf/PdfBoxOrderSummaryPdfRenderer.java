@@ -52,7 +52,7 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         try (PDDocument pdf = new PDDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Fonts fonts = Fonts.load(pdf);
             Canvas canvas = new Canvas(pdf, fonts, document);
-            canvas.openPage(true);
+            canvas.openPage();
 
             drawOrderOverview(canvas, document);
             drawBuyer(canvas, document);
@@ -147,7 +147,7 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             String details = itemDetails(item, currency);
             float rowHeight = Math.max(37f, (productLines.size() * 10.5f) + (details == null ? 12f : 22f));
             if (!canvas.fits(rowHeight)) {
-                canvas.openPage(false);
+                canvas.openPage();
                 drawItemHeader(canvas);
             }
             float baseline = canvas.y() - 14f;
@@ -481,7 +481,7 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             this.document = document;
         }
 
-        private void openPage(boolean firstPage) throws IOException {
+        private void openPage() throws IOException {
             close();
             PDPage page = new PDPage(PAGE_SIZE);
             pdf.addPage(page);
@@ -506,7 +506,7 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
 
         private void ensure(float height) throws IOException {
             if (!fits(height)) {
-                openPage(false);
+                openPage();
             }
         }
 
