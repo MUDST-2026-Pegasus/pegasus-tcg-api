@@ -20,4 +20,11 @@ public record PayoutAccount(
         long verificationId,
         OffsetDateTime verifiedAt,
         OffsetDateTime createdAt) {
+    @Override
+    public String toString() {
+        return "PayoutAccount[id=" + id + ", sellerProfileId=" + sellerProfileId
+                + ", bankCode=" + bankCode + ", bankName=" + bankName
+                + ", accountName=REDACTED, accountNumber=REDACTED, verificationId="
+                + verificationId + ", verifiedAt=" + verifiedAt + ", createdAt=" + createdAt + "]";
+    }
 }

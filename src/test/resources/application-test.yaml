@@ -3,6 +3,13 @@ pegasus:
     # Explicitly enabled by default for test profile
     mock-enabled: ${PAYMENT_MOCK_ENABLED:true}
 
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n%wEx"
+  structured:
+    format:
+      console: ${LOG_FORMAT:}
+
 management:
   tracing:
     enabled: false
