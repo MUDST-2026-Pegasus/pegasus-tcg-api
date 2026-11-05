@@ -12,6 +12,7 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.PaymentRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.repository.finance.escrow.EscrowRepository;
 import com.pegasus.pegasustcgapi.repository.payment.PaymentRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
@@ -21,6 +22,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Bank transfers are recorded only after an admin checks the real bank account. */
@@ -34,10 +36,13 @@ public class PaymentService {
     private final PlatformSettingService settings;
     private final StorageService storage;
     private final Clock clock;
+    private final AuctionRepository auctions;
 
+    @Autowired
     public PaymentService(PaymentRepository payments, EscrowRepository escrow,
             WalletLedgerService ledger, OrderLifecycleService orders,
-            PlatformSettingService settings, StorageService storage, Clock clock) {
+            PlatformSettingService settings, StorageService storage, Clock clock,
+            AuctionRepository auctions) {
         this.payments = payments;
         this.escrow = escrow;
         this.ledger = ledger;
@@ -45,6 +50,13 @@ public class PaymentService {
         this.settings = settings;
         this.storage = storage;
         this.clock = clock;
+        this.auctions = auctions;
+    }
+
+    public PaymentService(PaymentRepository payments, EscrowRepository escrow,
+            WalletLedgerService ledger, OrderLifecycleService orders,
+            PlatformSettingService settings, StorageService storage, Clock clock) {
+        this(payments, escrow, ledger, orders, settings, storage, clock, null);
     }
 
     @Transactional
@@ -173,10 +185,19 @@ public class PaymentService {
 
     private View view(PaymentRecord payment, SalesOrderRecord order) {
         return new View(payment.getId(), order.getId(), payment.getMethod(), payment.getStatus(),
-                payment.getAmount(), order.getPlacedAt().plus(settings.getMinutes(
-                        PlatformSettingService.ORDER_PAYMENT_TIMEOUT_MINUTES)),
+                payment.getAmount(), paymentDeadline(order),
                 settings.get(PlatformSettingService.PAYMENT_TRANSFER_ACCOUNT).value(),
                 payment.getReferenceCode(), payment.getFailureReason());
+    }
+
+    private OffsetDateTime paymentDeadline(SalesOrderRecord order) {
+        if (order.getAuctionId() != null && auctions != null) {
+            return auctions.findById(order.getAuctionId())
+                    .map(a -> a.paymentDueAt())
+                    .orElseThrow(() -> new NotFoundException(ErrorCode.AUCTION_NOT_FOUND));
+        }
+        return order.getPlacedAt().plus(settings.getMinutes(
+                PlatformSettingService.ORDER_PAYMENT_TIMEOUT_MINUTES));
     }
 
     private OffsetDateTime now() {

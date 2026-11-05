@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -22,11 +23,14 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
 import com.pegasus.pegasustcgapi.repository.finance.escrow.EscrowRepository;
 import com.pegasus.pegasustcgapi.repository.payment.PaymentRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -49,6 +53,30 @@ class PaymentServiceTest {
 
     @BeforeEach void setUp() {
         service = new PaymentService(payments, escrow, ledger, orders, settings, storage, Clock.systemUTC());
+    }
+
+    @Test void auctionPaymentShowsDeadlineFromAuctionClose() {
+        AuctionRepository auctions = mock(AuctionRepository.class);
+        service = new PaymentService(payments, escrow, ledger, orders, settings, storage,
+                Clock.systemUTC(), auctions);
+        SalesOrderRecord order = new SalesOrderRecord();
+        order.setId(11L);
+        order.setBuyerId(7L);
+        order.setAuctionId(5L);
+        PaymentRecord payment = new PaymentRecord();
+        payment.setId(21L);
+        payment.setSalesOrderId(11L);
+        Auction auction = mock(Auction.class);
+        OffsetDateTime due = OffsetDateTime.parse("2026-11-06T10:00:00Z");
+        when(auction.paymentDueAt()).thenReturn(due);
+        when(auctions.findById(5L)).thenReturn(Optional.of(auction));
+        when(payments.find(21L)).thenReturn(Optional.of(payment));
+        when(payments.findOrder(11L)).thenReturn(Optional.of(order));
+        when(settings.get(PlatformSettingService.PAYMENT_TRANSFER_ACCOUNT))
+                .thenReturn(new com.pegasus.pegasustcgapi.repository.setting.PlatformSettingRepository.Setting(
+                        PlatformSettingService.PAYMENT_TRANSFER_ACCOUNT, "{}", null, null));
+
+        assertThat(service.get(buyer, 21L).expiresAt()).isEqualTo(due);
     }
 
     @Test void paymentCreationRequiresKeyBeforeReadingAnOrder() {
