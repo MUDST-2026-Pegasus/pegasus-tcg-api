@@ -15,6 +15,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.SellerRatingSummary.SELLER_R
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Filter;
+import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.MyTab;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Sort;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.Kpis;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.MarketGuide;
@@ -35,6 +36,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.OrderField;
@@ -656,6 +658,69 @@ public class AuctionRepository {
                         .and(BIDDING_BAN.LIFTED_AT.isNull())
                         .and(BIDDING_BAN.BANNED_UNTIL.gt(now)))
                 .fetchOptional(0, OffsetDateTime.class);
+    }
+
+    // ---------- buyer's auctions ----------
+
+    private Condition myAuctionCondition(long userId, MyTab tab) {
+        Condition participated = AUCTION.WINNER_ID.eq(userId).or(DSL.exists(
+                DSL.selectOne().from(AUCTION_BID)
+                        .where(AUCTION_BID.AUCTION_ID.eq(AUCTION.ID))
+                        .and(AUCTION_BID.BIDDER_ID.eq(userId))));
+        Condition winner = AUCTION.WINNER_ID.eq(userId);
+        Condition tabCondition = switch (tab) {
+            case ALL -> DSL.trueCondition();
+            case BIDDING -> AUCTION.STATUS.eq(AuctionStatus.LIVE.name());
+            case TO_PAY -> AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name()).and(winner);
+            case WON -> AUCTION.STATUS.eq(AuctionStatus.SOLD.name()).and(winner);
+            case LOST -> AUCTION.STATUS.notIn(AuctionStatus.LIVE.name(), AuctionStatus.AWAITING_PAYMENT.name(),
+                    AuctionStatus.SOLD.name())
+                    .or(AUCTION.STATUS.in(AuctionStatus.AWAITING_PAYMENT.name(), AuctionStatus.SOLD.name())
+                            .and(AUCTION.WINNER_ID.ne(userId).or(AUCTION.WINNER_ID.isNull())));
+        };
+        return participated.and(tabCondition);
+    }
+
+    public List<Auction> findMyAuctions(long userId, MyTab tab, int limit, int offset) {
+        return dsl.selectFrom(AUCTION)
+                .where(myAuctionCondition(userId, tab))
+                .orderBy(AUCTION.UPDATED_AT.desc(), AUCTION.ID.desc())
+                .limit(limit).offset(offset)
+                .fetch(AuctionRepository::toAuction);
+    }
+
+    public long countMyAuctions(long userId, MyTab tab) {
+        return dsl.fetchCount(AUCTION, myAuctionCondition(userId, tab));
+    }
+
+    public Map<Long, BigDecimal> findMyHighestBids(long userId, Collection<Long> auctionIds) {
+        if (auctionIds.isEmpty()) return Map.of();
+        var maxAmount = DSL.max(AUCTION_BID.AMOUNT);
+        return dsl.select(AUCTION_BID.AUCTION_ID, maxAmount).from(AUCTION_BID)
+                .where(AUCTION_BID.BIDDER_ID.eq(userId))
+                .and(AUCTION_BID.AUCTION_ID.in(auctionIds))
+                .groupBy(AUCTION_BID.AUCTION_ID)
+                .fetchMap(AUCTION_BID.AUCTION_ID, maxAmount);
+    }
+
+    public Set<Long> findMyLeadingAuctionIds(long userId, Collection<Long> auctionIds) {
+        if (auctionIds.isEmpty()) return Set.of();
+        return dsl.select(AUCTION.ID).from(AUCTION)
+                .join(AUCTION_BID).on(AUCTION.LEADING_BID_ID.eq(AUCTION_BID.ID))
+                .where(AUCTION.ID.in(auctionIds))
+                .and(AUCTION_BID.BIDDER_ID.eq(userId))
+                .fetchSet(AUCTION.ID);
+    }
+
+    public Optional<String> findLastStrikeCardName(long userId) {
+        return dsl.select(CATALOG_PRODUCT.NAME).from(BIDDER_STRIKE)
+                .join(AUCTION).on(AUCTION.ID.eq(BIDDER_STRIKE.AUCTION_ID))
+                .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(AUCTION.CATALOG_VARIANT_ID))
+                .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
+                .where(BIDDER_STRIKE.USER_ID.eq(userId))
+                .and(BIDDER_STRIKE.CLEARED_AT.isNull())
+                .orderBy(BIDDER_STRIKE.STRUCK_AT.desc(), BIDDER_STRIKE.ID.desc())
+                .limit(1).fetchOptional(CATALOG_PRODUCT.NAME);
     }
 
     public record SellerInfo(String shopName, String username, BigDecimal rating) {}
