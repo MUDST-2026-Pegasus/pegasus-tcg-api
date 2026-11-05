@@ -21,6 +21,13 @@ spring:
   jooq:
     sql-dialect: postgres
 
+# Instrument JDBC operations as Micrometer observations/spans. Never attach
+# bound SQL parameter values, since they can contain credentials or personal data.
+jdbc:
+  datasource-proxy:
+    enabled: true
+    include-parameter-values: false
+
 management:
   endpoints:
     web:
