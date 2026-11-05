@@ -64,20 +64,27 @@ public class EscrowReleaseService {
         var order = orders.findSellerOrderById(sellerOrderId).orElseThrow();
         BigDecimal release = hold.getAmount().subtract(hold.getRefundedAmount());
         if (release.signum() <= 0) return;
-        // The commission base is the items less the shop's own code, less what came
-        // back; a Pegasus code never lowers it. Pegasus then pays the shop back its own
-        // code, less the part that went with returned cards [TCG-570].
+        // The commission base is the items at their asking price for a Pegasus campaign
+        // [TCG-680], less the shop's own code, less what came back; a Pegasus code or
+        // campaign never lowers it. Pegasus then pays the shop back its code
+        // (PROMO_SUBSIDY) and its campaign's discount (SALE_SUBSIDY), less the part that
+        // went with returned cards [TCG-570].
         ReturnedValue returned = returns.returnedValue(sellerOrderId);
-        BigDecimal quotedBase = order.getItemsSubtotal().subtract(order.getSellerDiscountAmount());
-        BigDecimal base = quotedBase.subtract(returned.gross().subtract(returned.shopShare()))
+        BigDecimal saleSubsidyQuoted = order.getSaleSubsidyAmount() == null ? BigDecimal.ZERO
+                : order.getSaleSubsidyAmount();
+        BigDecimal quotedBase = order.getItemsSubtotal().add(saleSubsidyQuoted)
+                .subtract(order.getSellerDiscountAmount());
+        BigDecimal base = quotedBase
+                .subtract(returned.gross().add(returned.saleSubsidyShare()).subtract(returned.shopShare()))
                 .max(BigDecimal.ZERO);
         BigDecimal subsidy = order.getPlatformDiscountAmount().subtract(returned.pegasusShare())
                 .max(BigDecimal.ZERO);
+        BigDecimal saleSubsidy = saleSubsidyQuoted.subtract(returned.saleSubsidyShare()).max(BigDecimal.ZERO);
         BigDecimal commission = quotedBase.signum() == 0 ? BigDecimal.ZERO :
                 order.getCommissionAmount().multiply(base)
                         .divide(quotedBase, 2, RoundingMode.HALF_UP);
-        commission = commission.min(release.add(subsidy));
-        BigDecimal sellerNet = release.add(subsidy).subtract(commission);
+        commission = commission.min(release.add(subsidy).add(saleSubsidy));
+        BigDecimal sellerNet = release.add(subsidy).add(saleSubsidy).subtract(commission);
         if (sellerNet.signum() < 0) throw new ConflictException(ErrorCode.REFUND_EXCEEDS_REFUNDABLE);
         long sellerUserId = dsl.select(SELLER_PROFILE.USER_ID).from(SELLER_PROFILE)
                 .where(SELLER_PROFILE.ID.eq(order.getSellerProfileId()))
@@ -93,6 +100,10 @@ public class EscrowReleaseService {
         if (subsidy.signum() > 0) {
             ledger.post(platformWallet, Bucket.AVAILABLE, "PROMO_SUBSIDY", Direction.DEBIT,
                     subsidy, "SELLER_ORDER", sellerOrderId);
+        }
+        if (saleSubsidy.signum() > 0) {
+            ledger.post(platformWallet, Bucket.AVAILABLE, "SALE_SUBSIDY", Direction.DEBIT,
+                    saleSubsidy, "SELLER_ORDER", sellerOrderId);
         }
         if (sellerNet.signum() > 0) {
             ledger.post(sellerWallet, Bucket.AVAILABLE, "SELLER_EARNING", Direction.CREDIT,

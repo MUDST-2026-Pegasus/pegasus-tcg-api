@@ -57,6 +57,14 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
+import com.pegasus.pegasustcgapi.dto.order.SaleDiscount;
+import com.pegasus.pegasustcgapi.dto.sale.SalePricing;
+import com.pegasus.pegasustcgapi.repository.order.OrderRepository.SaleSnapshot;
+import com.pegasus.pegasustcgapi.service.sale.SaleCheckoutService;
+import com.pegasus.pegasustcgapi.service.sale.SaleCheckoutService.Hold;
+import com.pegasus.pegasustcgapi.service.sale.SaleCheckoutService.LivePrice;
+import com.pegasus.pegasustcgapi.service.sale.SaleCheckoutService.Plan;
+import java.util.HashMap;
 import org.jooq.JSONB;
 import org.jooq.exception.IntegrityConstraintViolationException;
 import org.slf4j.Logger;
@@ -94,6 +102,14 @@ public class CheckoutService {
     private final TransactionTemplate transactionTemplate;
     /** Null only in unit tests built without it; such a service refuses discount codes. */
     private final CheckoutPromotionService checkoutPromotions;
+    /** Null only in unit tests built without it; such a service sells at the cart's prices. */
+    private SaleCheckoutService saleCheckout;
+
+    /** Optional so the constructors the unit tests use stay as they are; Spring always supplies it. */
+    @Autowired(required = false)
+    void setSaleCheckout(SaleCheckoutService saleCheckout) {
+        this.saleCheckout = saleCheckout;
+    }
 
     /**
      * The transaction manager is required rather than optional: checkout writes a
@@ -251,6 +267,14 @@ public class CheckoutService {
         // 2. Atomic checkout execution
         try {
             return executeInTransaction(() -> executeCheckout(principal, trimmedKey, sessionKey, request));
+        } catch (SaleCheckoutService.BudgetShortException e) {
+            // The campaign's budget could not cover this order [TCG-680]: it ends now, in a
+            // transaction of its own, and the buyer is shown the prices without it.
+            saleCheckout.endForBudget(e.saleId());
+            executeInTransaction(() -> validatedOffers(principal,
+                    selectCartItems(principal.userId(), request == null ? null : request.cartItemIds()).items(),
+                    null));
+            throw new ConflictException(ErrorCode.CART_PRICE_CHANGED);
         } catch (DuplicateKeyException | IntegrityConstraintViolationException e) {
             // Race condition: another concurrent transaction committed with the same key.
             // This transaction rolled back. Re-query winner's committed order.
@@ -288,14 +312,19 @@ public class CheckoutService {
         Cart cart = selection.cart();
         List<CartItem> allItems = selection.allItems();
         List<CartItem> items = selection.items();
-        Map<Long, ListingOffer> offers = validatedOffers(principal, items);
+        Map<Long, LivePrice> live = new HashMap<>();
+        Map<Long, ListingOffer> offers = validatedOffers(principal, items, live);
         List<Long> listingIds = items.stream().map(CartItem::listingId).distinct().toList();
+        // The order lines: the cart's, with cards past a sale's per-buyer limit split off
+        // at the asking price [TCG-680]. Codes, totals and stock all work on these.
+        Plan plan = plan(principal.userId(), items, offers, live, true);
+        List<CartItem> lines = plan.lines();
 
         // Delivery prerequisites are validated before any stock is reserved.
         Address address = resolveAddress(principal.userId(), request == null ? null : request.shippingAddressId());
         Long shippingAddressId = address.id();
         // Group and price each seller before any inventory reservation.
-        Map<Long, List<CartItem>> itemsBySeller = groupBySeller(items, offers);
+        Map<Long, List<CartItem>> itemsBySeller = groupBySeller(lines, offers);
 
         record SellerDraft(
                 long sellerProfileId,
@@ -326,7 +355,7 @@ public class CheckoutService {
         // Discount codes are worked out on the real shipping, before any stock is held [TCG-569].
         CheckoutPromotionService.Evaluation promotion = null;
         if (request != null && request.hasCodes()) {
-            promotion = evaluateCodes(principal.userId(), items, offers, shippingBySeller,
+            promotion = evaluateCodes(principal.userId(), lines, offers, shippingBySeller,
                     request.platformCode(), request.sellerCodes());
             promotion.firstFailure().ifPresent(CheckoutService::refuseCode);
         }
@@ -345,7 +374,8 @@ public class CheckoutService {
                 BigDecimal platformDiscount,
                 BigDecimal grandTotal,
                 CommissionQuote commission,
-                BigDecimal netAmount) {}
+                BigDecimal netAmount,
+                BigDecimal saleSubsidy) {}
 
         List<SellerSuborderComputation> sellerComputations = new ArrayList<>();
 
@@ -363,19 +393,22 @@ public class CheckoutService {
                     .subtract(sellerDiscount).subtract(platformDiscount);
 
             // Commission is quoted on the items alone: a seller is not charged for postage,
-            // nor for the part of the price their own code gave away. A Pegasus code does
-            // not lower it: Pegasus pays that part back to the shop.
+            // nor for the part of the price their own code or their own sale gave away. A
+            // Pegasus code or campaign does not lower it: Pegasus pays that part back to the
+            // shop, the campaign's as SALE_SUBSIDY [TCG-680].
+            BigDecimal saleSubsidy = plan.pegasusSubsidy(sellerItems);
             CommissionQuote commission = ledgerPort.quoteCommission(sellerProfileId,
-                    sellerSubtotal.subtract(sellerDiscount),
+                    sellerSubtotal.add(saleSubsidy).subtract(sellerDiscount),
                     sellerItems.stream().map(i -> offers.get(i.listingId()).catalogVariantId()).toList());
             if (commission == null) {
                 commission = CommissionQuote.NONE;
             }
-            BigDecimal sellerNet = sellerGrandTotal.add(platformDiscount).subtract(commission.amount());
+            BigDecimal sellerNet = sellerGrandTotal.add(platformDiscount).add(saleSubsidy)
+                    .subtract(commission.amount());
 
             sellerComputations.add(new SellerSuborderComputation(
                     sellerProfileId, sellerItems, sellerSubtotal, sellerShipping, draft.shippingOptionId(),
-                    sellerDiscount, platformDiscount, sellerGrandTotal, commission, sellerNet));
+                    sellerDiscount, platformDiscount, sellerGrandTotal, commission, sellerNet, saleSubsidy));
 
             itemsSubtotal = itemsSubtotal.add(sellerSubtotal);
             shippingTotal = shippingTotal.add(sellerShipping);
@@ -394,10 +427,13 @@ public class CheckoutService {
 
         // Reserve only after every seller can ship and the buyer has a valid address (strictly rolls back on failure)
         Map<Long, Integer> quantityByListing = new LinkedHashMap<>();
-        for (CartItem item : items) {
+        for (CartItem item : lines) {
             quantityByListing.merge(item.listingId(), item.quantity(), Integer::sum);
         }
         Map<Long, List<ReservedUnit>> heldUnitsByListing = inventoryPort.reserve(quantityByListing);
+        // Flash quota and campaign budget are taken with the stock: if either has run
+        // out, the whole order rolls back [TCG-680].
+        Map<Long, Hold> saleHolds = saleCheckout == null ? Map.of() : saleCheckout.hold(plan);
 
         // 6. Insert Sales Order
         SalesOrderRecord salesOrder = orderRepository.insertSalesOrder(
@@ -416,13 +452,30 @@ public class CheckoutService {
         // 7. Insert Seller Orders & Order Items & Units
         Map<Long, ListingSnapshotDetails> snapshotDetails = orderRepository.findListingDetails(listingIds);
         Map<Long, Long> sellerOrderIdBySeller = new LinkedHashMap<>();
+        // A listing split over two lines hands each its own cards, in reservation order.
+        Map<Long, Integer> unitsTaken = new HashMap<>();
 
         for (SellerSuborderComputation sc : sellerComputations) {
             String sellerOrderNumber = orderNumber + "-S" + sc.sellerProfileId();
 
             boolean discounted = sc.sellerDiscount().signum() != 0 || sc.platformDiscount().signum() != 0;
-            // Without a code this is the insert checkout has always made.
-            SellerOrderRecord sellerOrder = !discounted
+            // Without a code or a Pegasus campaign this is the insert checkout has always made.
+            SellerOrderRecord sellerOrder = sc.saleSubsidy().signum() != 0
+                    ? orderRepository.insertSellerOrder(
+                            salesOrder.getId(),
+                            sc.sellerProfileId(),
+                            sellerOrderNumber,
+                            sc.subtotal(),
+                            sc.shippingFee(),
+                            sc.sellerDiscount(),
+                            sc.platformDiscount(),
+                            sc.saleSubsidy(),
+                            sc.grandTotal(),
+                            sc.commission().ratePercent(),
+                            sc.commission().amount(),
+                            sc.netAmount(),
+                            sc.shippingOptionId())
+                    : !discounted
                     ? orderRepository.insertSellerOrder(
                             salesOrder.getId(),
                             sc.sellerProfileId(),
@@ -478,7 +531,32 @@ public class CheckoutService {
                 BigDecimal lineDiscount = promotion != null
                         ? promotion.result().sellerDiscountByLine().getOrDefault(sellerItem.id(), BigDecimal.ZERO)
                         : BigDecimal.ZERO;
-                OrderItemRecord orderItem = allocated.signum() == 0
+                LivePrice sale = plan.saleOf(sellerItem);
+                SaleSnapshot snapshot = sale == null ? null : new SaleSnapshot(
+                        offer.listPrice(),
+                        sale.price().discountAmount(),
+                        sale.sale().id(),
+                        sale.price().fundedBy().name(),
+                        saleHolds.getOrDefault(sellerItem.id(), Hold.NONE).quota(),
+                        saleHolds.getOrDefault(sellerItem.id(), Hold.NONE).subsidy());
+                OrderItemRecord orderItem = snapshot != null
+                        ? orderRepository.insertOrderItem(
+                                sellerOrder.getId(),
+                                sellerItem.listingId(),
+                                details.catalogVariantId(),
+                                sellerItem.quantity(),
+                                sellerItem.unitPriceAtAdd(),
+                                lineTotal,
+                                allocated,
+                                lineDiscount,
+                                unitCost,
+                                details.productName(),
+                                details.variantLabel(),
+                                details.condition(),
+                                details.gameName(),
+                                details.imageKey(),
+                                snapshot)
+                        : allocated.signum() == 0
                         ? orderRepository.insertOrderItem(
                                 sellerOrder.getId(),
                                 sellerItem.listingId(),
@@ -509,7 +587,12 @@ public class CheckoutService {
                                 details.imageKey());
 
                 List<ReservedUnit> reservedUnits = heldUnitsByListing.get(sellerItem.listingId());
-                List<Long> unitIds = reservedUnits != null ? reservedUnits.stream().map(ReservedUnit::unitId).toList() : List.of();
+                List<Long> listingUnits = reservedUnits != null
+                        ? reservedUnits.stream().map(ReservedUnit::unitId).toList() : List.of();
+                int fromUnit = unitsTaken.getOrDefault(sellerItem.listingId(), 0);
+                int toUnit = Math.min(fromUnit + sellerItem.quantity(), listingUnits.size());
+                List<Long> unitIds = listingUnits.subList(fromUnit, toUnit);
+                unitsTaken.put(sellerItem.listingId(), toUnit);
                 if (unitIds.size() != sellerItem.quantity()) {
                     // order_item_unit names the exact card each line is for [RQ-9]; a line
                     // with the wrong number of cards is an order nobody can fulfil, and no
@@ -528,7 +611,7 @@ public class CheckoutService {
             Optional<Promotion> ranOut = checkoutPromotions.reserve(
                     principal.userId(), salesOrder.getId(), sellerOrderIdBySeller, promotion);
             if (ranOut.isPresent()) {
-                CheckoutPromotionService.Evaluation now = evaluateCodes(principal.userId(), items, offers,
+                CheckoutPromotionService.Evaluation now = evaluateCodes(principal.userId(), lines, offers,
                         shippingBySeller, request.platformCode(), request.sellerCodes());
                 throw promoChanged(now.result().grandTotal(), ranOut.get().code());
             }
@@ -625,10 +708,30 @@ public class CheckoutService {
         return items;
     }
 
-    private Map<Long, ListingOffer> validatedOffers(AuthPrincipal principal, List<CartItem> items) {
+    /**
+     * @param liveOut filled with the sale each listing sells under now, when given
+     */
+    private Map<Long, ListingOffer> validatedOffers(AuthPrincipal principal, List<CartItem> items,
+            Map<Long, LivePrice> liveOut) {
         // 2. Batch validate pricing and purchasability
         List<Long> listingIds = items.stream().map(CartItem::listingId).distinct().toList();
         Map<Long, ListingOffer> offers = pricingPort.offers(listingIds);
+        if (saleCheckout != null) {
+            // The price is worked out afresh from the sales, not read from the page cache
+            // [TCG-680]: what the buyer saw must still hold now, or nothing is placed.
+            Map<Long, LivePrice> live = saleCheckout.resolve(listingIds);
+            if (liveOut != null) {
+                liveOut.putAll(live);
+            }
+            Map<Long, ListingOffer> repriced = new LinkedHashMap<>();
+            offers.forEach((id, offer) -> {
+                LivePrice sale = live.get(id);
+                repriced.put(id, offer.priced(sale == null
+                        ? SalePricing.none(offer.listPrice())
+                        : sale.pricing(offer.listPrice())));
+            });
+            offers = repriced;
+        }
 
         // A guest previewing codes owns no shop.
         Long buyerSellerProfileId = principal == null ? null
@@ -658,6 +761,17 @@ public class CheckoutService {
         }
 
         return offers;
+    }
+
+    /** The order lines for these cart lines; without sale support, the cart lines themselves. */
+    private Plan plan(Long buyerId, List<CartItem> items, Map<Long, ListingOffer> offers,
+            Map<Long, LivePrice> live, boolean lock) {
+        if (saleCheckout == null) {
+            return new Plan(items, Map.of());
+        }
+        Map<Long, BigDecimal> listPrices = new HashMap<>();
+        offers.forEach((id, offer) -> listPrices.put(id, offer.listPrice()));
+        return saleCheckout.plan(buyerId, items, live, listPrices, lock);
     }
 
     private Map<Long, List<CartItem>> groupBySeller(List<CartItem> items, Map<Long, ListingOffer> offers) {
@@ -738,7 +852,9 @@ public class CheckoutService {
             if (cart == null) throw new ConflictException(ErrorCode.CART_EMPTY);
             items = selectItems(cartRepository.findItemsByCartId(cart.id()), cartItemIds);
         }
-        Map<Long, ListingOffer> offers = validatedOffers(principal, items);
+        Map<Long, LivePrice> live = new HashMap<>();
+        Map<Long, ListingOffer> offers = validatedOffers(principal, items, live);
+        items = plan(principal == null ? null : principal.userId(), items, offers, live, false).lines();
         boolean estimated = shippingOptionBySeller == null || shippingOptionBySeller.isEmpty();
         Map<Long, BigDecimal> shipping = new LinkedHashMap<>();
         Map<Long, String> names = new LinkedHashMap<>();
@@ -764,8 +880,10 @@ public class CheckoutService {
     @Transactional(readOnly = true)
     public List<ShippingQuoteResponse> shippingQuotes(AuthPrincipal principal, ShippingQuoteRequest request) {
         if (principal == null) throw new UnauthorizedException(ErrorCode.UNAUTHENTICATED);
-        List<CartItem> items = selectCartItems(principal.userId(), request == null ? null : request.cartItemIds()).items();
-        Map<Long, ListingOffer> offers = validatedOffers(principal, items);
+        List<CartItem> cartItems = selectCartItems(principal.userId(), request == null ? null : request.cartItemIds()).items();
+        Map<Long, LivePrice> live = new HashMap<>();
+        Map<Long, ListingOffer> offers = validatedOffers(principal, cartItems, live);
+        List<CartItem> items = plan(principal.userId(), cartItems, offers, live, false).lines();
         List<ShippingQuoteResponse> quotes = new ArrayList<>();
         for (var entry : groupBySeller(items, offers).entrySet()) {
             long sellerId = entry.getKey();
@@ -827,7 +945,9 @@ public class CheckoutService {
                         oi.getUnitPrice(),
                         oi.getLineTotal(),
                         unitIdsByItem.getOrDefault(oi.getId(), List.of()),
-                        imageUrl));
+                        imageUrl,
+                        SaleDiscount.listPrice(oi),
+                        SaleDiscount.of(oi)));
             }
 
             sellerResponses.add(new SellerOrderResponse(

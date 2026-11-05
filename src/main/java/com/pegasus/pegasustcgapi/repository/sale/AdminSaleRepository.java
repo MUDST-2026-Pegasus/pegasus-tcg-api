@@ -274,7 +274,8 @@ public class AdminSaleRepository {
                 .when(PRICE_SALE.PAUSED_AT.isNotNull(), SaleStatus.PAUSED.name())
                 .when(PRICE_SALE.STARTS_AT.gt(at), SaleStatus.SCHEDULED.name())
                 .when(PRICE_SALE.BUDGET_CAP.isNotNull()
-                        .and(PRICE_SALE.SUBSIDY_RESERVED.ge(PRICE_SALE.BUDGET_CAP)), SaleStatus.BUDGET_EXHAUSTED.name())
+                        .and(PRICE_SALE.SUBSIDY_RESERVED.ge(PRICE_SALE.BUDGET_CAP)
+                                .or(PRICE_SALE.BUDGET_EXHAUSTED_AT.isNotNull())), SaleStatus.BUDGET_EXHAUSTED.name())
                 .when(soldOut, SaleStatus.SOLD_OUT.name())
                 .otherwise(SaleStatus.ACTIVE.name());
     }
