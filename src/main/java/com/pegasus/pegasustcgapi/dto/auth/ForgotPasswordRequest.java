@@ -10,4 +10,9 @@ public record ForgotPasswordRequest(
         @Email
         @Size(max = 255)
         String email) {
+
+    @Override
+    public String toString() {
+        return "ForgotPasswordRequest[email=REDACTED]";
+    }
 }

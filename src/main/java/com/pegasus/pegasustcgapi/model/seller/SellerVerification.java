@@ -29,4 +29,11 @@ public record SellerVerification(
     public String legalName() {
         return legalFirstName + " " + legalLastName;
     }
+
+    @Override
+    public String toString() {
+        return "SellerVerification[id=" + id + ", sellerProfileId=" + sellerProfileId
+                + ", legalName=REDACTED, bankAccountNumber=REDACTED, bankBookImageKey=REDACTED, status="
+                + status + "]";
+    }
 }

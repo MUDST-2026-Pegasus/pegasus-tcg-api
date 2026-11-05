@@ -54,4 +54,10 @@ public record UserResponse(
                 user.createdAt(),
                 user.lastLoginAt(), user.phonePublic());
     }
+
+    @Override
+    public String toString() {
+        return "UserResponse[id=" + id + ", email=REDACTED, username=REDACTED, displayName=REDACTED, "
+                + "bio=REDACTED, phone=REDACTED, status=" + status + "]";
+    }
 }

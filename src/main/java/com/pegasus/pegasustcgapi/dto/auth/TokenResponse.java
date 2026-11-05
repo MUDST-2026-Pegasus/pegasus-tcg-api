@@ -27,4 +27,11 @@ public record TokenResponse(
             String accessToken, long expiresIn, String refreshToken, long refreshExpiresIn) {
         return new TokenResponse(accessToken, "Bearer", expiresIn, refreshToken, refreshExpiresIn);
     }
+
+    @Override
+    public String toString() {
+        return "TokenResponse[accessToken=REDACTED, tokenType=" + tokenType
+                + ", expiresIn=" + expiresIn + ", refreshToken=REDACTED, refreshExpiresIn="
+                + refreshExpiresIn + "]";
+    }
 }

@@ -56,4 +56,10 @@ public record AuthUser(
         return new AuthUser(id, email, username, displayName, passwordHash, bio, phone, avatarUrl,
                 status, failedLoginAttempts, lastLoginAt, lockedUntil, createdAt, newRoles, phonePublic, emailVerifiedAt);
     }
+
+    @Override
+    public String toString() {
+        return "AuthUser[id=" + id + ", email=REDACTED, username=REDACTED, displayName=REDACTED, "
+                + "passwordHash=REDACTED, bio=REDACTED, phone=REDACTED, roles=" + roles + "]";
+    }
 }

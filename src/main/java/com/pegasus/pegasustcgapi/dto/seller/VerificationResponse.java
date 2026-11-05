@@ -33,4 +33,11 @@ public record VerificationResponse(
                 v.bankBookImageKey(), bankBookImageUrl, v.status(),
                 v.submittedAt(), v.reviewedBy(), v.reviewedAt(), v.rejectionReason(), sellerAvatarUrl);
     }
+
+    @Override
+    public String toString() {
+        return "VerificationResponse[id=" + id + ", sellerProfileId=" + sellerProfileId
+                + ", legalName=REDACTED, bankAccountNumber=REDACTED, bankBookImageKey=REDACTED, "
+                + "bankBookImageUrl=REDACTED, status=" + status + "]";
+    }
 }

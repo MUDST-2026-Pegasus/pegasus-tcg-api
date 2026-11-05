@@ -1,0 +1,8 @@
+logging:
+  structured:
+    format:
+      console: ${LOG_FORMAT:logstash}
+    json:
+      add:
+        service: ${spring.application.name}
+        env: ${APP_ENV:local}

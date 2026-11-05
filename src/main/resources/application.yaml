@@ -21,6 +21,19 @@ spring:
   jooq:
     sql-dialect: postgres
 
+# Local/default output stays readable. Deploy profiles select Logstash JSON,
+# while LOG_FORMAT can explicitly select (or disable with an empty value) it.
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n%wEx"
+  structured:
+    format:
+      console: ${LOG_FORMAT:}
+    json:
+      add:
+        service: ${spring.application.name}
+        env: ${APP_ENV:local}
+
 management:
   endpoints:
     web:
