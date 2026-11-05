@@ -21,6 +21,7 @@ import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBidService;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBuyNowService;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBrowseService;
+import com.pegasus.pegasustcgapi.service.auction.MyAuctionsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -62,6 +63,7 @@ public class AuctionController {
     private final AuctionBidService auctionBidService;
     private final AuctionBuyNowService auctionBuyNowService;
     private final AuctionCheckoutService auctionCheckoutService;
+    private final MyAuctionsService myAuctionsService;
     private final Clock clock;
 
     public AuctionController(
@@ -69,11 +71,13 @@ public class AuctionController {
             AuctionBidService auctionBidService,
             AuctionBuyNowService auctionBuyNowService,
             AuctionCheckoutService auctionCheckoutService,
+            MyAuctionsService myAuctionsService,
             Clock clock) {
         this.auctionBrowseService = auctionBrowseService;
         this.auctionBidService = auctionBidService;
         this.auctionBuyNowService = auctionBuyNowService;
         this.auctionCheckoutService = auctionCheckoutService;
+        this.myAuctionsService = myAuctionsService;
         this.clock = clock;
     }
 
@@ -197,6 +201,6 @@ public class AuctionController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             AuthPrincipal principal) {
-        return ApiResult.success(AuctionSamples.myAuctions(now(), page, size));
+        return ApiResult.success(myAuctionsService.list(principal.userId(), tab, page, size));
     }
 }

@@ -260,6 +260,7 @@ public final class AuctionViews {
      * @param unpaidStrikes wins not paid in time that still count, shown as "ไม่ชำระหลังชนะ 0 / 3 ครั้ง"
      * @param strikeLimit   strikes that bar bidding (3)
      * @param bannedUntil   set while barred from bidding
+     * @param lastStrikeCardName card from the caller's most recent uncleared unpaid win
      */
     public record MyAuctionPage(
             PageResponse<MyAuction> page,
@@ -267,6 +268,7 @@ public final class AuctionViews {
             int unpaidStrikes,
             int strikeLimit,
             OffsetDateTime bannedUntil,
+            String lastStrikeCardName,
             OffsetDateTime serverTime) {
     }
 }

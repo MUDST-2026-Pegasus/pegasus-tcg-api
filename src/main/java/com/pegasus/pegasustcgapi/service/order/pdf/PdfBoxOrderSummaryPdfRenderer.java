@@ -12,6 +12,8 @@ import java.time.format.FormatStyle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -199,7 +201,7 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             row -= 17f;
             drawTotalRow(canvas, "Shipping collected", totals.shippingFee(), document.currency(), labelX, amountX, row, false);
             row -= 17f;
-            drawTotalRow(canvas, "Platform commission (5%)", totals.commissionAmount().negate(), document.currency(), labelX, amountX, row, false);
+            drawTotalRow(canvas, "Platform commission", totals.commissionAmount().negate(), document.currency(), labelX, amountX, row, false);
             row -= 20f;
             drawTotalRow(canvas, "NET RECEIVABLE", totals.sellerNetAmount(), document.currency(), labelX, amountX, row, true);
         } else {
@@ -305,6 +307,11 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         for (int index = 0; index < history.size(); index++) {
             if (index > 0) summary.append(" -> ");
             summary.append(history.get(index).status());
+        }
+        String auditNotes = history.stream().map(OrderSummaryPdfDocument.StatusEvent::note)
+                .filter(Objects::nonNull).distinct().collect(Collectors.joining(" · "));
+        if (!auditNotes.isBlank()) {
+            summary.append(" · ").append(auditNotes);
         }
         return summary.toString();
     }
