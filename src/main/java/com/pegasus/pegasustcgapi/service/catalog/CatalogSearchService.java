@@ -100,7 +100,8 @@ public class CatalogSearchService {
                 browse.maxPrice(),
                 parseSort(browse.sort()),
                 paging.size(),
-                paging.offset());
+                paging.offset(),
+                OffsetDateTime.now(clock));
 
         List<CatalogProduct> found = products.search(query);
         return PageResponse.of(summarise(found, browse.conditions()), paging.page(), paging.size(),
@@ -140,7 +141,7 @@ public class CatalogSearchService {
         }
 
         List<TrendingRow> ranked = market.trending(
-                gameId, OffsetDateTime.now(clock).minusDays(window), places);
+                gameId, OffsetDateTime.now(clock).minusDays(window), places, OffsetDateTime.now(clock));
 
         Map<Long, CatalogProduct> byId = products.findByIds(ranked.stream().map(TrendingRow::productId).toList());
         List<CatalogProduct> inOrder = ranked.stream()
@@ -169,7 +170,7 @@ public class CatalogSearchService {
         List<Long> ids = found.stream().map(CatalogProduct::id).toList();
         Map<Long, String> imageKeys = images.primaryKeysOf(ids);
         Map<Long, Integer> variantCounts = variants.activeCountsOf(ids);
-        Map<Long, Offer> offers = market.offersOf(ids, conditions);
+        Map<Long, Offer> offers = market.offersOf(ids, conditions, OffsetDateTime.now(clock));
 
         return found.stream()
                 .map(product -> {
