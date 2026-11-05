@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductSummaryResponse;
+import com.pegasus.pegasustcgapi.repository.catalog.CatalogProductRepository;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import com.pegasus.pegasustcgapi.support.TestData.Card;
 import java.util.Set;
@@ -24,6 +25,9 @@ class CatalogSearchServiceIntegrationTest extends PostgresIntegrationTest {
 
     @Autowired
     private CatalogSearchService search;
+
+    @Autowired
+    private CatalogProductRepository products;
 
     private PageResponse<ProductSummaryResponse> publicSearch(Short gameId, String q) {
         return search.search(browse(gameId, q, true));
@@ -115,5 +119,56 @@ class CatalogSearchServiceIntegrationTest extends PostgresIntegrationTest {
         assertThat(page.items()).isEmpty();
         assertThat(page.totalItems()).isZero();
         assertThat(page.totalPages()).isZero();
+    }
+
+    @Test
+    void misspelledGameNameShowsItsProductsAndReportsTheCorrection() {
+        short pokemon = data.game("Pokemon TCG");
+        Card pikachu = data.card(pokemon, "Pikachu", "C");
+
+        assertThat(products.correctionCandidates("pokamon")).anyMatch(name -> name.startsWith("Pokemon"));
+
+        PageResponse<ProductSummaryResponse> corrected = publicSearch(pokemon, "pokamon");
+
+        assertThat(corrected.items()).extracting(ProductSummaryResponse::id).containsExactly(pikachu.productId());
+        assertThat(corrected.correctedQuery()).isEqualTo("Pokemon");
+        assertThat(publicSearch(pokemon, "Pokemon").correctedQuery()).isNull();
+    }
+
+    @Test
+    void transposedCardNameIsCorrectedButUnrelatedTextIsNot() {
+        short game = data.game("Pokemon TCG");
+        Card charizard = data.card(game, "Charizard ex", "SAR");
+
+        PageResponse<ProductSummaryResponse> corrected = publicSearch(game, "Charizrad");
+
+        assertThat(corrected.items()).extracting(ProductSummaryResponse::id).containsExactly(charizard.productId());
+        assertThat(corrected.correctedQuery()).isEqualTo("Charizard");
+        assertThat(publicSearch(game, "zzzzzzzzzz").items()).isEmpty();
+        assertThat(publicSearch(game, "zzzzzzzzzz").correctedQuery()).isNull();
+    }
+
+    @Test
+    void exactProductNameRanksAheadOfLongerNameByDefault() {
+        short game = data.game("Pokemon");
+        Card longer = data.card(game, "Mega Pikachu ex", "SR");
+        Card exact = data.card(game, "Pikachu", "C");
+
+        assertThat(publicSearch(game, "Pikachu").items())
+                .extracting(ProductSummaryResponse::id)
+                .containsExactly(exact.productId(), longer.productId());
+    }
+
+    @Test
+    void correctionRespectsGameFilterWhenAnotherGameHasAnEquallyCloseName() {
+        short unrelated = data.game("Aokamon");
+        data.card(unrelated, "Other Card", "C");
+        short pokemon = data.game("Pokemon");
+        Card pikachu = data.card(pokemon, "Pikachu", "C");
+
+        PageResponse<ProductSummaryResponse> page = publicSearch(pokemon, "pokamon");
+
+        assertThat(page.items()).extracting(ProductSummaryResponse::id).containsExactly(pikachu.productId());
+        assertThat(page.correctedQuery()).isEqualTo("Pokemon");
     }
 }

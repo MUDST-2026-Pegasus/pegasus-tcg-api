@@ -4,6 +4,8 @@ import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogCategory.CATALOG_CATEGORY;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
+import static com.pegasus.pegasustcgapi.jooq.tables.CardSet.CARD_SET;
+import static com.pegasus.pegasustcgapi.jooq.tables.Game.GAME;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CollectionItem.COLLECTION_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.InventoryMovement.INVENTORY_MOVEMENT;
@@ -133,7 +135,7 @@ public class CatalogProductRepository {
         return dsl.select(CATALOG_PRODUCT.fields())
                 .from(from(offers))
                 .where(conditions(query, offers))
-                .orderBy(ordering(query.sort(), offers))
+                .orderBy(ordering(query, offers))
                 .limit(query.limit())
                 .offset(query.offset())
                 .fetch(r -> toProduct(r.into(CATALOG_PRODUCT)));
@@ -149,9 +151,12 @@ public class CatalogProductRepository {
     }
 
     private static Table<?> from(Offers offers) {
-        return offers == null
+        Table<?> products = offers == null
                 ? CATALOG_PRODUCT
                 : CATALOG_PRODUCT.leftJoin(offers.table).on(offers.productId.eq(CATALOG_PRODUCT.ID));
+        return products.join(GAME).on(CATALOG_PRODUCT.GAME_ID.eq(GAME.ID))
+                .join(CATALOG_CATEGORY).on(CATALOG_PRODUCT.CATEGORY_ID.eq(CATALOG_CATEGORY.ID))
+                .leftJoin(CARD_SET).on(CATALOG_PRODUCT.CARD_SET_ID.eq(CARD_SET.ID));
     }
 
     /** The per-product market a browse query joins, narrowed to the conditions asked for. */
@@ -221,11 +226,35 @@ public class CatalogProductRepository {
                 .replace("%", "\\%")
                 .replace("_", "\\_") + "%";
 
-        return DSL.condition("{0} ILIKE {1} ESCAPE '\\'", CATALOG_PRODUCT.NAME, DSL.val(pattern))
-                .or(DSL.condition("{0} ILIKE {1} ESCAPE '\\'",
-                        CATALOG_PRODUCT.NAME_LOCAL, DSL.val(pattern)))
-                .or(DSL.condition("{0} ILIKE {1} ESCAPE '\\'",
-                        CATALOG_PRODUCT.CARD_NUMBER, DSL.val(pattern)));
+        Condition match = DSL.falseCondition();
+        for (Field<String> field : searchFields()) {
+            match = match.or(DSL.condition("{0} ILIKE {1} ESCAPE '\\'", field, DSL.val(pattern)));
+        }
+        return match;
+    }
+
+    private static List<Field<String>> searchFields() {
+        return List.of(CATALOG_PRODUCT.NAME, CATALOG_PRODUCT.NAME_LOCAL, CATALOG_PRODUCT.CARD_NUMBER,
+                GAME.NAME, GAME.NAME_LOCAL, CATALOG_CATEGORY.NAME, CARD_SET.NAME, CARD_SET.NAME_LOCAL);
+    }
+
+    /** Candidate names are fetched only after the literal public search has no result. */
+    public List<String> correctionCandidates(String text) {
+        // shortcut: this scans searchable text on a miss; add indexed candidate lookup if the catalogue grows large.
+        String sql = """
+                SELECT term FROM (
+                    SELECT name AS term FROM game WHERE is_active AND word_similarity(?, name) >= 0.3
+                    UNION ALL SELECT name_local FROM game WHERE is_active AND word_similarity(?, name_local) >= 0.3
+                    UNION ALL SELECT name FROM catalog_category WHERE is_active AND word_similarity(?, name) >= 0.3
+                    UNION ALL SELECT name FROM card_set WHERE word_similarity(?, name) >= 0.3
+                    UNION ALL SELECT name_local FROM card_set WHERE word_similarity(?, name_local) >= 0.3
+                    UNION ALL SELECT name FROM catalog_product WHERE is_active AND word_similarity(?, name) >= 0.3
+                    UNION ALL SELECT name_local FROM catalog_product WHERE is_active AND word_similarity(?, name_local) >= 0.3
+                    UNION ALL SELECT card_number FROM catalog_product WHERE is_active AND word_similarity(?, card_number) >= 0.3
+                ) terms ORDER BY word_similarity(?, term) DESC, length(term), term LIMIT 100
+                """;
+        return dsl.fetch(sql, text, text, text, text, text, text, text, text, text)
+                .map(record -> record.get(0, String.class));
     }
 
     /**
@@ -242,8 +271,19 @@ public class CatalogProductRepository {
     }
 
     /** @param offers present whenever the sort reads the market */
-    private static OrderField<?>[] ordering(ProductSearchQuery.Sort sort, Offers offers) {
-        return switch (sort) {
+    private static OrderField<?>[] ordering(ProductSearchQuery query, Offers offers) {
+        return switch (query.sort()) {
+            case RELEVANCE -> query.nameQuery() == null || query.nameQuery().isBlank()
+                    ? new OrderField<?>[] { CATALOG_PRODUCT.NAME.asc(), CATALOG_PRODUCT.ID.asc() }
+                    : new OrderField<?>[] {
+                        DSL.field("greatest(similarity({0},{1}), similarity({0},{2}), "
+                                + "similarity({0},{3}), similarity({0},{4}), "
+                                + "similarity({0},{5}), similarity({0},{6}), "
+                                + "similarity({0},{7}), similarity({0},{8}))", Double.class,
+                                DSL.val(query.nameQuery()), CATALOG_PRODUCT.NAME, CATALOG_PRODUCT.NAME_LOCAL,
+                                CATALOG_PRODUCT.CARD_NUMBER, GAME.NAME, GAME.NAME_LOCAL,
+                                CATALOG_CATEGORY.NAME, CARD_SET.NAME, CARD_SET.NAME_LOCAL).desc(),
+                        CATALOG_PRODUCT.ID.asc() };
             case PRICE_ASC -> new OrderField<?>[] {
                 offers.lowestPrice.asc().nullsLast(), CATALOG_PRODUCT.NAME.asc(), CATALOG_PRODUCT.ID.asc() };
             case PRICE_DESC -> new OrderField<?>[] {
