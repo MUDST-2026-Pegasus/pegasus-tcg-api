@@ -408,6 +408,96 @@ class SaleCheckoutIntegrationTest extends PostgresIntegrationTest {
         assertLedgerBalances();
     }
 
+    // ---------- QA [TCG-684] ----------
+
+    /**
+     * Figma SAL-B3 D: ฿4,200 at 10% off, MINMIN100 then PEGASUS10 (10%, capped at ฿200).
+     * Shipping is free here, so the buyer pays ฿3,480 rather than the mock's ฿3,530.
+     */
+    @Test
+    void figmaCheckoutWithSalePriceAndBothCodesBalancesAtRelease() {
+        Listing l = data.onSale(seller, card, CardCondition.NM, 1, "4200");
+        create(ADMIN_SALES, admin, campaign("b3d-" + data.tag(), 10));
+        String shopCode = code("MINMIN100");
+        String pegasusCode = code("PEGASUS10");
+        insertCode(shopCode, OwnerType.SELLER, seller.profileId(), DiscountType.FIXED, "100", null, "0");
+        insertCode(pegasusCode, OwnerType.PLATFORM, null, DiscountType.PERCENT, "10", "200", "0");
+        AuthPrincipal buyer = data.buyer();
+
+        CheckoutResponse order = buy(buyer, l, 1, pegasusCode, shopCode);
+        assertThat(order.itemsSubtotal()).isEqualByComparingTo("3780");
+        assertThat(order.discountTotal()).isEqualByComparingTo("300");
+        assertThat(order.grandTotal()).isEqualByComparingTo("3480");
+        OrderItemRecord item = onlyItem(order);
+        assertThat(item.getListPrice()).isEqualByComparingTo("4200");
+        assertThat(item.getSaleDiscount()).isEqualByComparingTo("420");
+        SellerOrderDetailsResponse part = part(order);
+        assertThat(part.sellerDiscount()).isEqualByComparingTo("100");
+        assertThat(part.platformDiscount()).isEqualByComparingTo("200");
+        // Commission on the asking price less the shop's own code: 4,100 → 205.
+        assertThat(part.commissionBase()).isEqualByComparingTo("4100");
+        assertThat(part.commissionAmount()).isEqualByComparingTo("205");
+        // 4,200 - 100 (own code) - 205.
+        assertThat(part.sellerNetAmount()).isEqualByComparingTo("3895");
+
+        payShipAndRelease(buyer, order);
+        assertThat(ledger(part.id())).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "ESCROW_RELEASE", money("3480.00"),
+                "PROMO_SUBSIDY", money("200.00"),
+                "SALE_SUBSIDY", money("420.00"),
+                "COMMISSION_FEE", money("205.00"),
+                "SELLER_EARNING", money("3895.00")));
+        assertLedgerBalances();
+    }
+
+    /** Returning one of two cards bought at a sale price with both codes on top. */
+    @Test
+    void partialReturnWithStackedCodesSplitsEscrowAndKeepsTheLedgerBalanced() {
+        Listing l = data.onSale(seller, card, CardCondition.NM, 2, "1000");
+        create(ADMIN_SALES, admin, campaign("pret-" + data.tag(), 20));
+        String shopCode = code("SHOP100");
+        String pegasusCode = code("PEG10");
+        insertCode(shopCode, OwnerType.SELLER, seller.profileId(), DiscountType.FIXED, "100", null, "0");
+        insertCode(pegasusCode, OwnerType.PLATFORM, null, DiscountType.PERCENT, "10", null, "0");
+        AuthPrincipal buyer = data.buyer();
+
+        // 1,600 at the sale price, -100 shop code, -150 (10% of 1,500) Pegasus code.
+        CheckoutResponse order = buy(buyer, l, 2, pegasusCode, shopCode);
+        assertThat(order.grandTotal()).isEqualByComparingTo("1350");
+        SellerOrderDetailsResponse part = part(order);
+        OrderItemDetailsResponse line = part.items().getFirst();
+
+        pay(buyer, order);
+        orders.shipSellerOrder(seller.principal(), part.id(),
+                new ShipOrderRequest("Kerry Express", "SAL-PRET", "KERRY", null, null));
+        var request = returns.request(buyer.userId(), part.id(), "DAMAGED", "Bent corner", List.of(),
+                List.of(new ReturnService.Item(line.id(), 1)));
+        returns.approve(seller.userId(), request.getId(), "PARTIAL_REFUND", null, true);
+        returns.ship(buyer.userId(), part.id(), request.getId(), "RETURN-PRET");
+        returns.receive(seller.userId(), request.getId(), true);
+        long refundId = dsl.select(REFUND.ID).from(REFUND)
+                .where(REFUND.RETURN_REQUEST_ID.eq(request.getId())).fetchSingle(REFUND.ID);
+        BigDecimal refunded = dsl.select(REFUND.AMOUNT).from(REFUND).where(REFUND.ID.eq(refundId))
+                .fetchSingle(REFUND.AMOUNT);
+        // The buyer gets back what that card cost them after both codes, as promised at checkout.
+        assertThat(refunded).isEqualByComparingTo(line.refundEstimatePerUnit());
+        refunds.setDestination(refundId, buyer.userId(), "Test Bank", "Test Buyer", "1234567890");
+        refunds.startTransfer(refundId, adminId, "1234567890");
+        refunds.processed(refundId, adminId, "REF-PRET");
+        orders.autoCompleteSellerOrder(part.id());
+
+        Map<String, BigDecimal> ledger = ledger(part.id());
+        // Escrow is split between the refund and the release, nothing lost or made up.
+        assertThat(ledger.get("ESCROW_RELEASE").add(refunded)).isEqualByComparingTo("1350");
+        // Only the card kept still earns its campaign subsidy.
+        assertThat(ledger.get("SALE_SUBSIDY")).isEqualByComparingTo("200");
+        assertThat(ledger.get("SELLER_EARNING")).isEqualByComparingTo(ledger.get("ESCROW_RELEASE")
+                .add(ledger.getOrDefault("PROMO_SUBSIDY", BigDecimal.ZERO))
+                .add(ledger.get("SALE_SUBSIDY"))
+                .subtract(ledger.get("COMMISSION_FEE")));
+        assertLedgerBalances();
+    }
+
     // ---------- helpers ----------
 
     private CheckoutResponse buy(AuthPrincipal buyer, Listing l, int qty, String platformCode, String shopCode) {

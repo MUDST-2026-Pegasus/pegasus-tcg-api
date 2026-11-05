@@ -87,13 +87,26 @@ BEGIN
      WHERE p.owner_type = 'SELLER' AND r.amount <> so.seller_discount_amount;
     IF bad > 0 THEN RAISE EXCEPTION 'verify: % shop-code redemption(s) differ from the shop discount', bad; END IF;
 
+    -- Price sales [TCG-684]: SOLD_OUT needs every MTG listing's flash card taken, or the
+    -- refresher would put the uncovered listings back on sale and the campaign reads ACTIVE.
+    SELECT count(*) INTO bad FROM listing l
+      JOIN catalog_variant cv ON cv.id = l.catalog_variant_id
+      JOIN catalog_product cp ON cp.id = cv.catalog_product_id
+     WHERE l.status = 'ACTIVE' AND cp.game_id = (SELECT id FROM game WHERE code = 'MTG')
+       AND NOT EXISTS (SELECT 1 FROM price_sale_listing psl JOIN price_sale s ON s.id = psl.sale_id
+                        WHERE s.slug = 'midnight-flash' AND psl.listing_id = l.id
+                          AND psl.sold_count = psl.quota);
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: % MTG listing(s) left on Midnight Flash', bad; END IF;
+    SELECT count(*) INTO n FROM price_sale;
+    IF n <> 8 THEN RAISE EXCEPTION 'verify: expected 8 price sales, found %', n; END IF;
+
     -- 10. Every table covered by this seed has something in it. Auction and
-    -- price-sale fixtures are not part of the full demo dataset yet.
+    -- listing_sale_price is filled by the app's refresher, not the seed.
     FOR t IN SELECT c.relname FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
               WHERE ns.nspname = 'public' AND c.relkind = 'r'
                 AND c.relname NOT IN ('flyway_schema_history', 'auction', 'auction_bid',
                                       'bidder_strike', 'bidding_ban',
-                                      'price_sale', 'price_sale_listing', 'listing_sale_price')
+                                      'listing_sale_price')
               ORDER BY c.relname LOOP
         EXECUTE format('SELECT count(*) FROM %I', t.relname) INTO n;
         IF n = 0 THEN empty := empty || t.relname::text; END IF;
