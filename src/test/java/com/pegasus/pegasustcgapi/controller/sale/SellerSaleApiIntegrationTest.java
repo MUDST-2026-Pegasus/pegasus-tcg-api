@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.sale;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
+import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.ListingSalePrice.LISTING_SALE_PRICE;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
@@ -256,6 +257,49 @@ class SellerSaleApiIntegrationTest extends PostgresIntegrationTest {
         assertThat(ok.data().path("soldUnits").asLong()).isEqualTo(1);
 
         assertThat(api.delete(PATH + "/" + id, shop).errorCode()).isEqualTo("SALE_IN_USE");
+    }
+
+    @Test
+    void onceSoldAPickedListingThatSoldOutOrGotCheaperStillLetsTheShopRenameIt() {
+        Map<String, Object> form = picked(List.of(item(a.id(), "900"), item(b.id(), "150")));
+        long id = create(form);
+        markSoldAt(id); // buys b's only card: b is no longer on sale
+        dsl.update(LISTING).set(LISTING.PRICE, new BigDecimal("850"))
+                .where(LISTING.ID.eq(a.id())).execute(); // now below a's sale price
+
+        Map<String, Object> renamed = new LinkedHashMap<>(form);
+        renamed.put("name", "Renamed");
+        renamed.put("endsAt", iso(now().plusHours(5)));
+        Response ok = api.put(PATH + "/" + id, shop, renamed);
+        assertThat(ok.status()).as(ok.body().toString()).isEqualTo(200);
+        assertThat(ok.data().path("name").asString()).isEqualTo("Renamed");
+
+        Map<String, Object> repriced = picked(List.of(item(a.id(), "800"), item(b.id(), "150")));
+        assertThat(api.put(PATH + "/" + id, shop, repriced).errorCode()).isEqualTo("SALE_INVALID");
+    }
+
+    @Test
+    void aPegasusCampaignOutsideThisSalesPeriodDoesNotCompeteWithIt() {
+        String admin = data.bearer(data.admin());
+        Map<String, Object> campaign = new LinkedHashMap<>();
+        campaign.put("name", "Next week 30%");
+        campaign.put("slug", "later-" + data.tag());
+        campaign.put("saleType", "CATEGORY_SALE");
+        campaign.put("discountType", "PERCENT");
+        campaign.put("discountValue", 30);
+        campaign.put("scopeType", "GAME");
+        campaign.put("scopeIds", List.of(game));
+        campaign.put("startsAt", iso(now().plusDays(2)));
+        campaign.put("endsAt", iso(now().plusDays(3)));
+        Response c = api.post(ADMIN_PATH, admin, campaign);
+        assertThat(c.status()).as(c.body().toString()).isEqualTo(201);
+
+        Response sale = api.post(PATH, shop, picked(List.of(item(a.id(), "900"))));
+        JsonNode first = sale.data().path("items").get(0);
+        assertThat(first.path("platform").isNull() || first.path("platform").isMissingNode()).isTrue();
+        assertThat(first.path("winner").isNull() || first.path("winner").isMissingNode()).isTrue();
+
+        api.delete(ADMIN_PATH + "/" + c.data().path("id").asLong(), admin);
     }
 
     // ---------- helpers ----------

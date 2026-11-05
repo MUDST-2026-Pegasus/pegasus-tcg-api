@@ -135,23 +135,40 @@ public class AdminMetricsRepository {
 
     /** Pegasus's cost of its own codes: the subsidies it paid shops at release [TCG-570]. */
     public BigDecimal promotionCostBetween(OffsetDateTime from, OffsetDateTime to) {
-        return dsl.select(sum(LEDGER_ENTRY.AMOUNT))
-                .from(LEDGER_ENTRY)
-                .where(subsidy(from, to))
-                .fetchSingle(r -> r.value1());
+        return subsidyBetween("PROMO_SUBSIDY", from, to);
     }
 
     public Map<LocalDate, BigDecimal> weeklyPromotionCost(OffsetDateTime from, OffsetDateTime to, ZoneId zone) {
+        return weeklySubsidy("PROMO_SUBSIDY", from, to, zone);
+    }
+
+    /** Pegasus's cost of its sale campaigns: the discounts it paid shops at release [TCG-680]. */
+    public BigDecimal saleSubsidyBetween(OffsetDateTime from, OffsetDateTime to) {
+        return subsidyBetween("SALE_SUBSIDY", from, to);
+    }
+
+    public Map<LocalDate, BigDecimal> weeklySaleSubsidy(OffsetDateTime from, OffsetDateTime to, ZoneId zone) {
+        return weeklySubsidy("SALE_SUBSIDY", from, to, zone);
+    }
+
+    private BigDecimal subsidyBetween(String type, OffsetDateTime from, OffsetDateTime to) {
+        return dsl.select(sum(LEDGER_ENTRY.AMOUNT))
+                .from(LEDGER_ENTRY)
+                .where(subsidy(type, from, to))
+                .fetchSingle(r -> r.value1());
+    }
+
+    private Map<LocalDate, BigDecimal> weeklySubsidy(String type, OffsetDateTime from, OffsetDateTime to, ZoneId zone) {
         Field<LocalDateTime> week = trunc("week", LEDGER_ENTRY.CREATED_AT, zone);
         return dsl.select(week, sum(LEDGER_ENTRY.AMOUNT))
                 .from(LEDGER_ENTRY)
-                .where(subsidy(from, to))
+                .where(subsidy(type, from, to))
                 .groupBy(week)
                 .fetchMap(r -> r.value1().toLocalDate(), r -> r.value2());
     }
 
-    private static Condition subsidy(OffsetDateTime from, OffsetDateTime to) {
-        return LEDGER_ENTRY.ENTRY_TYPE.eq("PROMO_SUBSIDY")
+    private static Condition subsidy(String type, OffsetDateTime from, OffsetDateTime to) {
+        return LEDGER_ENTRY.ENTRY_TYPE.eq(type)
                 .and(LEDGER_ENTRY.CREATED_AT.ge(from))
                 .and(LEDGER_ENTRY.CREATED_AT.lt(to));
     }

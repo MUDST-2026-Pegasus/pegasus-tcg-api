@@ -48,6 +48,8 @@ public final class ApiPaths {
     public static final String SELLERS_ME_AUCTIONS = SELLERS_ME + "/auctions";
     /** Every auction on the platform, and the users barred from bidding. */
     public static final String ADMIN_AUCTIONS = ADMIN + "/auctions";
+    /** Direct price discounts as buyers see them: the SALE page, a sale's page, the home flash sale. */
+    public static final String SALES = API_V1 + "/sales";
 
     private ApiPaths() {
     }

@@ -56,7 +56,24 @@ public class PriceSaleRepository {
             Integer homeSort,
             OffsetDateTime startsAt,
             OffsetDateTime endsAt,
-            Long createdBy) {
+            Long createdBy,
+            List<Long> excludedSellerIds) {
+
+        public NewPriceSale {
+            excludedSellerIds = excludedSellerIds == null ? List.of() : List.copyOf(excludedSellerIds);
+        }
+
+        /** A sale that leaves no shop out: every shop sale, and most campaigns. */
+        public NewPriceSale(String name, String slug, OwnerType ownerType, Long sellerProfileId, SaleType saleType,
+                DiscountType discountType, BigDecimal discountValue, BigDecimal maxDiscountPerUnit,
+                ScopeType scopeType, List<Long> scopeIds, List<CardCondition> conditions, BigDecimal minUnitPrice,
+                Integer perListingQuota, Integer perBuyerLimit, BigDecimal budgetCap, String bannerImageUrl,
+                boolean featuredOnHome, Integer homeSort, OffsetDateTime startsAt, OffsetDateTime endsAt,
+                Long createdBy) {
+            this(name, slug, ownerType, sellerProfileId, saleType, discountType, discountValue, maxDiscountPerUnit,
+                    scopeType, scopeIds, conditions, minUnitPrice, perListingQuota, perBuyerLimit, budgetCap,
+                    bannerImageUrl, featuredOnHome, homeSort, startsAt, endsAt, createdBy, List.of());
+        }
     }
 
     /** Throws {@code DuplicateKeyException} when the slug is taken. */
@@ -78,9 +95,13 @@ public class PriceSaleRepository {
         PriceSaleRecord r = apply(dsl.newRecord(PRICE_SALE), s);
         r.reset(PRICE_SALE.OWNER_TYPE);
         r.reset(PRICE_SALE.SELLER_PROFILE_ID);
+        // A bigger budget, or none, gives a campaign that ran short its money back [TCG-680].
+        var cap = DSL.val(s.budgetCap(), PRICE_SALE.BUDGET_CAP);
         dsl.update(PRICE_SALE)
                 .set(r)
                 .set(PRICE_SALE.VERSION, PRICE_SALE.VERSION.plus(1))
+                .set(PRICE_SALE.BUDGET_EXHAUSTED_AT, DSL.when(cap.isNull().or(cap.gt(PRICE_SALE.BUDGET_CAP)),
+                        DSL.castNull(PRICE_SALE.BUDGET_EXHAUSTED_AT)).otherwise(PRICE_SALE.BUDGET_EXHAUSTED_AT))
                 .where(PRICE_SALE.ID.eq(id))
                 .execute();
     }
@@ -166,6 +187,7 @@ public class PriceSaleRepository {
         r.setHomeSort(s.homeSort());
         r.setStartsAt(s.startsAt());
         r.setEndsAt(s.endsAt());
+        r.setExcludedSellerIds(s.excludedSellerIds().toArray(Long[]::new));
         return r;
     }
 
@@ -197,7 +219,8 @@ public class PriceSaleRepository {
         return dsl.selectFrom(PRICE_SALE)
                 .where(notOver(now))
                 .and(PRICE_SALE.PAUSED_AT.isNull())
-                .and(PRICE_SALE.BUDGET_CAP.isNull().or(PRICE_SALE.SUBSIDY_RESERVED.lt(PRICE_SALE.BUDGET_CAP)))
+                .and(PRICE_SALE.BUDGET_CAP.isNull().or(PRICE_SALE.SUBSIDY_RESERVED.lt(PRICE_SALE.BUDGET_CAP)
+                        .and(PRICE_SALE.BUDGET_EXHAUSTED_AT.isNull())))
                 .orderBy(PRICE_SALE.ID)
                 .fetch(PriceSaleRepository::toSale);
     }
@@ -303,6 +326,8 @@ public class PriceSaleRepository {
                 r.getCreatedBy(),
                 r.getVersion(),
                 r.getCreatedAt(),
-                r.getUpdatedAt());
+                r.getUpdatedAt(),
+                r.getBudgetExhaustedAt(),
+                r.getExcludedSellerIds() == null ? List.of() : List.of(r.getExcludedSellerIds()));
     }
 }

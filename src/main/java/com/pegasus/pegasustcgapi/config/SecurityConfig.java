@@ -101,6 +101,9 @@ public class SecurityConfig {
         ApiPaths.AUCTIONS,
         ApiPaths.AUCTIONS + "/*",
         ApiPaths.AUCTIONS + "/*/bids",
+        // The SALE page, a sale's own page and the home flash sale [TCG-679].
+        ApiPaths.SALES,
+        ApiPaths.SALES + "/*",
     };
 
     /** Public Swagger UI and OpenAPI documentation resources. */

@@ -8,6 +8,7 @@ import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
+import static com.pegasus.pegasustcgapi.jooq.tables.ListingSalePrice.LISTING_SALE_PRICE;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerRatingSummary.SELLER_RATING_SUMMARY;
@@ -231,6 +232,7 @@ public class ListingRepository {
 
     public List<PublicListing> findPublicPage(PublicListingQuery query) {
         return enrich(publicSelect()
+                .leftJoin(LISTING_SALE_PRICE).on(salePriceRunning(query.now()))
                 .where(publicConditions(query))
                 .orderBy(order(query.sort()))
                 .limit(query.limit())
@@ -243,8 +245,25 @@ public class ListingRepository {
                 .from(LISTING)
                 .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
                 .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .leftJoin(LISTING_SALE_PRICE).on(salePriceRunning(query.now()))
                 .where(publicConditions(query))
                 .fetchSingle(0, long.class);
+    }
+
+    /**
+     * These listings as the market shows them, in id order: on sale or sold out,
+     * from a seller open for business; the rest are left out.
+     */
+    public List<PublicListing> findPublicByIds(Collection<Long> listingIds) {
+        if (listingIds.isEmpty()) {
+            return List.of();
+        }
+        return enrich(publicSelect()
+                .where(LISTING.ID.in(listingIds))
+                .and(sellerOpenForBusiness())
+                .and(LISTING.STATUS.in(ListingStatus.ACTIVE.name(), ListingStatus.SOLD_OUT.name()))
+                .orderBy(LISTING.ID)
+                .fetch(ListingRepository::toPublic));
     }
 
     /** A page a buyer may open: on sale or sold out, from a seller who is open for business. */
@@ -404,6 +423,25 @@ public class ListingRepository {
                 .and(sellerProfileOpenForBusiness());
     }
 
+    /**
+     * The listing's sale row while its sale still runs [TCG-679]. A row past its end
+     * waits for the next refresh to be removed; until then it is not a sale price.
+     */
+    public static Condition salePriceRunning(OffsetDateTime now) {
+        return LISTING_SALE_PRICE.LISTING_ID.eq(LISTING.ID)
+                .and(LISTING_SALE_PRICE.ENDS_AT.gt(now));
+    }
+
+    /**
+     * What a card sells for now: the sale price while one runs, else the asking price.
+     * Read it with {@link #salePriceRunning} left-joined, as every buyer page does.
+     */
+    public static final Field<BigDecimal> EFFECTIVE_PRICE = DSL.coalesce(LISTING_SALE_PRICE.SALE_PRICE, LISTING.PRICE);
+
+    /** The discount as a share of the asking price; 0 off sale. */
+    private static final Field<BigDecimal> DISCOUNT_SHARE = DSL.coalesce(
+            LISTING_SALE_PRICE.DISCOUNT_AMOUNT.div(LISTING.PRICE), DSL.inline(BigDecimal.ZERO));
+
     private static Condition publicConditions(PublicListingQuery query) {
         Condition condition = sellerOpenForBusiness()
                 .and(LISTING.STATUS.eq(ListingStatus.ACTIVE.name()));
@@ -417,11 +455,25 @@ public class ListingRepository {
         if (query.condition() != null) {
             condition = condition.and(LISTING.CONDITION_CODE.eq(query.condition().name()));
         }
+        // A buyer filtering on price means the price they would pay.
         if (query.minPrice() != null) {
-            condition = condition.and(LISTING.PRICE.ge(query.minPrice()));
+            condition = condition.and(EFFECTIVE_PRICE.ge(query.minPrice()));
         }
         if (query.maxPrice() != null) {
-            condition = condition.and(LISTING.PRICE.le(query.maxPrice()));
+            condition = condition.and(EFFECTIVE_PRICE.le(query.maxPrice()));
+        }
+        if (Boolean.TRUE.equals(query.onSale())) {
+            condition = condition.and(LISTING_SALE_PRICE.LISTING_ID.isNotNull());
+        } else if (Boolean.FALSE.equals(query.onSale())) {
+            condition = condition.and(LISTING_SALE_PRICE.LISTING_ID.isNull());
+        }
+        if (query.saleId() != null) {
+            condition = condition.and(LISTING_SALE_PRICE.SALE_ID.eq(query.saleId()));
+        }
+        if (query.minDiscount() != null) {
+            // discount / price >= minDiscount / 100, kept free of division.
+            condition = condition.and(LISTING_SALE_PRICE.DISCOUNT_AMOUNT.mul(DSL.inline(100))
+                    .ge(LISTING.PRICE.mul(query.minDiscount())));
         }
         if (query.productId() != null || query.gameId() != null) {
             // A semi-join, so the page and the count share this condition unchanged.
@@ -500,11 +552,15 @@ public class ListingRepository {
         return DSL.condition("{0} ILIKE {1} ESCAPE '\\'", column, DSL.val(pattern));
     }
 
+    /** Price sorts use the price a buyer pays now, so a card on sale sorts at its sale price. */
     private static List<SortField<?>> order(PublicListingQuery.Sort sort) {
         return switch (sort) {
-            case PRICE_ASC -> List.of(LISTING.PRICE.asc(), LISTING.ID.asc());
-            case PRICE_DESC -> List.of(LISTING.PRICE.desc(), LISTING.ID.desc());
+            case PRICE_ASC -> List.of(EFFECTIVE_PRICE.asc(), LISTING.ID.asc());
+            case PRICE_DESC -> List.of(EFFECTIVE_PRICE.desc(), LISTING.ID.desc());
             case NEWEST -> List.of(LISTING.PUBLISHED_AT.desc().nullsLast(), LISTING.ID.desc());
+            case DISCOUNT_DESC -> List.of(DISCOUNT_SHARE.desc(), EFFECTIVE_PRICE.asc(), LISTING.ID.asc());
+            case ENDING_SOON -> List.of(LISTING_SALE_PRICE.ENDS_AT.asc().nullsLast(), EFFECTIVE_PRICE.asc(),
+                    LISTING.ID.asc());
         };
     }
 
@@ -598,7 +654,14 @@ public class ListingRepository {
         }
     }
 
-    /** @param sellerUserId narrows the market to one storefront */
+    /**
+     * @param sellerUserId narrows the market to one storefront
+     * @param minPrice     on the price a buyer pays now, sale included; so is maxPrice
+     * @param onSale       true: only cards on sale; false: only cards off sale; null: both
+     * @param saleId       only cards priced by this sale
+     * @param minDiscount  only cards at least this many percent off
+     * @param now          the instant a sale row has to still run at
+     */
     public record PublicListingQuery(
             Long sellerUserId,
             Long variantId,
@@ -607,15 +670,36 @@ public class ListingRepository {
             CardCondition condition,
             BigDecimal minPrice,
             BigDecimal maxPrice,
+            Boolean onSale,
+            Long saleId,
+            BigDecimal minDiscount,
             Sort sort,
             int limit,
-            int offset) {
+            int offset,
+            OffsetDateTime now) {
+
+        public PublicListingQuery {
+            if (now == null) {
+                now = OffsetDateTime.now();
+            }
+        }
+
+        /** No sale filter, at the current instant. */
+        public PublicListingQuery(Long sellerUserId, Long variantId, Long productId, Short gameId,
+                CardCondition condition, BigDecimal minPrice, BigDecimal maxPrice, Sort sort, int limit, int offset) {
+            this(sellerUserId, variantId, productId, gameId, condition, minPrice, maxPrice, null, null, null,
+                    sort, limit, offset, null);
+        }
 
         /** Cheapest first is what a buyer comparing sellers of one card wants. */
         public enum Sort {
             PRICE_ASC,
             PRICE_DESC,
-            NEWEST
+            NEWEST,
+            /** Largest share off first; cards off sale last. */
+            DISCOUNT_DESC,
+            /** The sale that ends first first; cards off sale last. */
+            ENDING_SOON
         }
     }
 

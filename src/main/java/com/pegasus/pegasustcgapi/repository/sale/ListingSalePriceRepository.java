@@ -4,11 +4,13 @@ import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODU
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.ListingSalePrice.LISTING_SALE_PRICE;
+import static com.pegasus.pegasustcgapi.jooq.tables.PriceSale.PRICE_SALE;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.ListingSalePriceRecord;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
 import com.pegasus.pegasustcgapi.model.sale.PriceSale.OwnerType;
+import com.pegasus.pegasustcgapi.model.sale.PriceSale.SaleType;
 import com.pegasus.pegasustcgapi.service.sale.SalePriceResolver.ListingFacts;
 import com.pegasus.pegasustcgapi.service.sale.SalePriceResolver.Resolved;
 import java.time.OffsetDateTime;
@@ -86,6 +88,37 @@ public class ListingSalePriceRepository {
         return dsl.selectFrom(LISTING_SALE_PRICE)
                 .where(LISTING_SALE_PRICE.LISTING_ID.in(listingIds))
                 .fetchMap(ListingSalePriceRecord::getListingId, ListingSalePriceRepository::toResolved);
+    }
+
+    /**
+     * A listing's sale price as a buyer is shown it, with the sale it comes from.
+     *
+     * @param perBuyerLimit cards one buyer may buy at this price; null means no limit
+     */
+    public record Shown(Resolved price, String slug, String name, SaleType saleType, Integer perBuyerLimit) {
+    }
+
+    /**
+     * The rows still running at {@code now} [TCG-679]. A row whose sale has just
+     * ended stays in the table until the next refresh; it is left out here so a
+     * buyer is never shown a price that checkout would refuse.
+     */
+    public Map<Long, Shown> findShown(Collection<Long> listingIds, OffsetDateTime now) {
+        if (listingIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(LISTING_SALE_PRICE.fields())
+                .select(PRICE_SALE.SLUG, PRICE_SALE.NAME, PRICE_SALE.SALE_TYPE, PRICE_SALE.PER_BUYER_LIMIT)
+                .from(LISTING_SALE_PRICE)
+                .join(PRICE_SALE).on(PRICE_SALE.ID.eq(LISTING_SALE_PRICE.SALE_ID))
+                .where(LISTING_SALE_PRICE.LISTING_ID.in(listingIds))
+                .and(LISTING_SALE_PRICE.ENDS_AT.gt(now))
+                .fetchMap(r -> r.get(LISTING_SALE_PRICE.LISTING_ID), r -> new Shown(
+                        toResolved(r.into(LISTING_SALE_PRICE)),
+                        r.get(PRICE_SALE.SLUG),
+                        r.get(PRICE_SALE.NAME),
+                        SaleType.valueOf(r.get(PRICE_SALE.SALE_TYPE)),
+                        r.get(PRICE_SALE.PER_BUYER_LIMIT)));
     }
 
     public Optional<Resolved> findByListingId(long listingId) {

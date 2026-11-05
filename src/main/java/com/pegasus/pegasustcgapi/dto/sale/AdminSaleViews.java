@@ -59,7 +59,8 @@ public final class AdminSaleViews {
             OffsetDateTime createdAt,
             OffsetDateTime updatedAt,
             long soldUnits,
-            long listingCount) {
+            long listingCount,
+            List<Long> excludedSellerIds) {
     }
 
     /** @param statusCounts every status, zero included, for the tabs; ignores the status filter */

@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.repository.catalog;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.catalog.ProductType;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.Set;
 
@@ -21,6 +22,7 @@ import java.util.Set;
  *                    narrows which listings the price filter and sort look at
  * @param minPrice    against the cheapest matching listing on sale; null for no floor
  * @param maxPrice    same, for the ceiling
+ * @param now         which sale prices still run; prices are what a buyer pays now
  */
 public record ProductSearchQuery(
         Set<Short> gameIds,
@@ -36,7 +38,8 @@ public record ProductSearchQuery(
         BigDecimal maxPrice,
         Sort sort,
         int limit,
-        int offset) {
+        int offset,
+        OffsetDateTime now) {
 
     public ProductSearchQuery {
         gameIds = gameIds == null ? Set.of() : Set.copyOf(gameIds);

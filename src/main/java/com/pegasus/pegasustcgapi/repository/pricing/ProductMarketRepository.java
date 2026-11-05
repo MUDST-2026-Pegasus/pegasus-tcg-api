@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
+import static com.pegasus.pegasustcgapi.jooq.tables.ListingSalePrice.LISTING_SALE_PRICE;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
@@ -32,7 +33,9 @@ import org.springframework.stereotype.Repository;
  *
  * <p>"On sale" here means what a buyer could put in a cart this minute — an ACTIVE
  * listing with stock, from a seller the public market shows — so the prices on a
- * browse page agree with the listings behind them.
+ * browse page agree with the listings behind them. A card's price is what a buyer
+ * pays for it now: its sale price while a sale runs [TCG-679], read from
+ * {@code listing_sale_price} exactly as the listing pages read it.
  */
 @Repository
 public class ProductMarketRepository {
@@ -60,13 +63,15 @@ public class ProductMarketRepository {
      * Keyed by product id; a product with nothing on sale is absent.
      *
      * @param conditions only listings in one of these count; empty for any
+     * @param now        which sale prices still run
      */
-    public Map<Long, Offer> offersOf(Collection<Long> productIds, Set<CardCondition> conditions) {
+    public Map<Long, Offer> offersOf(Collection<Long> productIds, Set<CardCondition> conditions,
+            OffsetDateTime now) {
         if (productIds.isEmpty()) {
             return Map.of();
         }
         Field<Long> productId = CATALOG_VARIANT.CATALOG_PRODUCT_ID;
-        Field<BigDecimal> lowest = DSL.min(LISTING.PRICE);
+        Field<BigDecimal> lowest = DSL.min(ListingRepository.EFFECTIVE_PRICE);
         Field<Integer> listings = DSL.count();
 
         return dsl.select(productId, lowest, listings)
@@ -74,6 +79,7 @@ public class ProductMarketRepository {
                 .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
                 .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
                 .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
+                .leftJoin(LISTING_SALE_PRICE).on(ListingRepository.salePriceRunning(now))
                 .where(onSale())
                 .and(inCondition(conditions))
                 .and(productId.in(productIds))
@@ -88,16 +94,19 @@ public class ProductMarketRepository {
      *
      * <p>Built from the same rule as {@link #offersOf}, so a page filtered by
      * price shows the prices it was filtered on.
+     *
+     * @param now which sale prices still run
      */
-    public static Table<?> offers(Set<CardCondition> conditions) {
+    public static Table<?> offers(Set<CardCondition> conditions, OffsetDateTime now) {
         return DSL.select(
                         CATALOG_VARIANT.CATALOG_PRODUCT_ID.as(OFFER_PRODUCT_ID),
-                        DSL.min(LISTING.PRICE).as(OFFER_LOWEST_PRICE),
+                        DSL.min(ListingRepository.EFFECTIVE_PRICE).as(OFFER_LOWEST_PRICE),
                         DSL.count().as(OFFER_LISTING_COUNT))
                 .from(LISTING)
                 .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
                 .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
                 .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
+                .leftJoin(LISTING_SALE_PRICE).on(ListingRepository.salePriceRunning(now))
                 .where(onSale())
                 .and(inCondition(conditions))
                 .groupBy(CATALOG_VARIANT.CATALOG_PRODUCT_ID)
@@ -111,8 +120,9 @@ public class ProductMarketRepository {
      * go to the card more sellers are offering, then to the newer one.
      *
      * @param gameId null ranks every game together
+     * @param now    which sale prices still run, for the offers it joins
      */
-    public List<TrendingRow> trending(Short gameId, OffsetDateTime since, int limit) {
+    public List<TrendingRow> trending(Short gameId, OffsetDateTime since, int limit, OffsetDateTime now) {
         Table<?> sold = DSL.select(
                         CATALOG_VARIANT.CATALOG_PRODUCT_ID.as("product_id"),
                         DSL.sum(ORDER_ITEM.QUANTITY).as("units"))
@@ -130,7 +140,7 @@ public class ProductMarketRepository {
 
         // Joining the offers keeps the rail to cards on sale and gives the tie-break
         // in the same pass: one aggregate, not a count per product.
-        Table<?> offers = offers(Set.of());
+        Table<?> offers = offers(Set.of(), now);
         Field<Long> offerProduct = offers.field(OFFER_PRODUCT_ID, Long.class);
         Field<Integer> listings = offers.field(OFFER_LISTING_COUNT, Integer.class);
 

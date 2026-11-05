@@ -304,6 +304,31 @@ public class OrderRepository {
             BigDecimal commissionAmount,
             BigDecimal sellerNetAmount,
             Long shippingOptionId) {
+        return insertSellerOrder(salesOrderId, sellerProfileId, sellerOrderNumber, itemsSubtotal, shippingFee,
+                sellerDiscount, platformDiscount, BigDecimal.ZERO, grandTotal, commissionRatePercent,
+                commissionAmount, sellerNetAmount, shippingOptionId);
+    }
+
+    /**
+     * An order part with codes and sale prices on it [TCG-680].
+     *
+     * @param saleSubsidy what Pegasus pays the shop at release for its campaigns'
+     *                    discounts on these cards ({@code SALE_SUBSIDY})
+     */
+    public SellerOrderRecord insertSellerOrder(
+            long salesOrderId,
+            long sellerProfileId,
+            String sellerOrderNumber,
+            BigDecimal itemsSubtotal,
+            BigDecimal shippingFee,
+            BigDecimal sellerDiscount,
+            BigDecimal platformDiscount,
+            BigDecimal saleSubsidy,
+            BigDecimal grandTotal,
+            BigDecimal commissionRatePercent,
+            BigDecimal commissionAmount,
+            BigDecimal sellerNetAmount,
+            Long shippingOptionId) {
 
         BigDecimal discountAmount = sellerDiscount.add(platformDiscount);
         return dsl.insertInto(SELLER_ORDER)
@@ -316,6 +341,7 @@ public class OrderRepository {
                 .set(SELLER_ORDER.DISCOUNT_AMOUNT, discountAmount)
                 .set(SELLER_ORDER.SELLER_DISCOUNT_AMOUNT, sellerDiscount)
                 .set(SELLER_ORDER.PLATFORM_DISCOUNT_AMOUNT, platformDiscount)
+                .set(SELLER_ORDER.SALE_SUBSIDY_AMOUNT, saleSubsidy)
                 .set(SELLER_ORDER.GRAND_TOTAL, grandTotal)
                 .set(SELLER_ORDER.COMMISSION_RATE_PERCENT,
                         commissionRatePercent != null ? commissionRatePercent : BigDecimal.ZERO)
@@ -368,8 +394,51 @@ public class OrderRepository {
             String conditionSnapshot,
             String gameNameSnapshot,
             String imageKeySnapshot) {
+        return insertOrderItem(sellerOrderId, listingId, catalogVariantId, quantity, unitPrice, lineTotal,
+                discountAllocated, sellerDiscountAllocated, unitCostSnapshot, productNameSnapshot,
+                variantLabelSnapshot, conditionSnapshot, gameNameSnapshot, imageKeySnapshot, null);
+    }
 
+    /**
+     * How a line sold against its asking price [TCG-680].
+     *
+     * @param listPrice    the asking price per card; {@code unit_price = listPrice - saleDiscount}
+     * @param saleDiscount per card; zero off sale
+     * @param saleId       null off sale
+     * @param fundedBy     PLATFORM or SELLER; null off sale
+     * @param quotaHeld    cards counted against the flash quota until paid
+     * @param subsidyHeld  baht counted against the campaign budget until paid
+     */
+    public record SaleSnapshot(BigDecimal listPrice, BigDecimal saleDiscount, Long saleId, String fundedBy,
+                               int quotaHeld, BigDecimal subsidyHeld) {
+    }
+
+    /** @param sale how the line sold against its asking price; null when it sold at it */
+    public OrderItemRecord insertOrderItem(
+            long sellerOrderId,
+            Long listingId,
+            long catalogVariantId,
+            int quantity,
+            BigDecimal unitPrice,
+            BigDecimal lineTotal,
+            BigDecimal discountAllocated,
+            BigDecimal sellerDiscountAllocated,
+            BigDecimal unitCostSnapshot,
+            String productNameSnapshot,
+            String variantLabelSnapshot,
+            String conditionSnapshot,
+            String gameNameSnapshot,
+            String imageKeySnapshot,
+            SaleSnapshot sale) {
+
+        SaleSnapshot s = sale != null ? sale : new SaleSnapshot(unitPrice, BigDecimal.ZERO, null, null, 0, BigDecimal.ZERO);
         return dsl.insertInto(ORDER_ITEM)
+                .set(ORDER_ITEM.LIST_PRICE, s.listPrice())
+                .set(ORDER_ITEM.SALE_DISCOUNT, s.saleDiscount())
+                .set(ORDER_ITEM.SALE_ID, s.saleId())
+                .set(ORDER_ITEM.SALE_FUNDED_BY, s.fundedBy())
+                .set(ORDER_ITEM.SALE_QUOTA_HELD, s.quotaHeld())
+                .set(ORDER_ITEM.SALE_SUBSIDY_HELD, s.subsidyHeld())
                 .set(ORDER_ITEM.SELLER_ORDER_ID, sellerOrderId)
                 .set(ORDER_ITEM.LISTING_ID, listingId)
                 .set(ORDER_ITEM.CATALOG_VARIANT_ID, catalogVariantId)

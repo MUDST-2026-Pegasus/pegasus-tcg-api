@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.port.pricing;
 
+import com.pegasus.pegasustcgapi.dto.sale.SalePricing;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
 import java.math.BigDecimal;
@@ -20,9 +21,13 @@ public interface PricingPort {
     Map<Long, ListingOffer> offers(Collection<Long> listingIds);
 
     /**
+     * @param price       what one card sells for now: the sale price while a sale
+     *                    runs [TCG-679], else the asking price
      * @param purchasable ACTIVE, with cards available, from a VERIFIED seller who
      *                    is not on vacation. Checkout still has to reserve: this is
      *                    a snapshot, not a hold.
+     * @param listPrice   the seller's asking price
+     * @param pricing     the price as a buyer is shown it, sale included
      */
     record ListingOffer(
             long listingId,
@@ -34,7 +39,40 @@ public interface PricingPort {
             int quantityAvailable,
             ListingStatus status,
             boolean purchasable,
-            String sellerName) {
+            String sellerName,
+            BigDecimal listPrice,
+            SalePricing pricing) {
+
+        public ListingOffer {
+            if (listPrice == null) {
+                listPrice = price;
+            }
+            if (pricing == null && price != null) {
+                pricing = SalePricing.none(price);
+            }
+        }
+
+        /** Off sale: the price is the asking price. */
+        public ListingOffer(
+                long listingId,
+                long sellerProfileId,
+                long catalogVariantId,
+                CardCondition condition,
+                BigDecimal price,
+                String currency,
+                int quantityAvailable,
+                ListingStatus status,
+                boolean purchasable,
+                String sellerName) {
+            this(listingId, sellerProfileId, catalogVariantId, condition, price, currency,
+                    quantityAvailable, status, purchasable, sellerName, price, null);
+        }
+
+        /** This offer at another price, sale included. */
+        public ListingOffer priced(SalePricing p) {
+            return new ListingOffer(listingId, sellerProfileId, catalogVariantId, condition, p.salePrice(), currency,
+                    quantityAvailable, status, purchasable, sellerName, p.listPrice(), p);
+        }
 
         public ListingOffer(
                 long listingId,

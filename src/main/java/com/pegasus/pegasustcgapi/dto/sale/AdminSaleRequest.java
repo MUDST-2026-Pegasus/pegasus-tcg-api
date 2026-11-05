@@ -32,6 +32,7 @@ import java.util.List;
  * @param perBuyerLimit      flash only: cards one buyer may buy at the sale price
  * @param budgetCap          most subsidy Pegasus pays; null means no cap
  * @param homeSort           position on the home page; null puts a newly featured sale last
+ * @param excludedSellerIds  shops (seller profile ids) the campaign leaves out; null or empty for none
  *
  * <p>Flags left out read as false.
  */
@@ -53,7 +54,8 @@ public record AdminSaleRequest(
         Boolean featuredOnHome,
         @Min(0) Integer homeSort,
         @NotNull OffsetDateTime startsAt,
-        @NotNull OffsetDateTime endsAt) {
+        @NotNull OffsetDateTime endsAt,
+        List<@NotNull Long> excludedSellerIds) {
 
     public boolean featuredOnHomeOrFalse() {
         return Boolean.TRUE.equals(featuredOnHome);

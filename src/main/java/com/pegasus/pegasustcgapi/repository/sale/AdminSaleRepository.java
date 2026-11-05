@@ -172,8 +172,10 @@ public class AdminSaleRepository {
      * is left out, since no discount can take it lower.
      */
     public ScopePreview previewScope(ScopeType scope, List<Long> ids, Collection<CardCondition> conditions,
-            BigDecimal minUnitPrice) {
+            BigDecimal minUnitPrice, Collection<Long> excludedSellerIds) {
         Condition reach = LISTING.STATUS.eq(ListingStatus.ACTIVE.name())
+                .and(excludedSellerIds.isEmpty() ? DSL.noCondition()
+                        : LISTING.SELLER_PROFILE_ID.notIn(excludedSellerIds))
                 .and(LISTING.DELETED_AT.isNull())
                 .and(LISTING.PRICE.gt(BigDecimal.ONE))
                 .and(scopeCondition(scope, ids))
@@ -188,6 +190,13 @@ public class AdminSaleRepository {
                 .where(reach)
                 .fetchSingle();
         return new ScopePreview(r.get(0, Long.class), r.get(1, Long.class), r.get(2, BigDecimal.class));
+    }
+
+    /** Whether every id names a shop; none to check is true. */
+    public boolean shopsExist(Collection<Long> sellerProfileIds) {
+        if (sellerProfileIds.isEmpty()) return true;
+        long distinct = sellerProfileIds.stream().distinct().count();
+        return dsl.fetchCount(SELLER_PROFILE, SELLER_PROFILE.ID.in(sellerProfileIds)) == distinct;
     }
 
     /** Whether every id names a game, category or card set; ALL has nothing to check. */
@@ -274,7 +283,8 @@ public class AdminSaleRepository {
                 .when(PRICE_SALE.PAUSED_AT.isNotNull(), SaleStatus.PAUSED.name())
                 .when(PRICE_SALE.STARTS_AT.gt(at), SaleStatus.SCHEDULED.name())
                 .when(PRICE_SALE.BUDGET_CAP.isNotNull()
-                        .and(PRICE_SALE.SUBSIDY_RESERVED.ge(PRICE_SALE.BUDGET_CAP)), SaleStatus.BUDGET_EXHAUSTED.name())
+                        .and(PRICE_SALE.SUBSIDY_RESERVED.ge(PRICE_SALE.BUDGET_CAP)
+                                .or(PRICE_SALE.BUDGET_EXHAUSTED_AT.isNotNull())), SaleStatus.BUDGET_EXHAUSTED.name())
                 .when(soldOut, SaleStatus.SOLD_OUT.name())
                 .otherwise(SaleStatus.ACTIVE.name());
     }
@@ -311,7 +321,7 @@ public class AdminSaleRepository {
                 s.subsidyReserved(), s.bannerImageUrl(), s.featuredOnHome(), s.homeSort(), s.startsAt(),
                 s.endsAt(), s.endedAt(), SaleStatus.valueOf(r.get(status)), s.pausedAt(), s.pauseReason(),
                 party(r, PAUSER), party(r, CREATOR), s.createdAt(), s.updatedAt(),
-                r.get(SOLD_UNITS), r.get(LISTING_COUNT));
+                r.get(SOLD_UNITS), r.get(LISTING_COUNT), s.excludedSellerIds());
     }
 
     private Party party(Record r, UserAccount user) {

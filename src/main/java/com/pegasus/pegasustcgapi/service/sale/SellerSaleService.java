@@ -166,10 +166,14 @@ public class SellerSaleService {
         PriceSale current = lockOwn(id, shop.id());
         if (current.statusAt(now(), false) == SaleStatus.ENDED) invalid("This sale has ended and cannot be edited");
         Draft draft = draft(request, shop.id(), current, current.createdBy());
-        checkItems(draft, shop.id());
         if (sales.hasOrders(id)) {
+            // The picked listings and their prices cannot change now, so they are not
+            // checked again: one that has since sold out or come down in price must
+            // not stop the shop renaming the sale or moving its end.
             SaleEditRules.checkAfterOrders(current, draft.sale());
             checkItemsUnchanged(id, draft);
+        } else {
+            checkItems(draft, shop.id());
         }
         checkOverlap(draft, shop.id(), id);
 
@@ -441,7 +445,9 @@ public class SellerSaleService {
 
     /**
      * The picked listings with this sale's price for each, and the cheapest Pegasus
-     * campaign that is scheduled or running over it, if any.
+     * campaign that is scheduled or running over it, if any. Only a campaign whose
+     * period meets this sale's competes with it: one that runs before or after it
+     * never sells the card at the same time.
      */
     private List<SaleItem> items(PriceSale sale) {
         List<ItemRow> rows = views.items(sale.id());
@@ -451,6 +457,7 @@ public class SellerSaleService {
                 .collect(Collectors.toMap(ListingFacts::listingId, Function.identity()));
         List<PriceSale> pegasus = sales.findPriceLocking(now()).stream()
                 .filter(p -> p.ownerType() == OwnerType.PLATFORM)
+                .filter(p -> p.startsAt().isBefore(sale.effectiveEnd()) && sale.startsAt().isBefore(p.effectiveEnd()))
                 .toList();
         Map<SaleListingKey, SaleListing> platformRows = pegasus.isEmpty() ? Map.of()
                 : sales.findListings(pegasus.stream().map(PriceSale::id).toList(), ids);

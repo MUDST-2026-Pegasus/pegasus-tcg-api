@@ -203,7 +203,8 @@ public class CartService {
                 details != null ? details.sellerName() : offer.sellerName(),
                 imageUrl != null ? imageUrl : card == null ? null : card.officialImageUrl(),
                 card == null ? null : card.productId(),
-                details == null ? null : details.sellerUsername());
+                details == null ? null : details.sellerUsername(),
+                offer.pricing());
 
         return new AddResult(response, returnSessionKey);
     }
@@ -390,7 +391,8 @@ public class CartService {
                 details != null ? details.sellerName() : offer.sellerName(),
                 imageUrl != null ? imageUrl : card == null ? null : card.officialImageUrl(),
                 card == null ? null : card.productId(),
-                details == null ? null : details.sellerUsername());
+                details == null ? null : details.sellerUsername(),
+                offer.pricing());
     }
 
     /** Only this explicit action accepts changed prices; quantity edits and checkout never do. */
@@ -520,7 +522,8 @@ public class CartService {
                     details != null ? details.sellerName() : offer != null ? offer.sellerName() : null,
                     imageUrl != null ? imageUrl : card == null ? null : card.officialImageUrl(),
                     card == null ? null : card.productId(),
-                    details == null ? null : details.sellerUsername());
+                    details == null ? null : details.sellerUsername(),
+                    offer == null ? null : offer.pricing());
         }).toList();
     }
 
