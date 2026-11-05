@@ -28,6 +28,9 @@ public class PlatformSettingService {
     public static final String ORDER_CANCEL_WINDOW_HOURS = "order.cancel_window_hours";
     /** How long an unpaid order may hold its reserved cards before it is cancelled. */
     public static final String ORDER_PAYMENT_TIMEOUT_MINUTES = "order.payment_timeout_minutes";
+    public static final String AUCTION_PAYMENT_WINDOW_HOURS = "auction.payment_window_hours";
+    public static final String AUCTION_STRIKE_LIMIT = "auction.strike_limit";
+    public static final String AUCTION_BAN_DAYS = "auction.ban_days";
     public static final String RETURN_REQUEST_WINDOW_DAYS = "return.request_window_days";
     /** Percent applied when no commission_rule matches. */
     public static final String COMMISSION_DEFAULT_RATE = "commission.default_rate";
