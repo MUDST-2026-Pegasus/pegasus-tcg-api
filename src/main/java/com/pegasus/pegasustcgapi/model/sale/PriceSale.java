@@ -24,6 +24,7 @@ import java.util.List;
  * @param subsidyReserved    subsidy held by checkouts so far
  * @param endedAt            set when ended early; {@code endsAt} keeps the planned end
  * @param budgetExhaustedAt  set when a checkout's subsidy did not fit the budget [TCG-680]
+ * @param excludedSellerIds  shops a PLATFORM campaign leaves out; empty for every SELLER sale
  */
 public record PriceSale(
         long id,
@@ -56,11 +57,28 @@ public record PriceSale(
         int version,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt,
-        OffsetDateTime budgetExhaustedAt) {
+        OffsetDateTime budgetExhaustedAt,
+        List<Long> excludedSellerIds) {
 
     public PriceSale {
         scopeIds = List.copyOf(scopeIds);
         conditions = List.copyOf(conditions);
+        excludedSellerIds = excludedSellerIds == null ? List.of() : List.copyOf(excludedSellerIds);
+    }
+
+    /** A sale that leaves no shop out. */
+    public PriceSale(long id, String name, String slug, OwnerType ownerType, Long sellerProfileId,
+            SaleType saleType, DiscountType discountType, BigDecimal discountValue, BigDecimal maxDiscountPerUnit,
+            ScopeType scopeType, List<Long> scopeIds, List<CardCondition> conditions, BigDecimal minUnitPrice,
+            Integer perListingQuota, Integer perBuyerLimit, BigDecimal budgetCap, BigDecimal subsidyReserved,
+            String bannerImageUrl, boolean featuredOnHome, Integer homeSort, OffsetDateTime startsAt,
+            OffsetDateTime endsAt, OffsetDateTime pausedAt, Long pausedBy, String pauseReason,
+            OffsetDateTime endedAt, Long createdBy, int version, OffsetDateTime createdAt,
+            OffsetDateTime updatedAt, OffsetDateTime budgetExhaustedAt) {
+        this(id, name, slug, ownerType, sellerProfileId, saleType, discountType, discountValue, maxDiscountPerUnit,
+                scopeType, scopeIds, conditions, minUnitPrice, perListingQuota, perBuyerLimit, budgetCap,
+                subsidyReserved, bannerImageUrl, featuredOnHome, homeSort, startsAt, endsAt, pausedAt, pausedBy,
+                pauseReason, endedAt, createdBy, version, createdAt, updatedAt, budgetExhaustedAt, List.of());
     }
 
     /** A sale whose budget was never found short. */
@@ -75,7 +93,7 @@ public record PriceSale(
         this(id, name, slug, ownerType, sellerProfileId, saleType, discountType, discountValue, maxDiscountPerUnit,
                 scopeType, scopeIds, conditions, minUnitPrice, perListingQuota, perBuyerLimit, budgetCap,
                 subsidyReserved, bannerImageUrl, featuredOnHome, homeSort, startsAt, endsAt, pausedAt, pausedBy,
-                pauseReason, endedAt, createdBy, version, createdAt, updatedAt, null);
+                pauseReason, endedAt, createdBy, version, createdAt, updatedAt, null, List.of());
     }
 
     /** Who pays the difference: Pegasus for its campaigns, the shop for its own sales. */

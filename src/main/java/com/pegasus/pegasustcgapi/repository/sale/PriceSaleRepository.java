@@ -56,7 +56,24 @@ public class PriceSaleRepository {
             Integer homeSort,
             OffsetDateTime startsAt,
             OffsetDateTime endsAt,
-            Long createdBy) {
+            Long createdBy,
+            List<Long> excludedSellerIds) {
+
+        public NewPriceSale {
+            excludedSellerIds = excludedSellerIds == null ? List.of() : List.copyOf(excludedSellerIds);
+        }
+
+        /** A sale that leaves no shop out: every shop sale, and most campaigns. */
+        public NewPriceSale(String name, String slug, OwnerType ownerType, Long sellerProfileId, SaleType saleType,
+                DiscountType discountType, BigDecimal discountValue, BigDecimal maxDiscountPerUnit,
+                ScopeType scopeType, List<Long> scopeIds, List<CardCondition> conditions, BigDecimal minUnitPrice,
+                Integer perListingQuota, Integer perBuyerLimit, BigDecimal budgetCap, String bannerImageUrl,
+                boolean featuredOnHome, Integer homeSort, OffsetDateTime startsAt, OffsetDateTime endsAt,
+                Long createdBy) {
+            this(name, slug, ownerType, sellerProfileId, saleType, discountType, discountValue, maxDiscountPerUnit,
+                    scopeType, scopeIds, conditions, minUnitPrice, perListingQuota, perBuyerLimit, budgetCap,
+                    bannerImageUrl, featuredOnHome, homeSort, startsAt, endsAt, createdBy, List.of());
+        }
     }
 
     /** Throws {@code DuplicateKeyException} when the slug is taken. */
@@ -170,6 +187,7 @@ public class PriceSaleRepository {
         r.setHomeSort(s.homeSort());
         r.setStartsAt(s.startsAt());
         r.setEndsAt(s.endsAt());
+        r.setExcludedSellerIds(s.excludedSellerIds().toArray(Long[]::new));
         return r;
     }
 
@@ -309,6 +327,7 @@ public class PriceSaleRepository {
                 r.getVersion(),
                 r.getCreatedAt(),
                 r.getUpdatedAt(),
-                r.getBudgetExhaustedAt());
+                r.getBudgetExhaustedAt(),
+                r.getExcludedSellerIds() == null ? List.of() : List.of(r.getExcludedSellerIds()));
     }
 }

@@ -113,8 +113,10 @@ public class AdminSaleService {
     public ScopePreview previewScope(SaleActionRequests.PreviewScope request) {
         List<Long> ids = distinct(request.scopeIds());
         requireScope(request.scopeType(), ids);
+        List<Long> excluded = distinct(request.excludedSellerIds());
+        requireShops(excluded);
         return views.previewScope(request.scopeType(), ids, conditions(request.conditions()),
-                request.minUnitPrice());
+                request.minUnitPrice(), excluded);
     }
 
     @Transactional
@@ -271,7 +273,8 @@ public class AdminSaleService {
                 homeSort,
                 r.startsAt(),
                 r.endsAt(),
-                createdBy);
+                createdBy,
+                distinct(r.excludedSellerIds()));
     }
 
     /** The schema's CHECKs and the campaign rules, answered as 400s with a reason. */
@@ -285,6 +288,7 @@ public class AdminSaleService {
             invalid("A percent discount must be between 1 and 90");
         }
         requireScope(s.scopeType(), s.scopeIds());
+        requireShops(s.excludedSellerIds());
         if (!s.endsAt().isAfter(s.startsAt())) invalid("The sale must end after it starts");
         if (current == null && !s.endsAt().isAfter(now())) invalid("The sale must end in the future");
         if (s.saleType() == SaleType.FLASH_SALE
@@ -323,6 +327,13 @@ public class AdminSaleService {
                 case CARD_SET -> ErrorCode.CARD_SET_NOT_FOUND;
                 default -> ErrorCode.SALE_INVALID;
             });
+        }
+    }
+
+    /** Every shop a campaign leaves out must exist; else 404 SELLER_NOT_FOUND. */
+    private void requireShops(List<Long> sellerIds) {
+        if (!views.shopsExist(sellerIds)) {
+            throw new NotFoundException(ErrorCode.SELLER_NOT_FOUND);
         }
     }
 

@@ -157,6 +157,46 @@ class AdminSaleApiIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void aCampaignLeavesOutTheShopsItExcludes() {
+        Seller other = data.seller();
+        Listing theirs = data.onSale(other, card, CardCondition.NM, 1, "500");
+
+        Map<String, Object> scope = new LinkedHashMap<>();
+        scope.put("scopeType", "GAME");
+        scope.put("scopeIds", List.of(game));
+        scope.put("excludedSellerIds", List.of(other.profileId()));
+        Response preview = api.post(PATH + "/preview-scope", admin, scope);
+        assertThat(preview.status()).as(preview.body().toString()).isEqualTo(200);
+        assertThat(preview.data().path("listingCount").asLong()).isEqualTo(1);
+        assertThat(preview.data().path("shopCount").asLong()).isEqualTo(1);
+
+        Map<String, Object> form = form(slug("exclude"));
+        form.put("excludedSellerIds", List.of(other.profileId()));
+        Response created = api.post(PATH, admin, form);
+        assertThat(created.status()).as(created.body().toString()).isEqualTo(201);
+        long id = created.data().path("id").asLong();
+        assertThat(created.data().path("excludedSellerIds").get(0).asLong()).isEqualTo(other.profileId());
+        assertThat(created.data().path("listingCount").asLong()).isEqualTo(1);
+        assertThat(salePriceOf(listing)).isEqualByComparingTo("900");
+        assertThat(salePriceOf(theirs)).isNull();
+
+        // Letting the shop back in reprices its listing at once, until something sells.
+        Map<String, Object> everyone = new LinkedHashMap<>(form);
+        everyone.put("excludedSellerIds", List.of());
+        assertThat(api.put(PATH + "/" + id, admin, everyone).status()).isEqualTo(200);
+        assertThat(salePriceOf(theirs)).isEqualByComparingTo("450");
+
+        markSoldAt(id);
+        assertThat(api.put(PATH + "/" + id, admin, form).errorCode()).isEqualTo("SALE_INVALID");
+
+        Map<String, Object> unknownShop = form(slug("noshop"));
+        unknownShop.put("excludedSellerIds", List.of(999_999_999L));
+        assertThat(api.post(PATH, admin, unknownShop).errorCode()).isEqualTo("SELLER_NOT_FOUND");
+
+        api.post(PATH + "/" + id + "/end", admin, null);
+    }
+
+    @Test
     void pauseResumeAndEndPutListingsBackAtOnce() {
         long id = create(form(slug("pause")));
         assertThat(salePriceOf(listing)).isNotNull();

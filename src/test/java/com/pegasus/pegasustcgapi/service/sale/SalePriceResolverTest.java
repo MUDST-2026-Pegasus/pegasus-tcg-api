@@ -130,6 +130,17 @@ class SalePriceResolverTest {
     }
 
     @Test
+    void aCampaignSkipsTheShopsItLeavesOut() {
+        PriceSale campaign = PriceSaleFixture.platform().excluding(OTHER_SHOP).build();
+        ListingFacts other = new ListingFacts(9, OTHER_SHOP, 3, 30, null, CardCondition.NM,
+                new BigDecimal("100"), ListingStatus.ACTIVE);
+
+        assertThat(only(campaign, listing("100"))).isPresent();
+        assertThat(only(campaign, other)).isEmpty();
+        assertThat(SalePriceResolver.covers(campaign, other, null)).isFalse();
+    }
+
+    @Test
     void conditionsAndMinimumPriceFilterListings() {
         PriceSale nmOnly = PriceSaleFixture.platform().conditions(CardCondition.NM, CardCondition.LP).build();
         PriceSale over500 = PriceSaleFixture.platform().minUnitPrice("500").build();

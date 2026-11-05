@@ -30,6 +30,7 @@ final class SaleEditRules {
                 || !Set.copyOf(c.scopeIds()).equals(Set.copyOf(n.scopeIds()))
                 || !Set.copyOf(c.conditions()).equals(Set.copyOf(n.conditions()))
                 || !sameAmount(c.minUnitPrice(), n.minUnitPrice())
+                || !Set.copyOf(c.excludedSellerIds()).equals(Set.copyOf(n.excludedSellerIds()))
                 || !Objects.equals(c.perBuyerLimit(), n.perBuyerLimit())
                 || !c.startsAt().isEqual(n.startsAt())
                 || !notLower(c.budgetCap(), n.budgetCap())

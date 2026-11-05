@@ -42,6 +42,7 @@ public final class SaleActionRequests {
             @NotNull ScopeType scopeType,
             List<@NotNull Long> scopeIds,
             List<@NotNull CardCondition> conditions,
-            @DecimalMin("0.01") @Digits(integer = 12, fraction = 2) BigDecimal minUnitPrice) {
+            @DecimalMin("0.01") @Digits(integer = 12, fraction = 2) BigDecimal minUnitPrice,
+            List<@NotNull Long> excludedSellerIds) {
     }
 }

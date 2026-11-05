@@ -19,6 +19,7 @@ import java.util.function.BiFunction;
  * price that wins.
  *
  * <ul>
+ *   <li>A Pegasus campaign skips the shops it names as left out.</li>
  *   <li>Only an ACTIVE listing takes a sale price. Auctions never do: a card on
  *       auction belongs to no listing.</li>
  *   <li>A discount never takes a card below ฿1, and one that comes to nothing
@@ -108,6 +109,9 @@ public final class SalePriceResolver {
     public static boolean covers(PriceSale sale, ListingFacts listing, SaleListing row) {
         if (sale.ownerType() == OwnerType.SELLER
                 && (sale.sellerProfileId() == null || sale.sellerProfileId() != listing.sellerProfileId())) {
+            return false;
+        }
+        if (sale.excludedSellerIds().contains(listing.sellerProfileId())) {
             return false;
         }
         boolean inScope = switch (sale.scopeType()) {
