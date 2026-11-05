@@ -55,17 +55,14 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             canvas.openPage(true);
 
             drawOrderOverview(canvas, document);
-            drawBuyer(canvas, document.buyer());
+            drawBuyer(canvas, document);
             drawSellerSections(canvas, document);
-            drawShipping(canvas, document.shipping());
-            if (document.role() != OrderSummaryPdfRole.BUYER) {
-                drawPayment(canvas, document);
-            }
             drawTotals(canvas, document);
-            drawStatusHistory(canvas, document);
+            drawRoleOverview(canvas, document);
+            drawFullDocumentNote(canvas);
 
             canvas.close();
-            drawFooters(pdf, fonts);
+            drawFooters(pdf, fonts, document);
             pdf.save(output);
             return new RenderedPdf(fileName(document.orderNumber()), output.toByteArray());
         } catch (IOException exception) {
@@ -81,16 +78,29 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         if (document.paidAt() != null) {
             activity += " · Payment confirmed";
         }
+        if (document.role() == OrderSummaryPdfRole.SELLER && document.shipping() != null && document.shipping().estimatedDelivery() != null) {
+            activity = "Placed " + formatShortDate(document.placedAt()) + " · Ship by " + document.shipping().estimatedDelivery();
+        } else if (document.role() == OrderSummaryPdfRole.ADMIN) {
+            activity = "Created " + formatShortDate(document.placedAt()) + " · Last updated " + formatShortDate(document.generatedAt());
+        }
         canvas.text(activity, MARGIN, canvas.y() - 16f, 9f, canvas.fonts.regular, MUTED);
         canvas.badge(document.status(), PAGE_WIDTH - MARGIN - 86f, canvas.y() - 4f);
         canvas.move(42f);
     }
 
-    private void drawBuyer(Canvas canvas, OrderSummaryPdfDocument.Party buyer) throws IOException {
-        canvas.ensure(86f);
+    private void drawBuyer(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
+        canvas.ensure(106f);
         float cardWidth = (CONTENT_WIDTH - 16f) / 2f;
-        canvas.partyCard(MARGIN, cardWidth, "BUYER", buyer == null ? "Not available" : buyer.displayName(),
-                buyer == null ? null : buyer.username(), null);
+        OrderSummaryPdfDocument.Party buyer = document.buyer();
+        List<String> buyerDetails = new ArrayList<>();
+        if (buyer != null && buyer.username() != null) buyerDetails.add(buyer.username());
+        if (buyer != null && buyer.displayName() != null) buyerDetails.add(buyer.displayName());
+        if (document.shipping() != null && document.shipping().address() != null) {
+            buyerDetails.addAll(wrap(document.shipping().address(), cardWidth - 26f, canvas.fonts.regular, 8.25f));
+        }
+        String buyerTitle = document.role() == OrderSummaryPdfRole.SELLER ? "SHIP TO"
+                : document.role() == OrderSummaryPdfRole.ADMIN ? "BUYER ACCOUNT" : "BUYER";
+        canvas.partyCard(MARGIN, cardWidth, buyerTitle, buyerDetails);
         String sellerName = "Seller unavailable";
         String sellerOrder = null;
         if (!canvas.document.sellerSections().isEmpty()) {
@@ -98,19 +108,19 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             sellerName = seller.sellerName();
             sellerOrder = seller.sellerOrderNumber();
         }
-        canvas.partyCard(MARGIN + cardWidth + 16f, cardWidth, "SELLER", sellerName,
-                sellerOrder == null ? null : "Store order #" + sellerOrder,
-                canvas.document.sellerSections().size() > 1 ? "+" + (canvas.document.sellerSections().size() - 1) + " additional seller(s)" : null);
-        canvas.move(98f);
+        List<String> sellerDetails = new ArrayList<>();
+        sellerDetails.add(sellerName);
+        if (sellerOrder != null) sellerDetails.add("Store order #" + sellerOrder);
+        if (document.shipping() != null && document.shipping().carrierName() != null) sellerDetails.add(document.shipping().carrierName());
+        if (document.shipping() != null && document.shipping().trackingNumber() != null) sellerDetails.add("Tracking: " + document.shipping().trackingNumber());
+        String sellerTitle = document.role() == OrderSummaryPdfRole.BUYER ? "SELLER" : "SELLER ACCOUNT";
+        canvas.partyCard(MARGIN + cardWidth + 16f, cardWidth, sellerTitle, sellerDetails);
+        canvas.move(106f);
     }
 
     private void drawSellerSections(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
+        canvas.section("ORDER ITEMS");
         for (OrderSummaryPdfDocument.SellerSection seller : document.sellerSections()) {
-            canvas.ensure(58f);
-            canvas.section("SELLER  " + seller.sellerName());
-            if (seller.sellerOrderNumber() != null) {
-                canvas.text("Sub-order: " + seller.sellerOrderNumber(), MARGIN, canvas.y() + 2f, 8.5f, canvas.fonts.regular, MUTED);
-            }
             drawItems(canvas, seller.items(), document.currency());
         }
     }
@@ -125,20 +135,23 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             return;
         }
         for (OrderSummaryPdfDocument.LineItem item : items) {
-            List<String> productLines = wrap(itemDescription(item), 228f, canvas.fonts.regular, 8.5f);
-            float rowHeight = Math.max(31f, (productLines.size() * 10.5f) + 12f);
+            List<String> productLines = wrap(item.productName(), 300f, canvas.fonts.bold, 8.5f);
+            String details = itemDetails(item);
+            float rowHeight = Math.max(37f, (productLines.size() * 10.5f) + (details == null ? 12f : 22f));
             if (!canvas.fits(rowHeight)) {
                 canvas.openPage(false);
                 drawItemHeader(canvas);
             }
             float baseline = canvas.y() - 14f;
             for (String line : productLines) {
-                canvas.text(line, MARGIN + 6f, baseline, 8.5f, canvas.fonts.regular, INK);
+                canvas.text(line, MARGIN + 6f, baseline, 8.5f, canvas.fonts.bold, INK);
                 baseline -= 10.5f;
             }
-            canvas.text(String.valueOf(item.quantity()), MARGIN + 248f, canvas.y() - 15f, 8.5f, canvas.fonts.regular, INK);
-            canvas.right(money(item.unitPrice(), currency), MARGIN + 360f, canvas.y() - 15f, 8.5f, canvas.fonts.regular, INK);
-            canvas.right("-" + money(item.discount(), currency), MARGIN + 443f, canvas.y() - 15f, 8.5f, canvas.fonts.regular, INK);
+            if (details != null) {
+                canvas.text(details, MARGIN + 6f, baseline, 7.25f, canvas.fonts.regular, MUTED);
+            }
+            canvas.text(String.valueOf(item.quantity()), MARGIN + 300f, canvas.y() - 15f, 8.5f, canvas.fonts.regular, INK);
+            canvas.right(money(item.unitPrice(), currency), MARGIN + 410f, canvas.y() - 15f, 8.5f, canvas.fonts.regular, INK);
             canvas.right(money(item.lineTotal(), currency), MARGIN + CONTENT_WIDTH - 6f, canvas.y() - 15f, 8.5f, canvas.fonts.bold, INK);
             canvas.line(canvas.y() - rowHeight);
             canvas.move(rowHeight);
@@ -150,180 +163,137 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         canvas.ensure(28f);
         float y = canvas.y();
         canvas.text("PRODUCT", MARGIN + 2f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
-        canvas.text("QTY", MARGIN + 248f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
-        canvas.right("UNIT PRICE", MARGIN + 360f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
-        canvas.right("DISCOUNT", MARGIN + 443f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
+        canvas.text("QTY", MARGIN + 300f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
+        canvas.right("UNIT PRICE", MARGIN + 410f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
         canvas.right("TOTAL", MARGIN + CONTENT_WIDTH - 2f, y - 13f, 7.5f, canvas.fonts.bold, MUTED);
         canvas.line(y - 20f);
         canvas.move(22f);
     }
 
-    private void drawShipping(Canvas canvas, OrderSummaryPdfDocument.Shipping shipping) throws IOException {
-        if (shipping == null || !shipping.hasAnyValue()) {
-            return;
-        }
-        List<String> addressLines = shipping.address() == null
-                ? List.of()
-                : wrap(shipping.address(), CONTENT_WIDTH - 24f, canvas.fonts.regular, 8.5f);
-        float height = 49f + (addressLines.size() * 10.5f);
-        canvas.ensure(height + 12f);
-        canvas.panel(height);
-        float y = canvas.y() - 15f;
-        canvas.text("DELIVERY OVERVIEW", MARGIN + 12f, y, 9f, canvas.fonts.bold, INK);
-        String recipient = shipping.recipientName() == null ? "Recipient unavailable" : shipping.recipientName();
-        canvas.text(recipient, MARGIN + 12f, y - 13f, 8.5f, canvas.fonts.regular, MUTED);
-        if (shipping.address() != null) {
-            float lineY = y - 25f;
-            for (String line : addressLines) {
-                canvas.text(line, MARGIN + 12f, lineY, 8.5f, canvas.fonts.regular, MUTED);
-                lineY -= 10.5f;
-            }
-        }
-        List<String> delivery = new ArrayList<>();
-        if (shipping.carrierName() != null) {
-            delivery.add("Carrier: " + shipping.carrierName());
-        }
-        if (shipping.trackingNumber() != null) {
-            delivery.add("Tracking: " + shipping.trackingNumber());
-        }
-        if (shipping.estimatedDelivery() != null) {
-            delivery.add("Estimated delivery: " + shipping.estimatedDelivery());
-        }
-        if (!delivery.isEmpty()) {
-            canvas.text(String.join(" · ", delivery), MARGIN + 12f, canvas.y() - height + 12f, 8.5f, canvas.fonts.regular, MUTED);
-        }
-        canvas.move(height + 14f);
-    }
-
-    private void drawPayment(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
-        OrderSummaryPdfDocument.Payment payment = document.payment();
-        if (payment == null || !payment.hasAnyValue()) {
-            return;
-        }
-        canvas.ensure(64f);
-        canvas.section("PAYMENT");
-        canvas.panel(45f);
-        float y = canvas.y() - 17f;
-        canvas.label("METHOD", MARGIN + 12f, y);
-        canvas.label("STATUS", MARGIN + 220f, y);
-        canvas.label("AMOUNT", MARGIN + 360f, y);
-        canvas.text(valueOrUnavailable(payment.method()), MARGIN + 12f, y - 15f, 9f, canvas.fonts.regular, INK);
-        canvas.text(valueOrUnavailable(payment.status()), MARGIN + 220f, y - 15f, 9f, canvas.fonts.regular, INK);
-        canvas.right(money(payment.amount(), document.currency()), MARGIN + CONTENT_WIDTH - 12f, y - 15f, 9f, canvas.fonts.bold, INK);
-        canvas.move(57f);
-    }
-
     private void drawTotals(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
         OrderSummaryPdfDocument.Totals totals = document.totals();
-        boolean includesSettlement = document.role() != OrderSummaryPdfRole.BUYER;
-        boolean compactHistory = hasCompactStatusHistory(document);
-        float height = includesSettlement ? 112f : 78f;
-        canvas.ensure(height + 25f);
-        canvas.section(includesSettlement ? "ORDER AND SETTLEMENT TOTALS" : "ORDER TOTALS");
-        float panelTop = canvas.y();
-        drawDocumentNote(canvas, height, compactHistory);
-        float x = MARGIN + 280f;
-        canvas.panelAt(x, canvas.y(), CONTENT_WIDTH - 280f, height);
-        float row = canvas.y() - 17f;
-        drawTotalRow(canvas, "Items subtotal", totals.itemsSubtotal(), document.currency(), x, row, false);
-        row -= 16f;
-        drawTotalRow(canvas, "Shipping", totals.shippingFee(), document.currency(), x, row, false);
-        row -= 16f;
-        drawTotalRow(canvas, "Discount", totals.discountTotal().negate(), document.currency(), x, row, false);
-        row -= 19f;
-        drawTotalRow(canvas, "Total paid", totals.totalPaid(), document.currency(), x, row, true);
-        if (includesSettlement) {
-            row -= 19f;
-            drawTotalRow(canvas, "Platform commission", totals.commissionAmount().negate(), document.currency(), x, row, false);
-            row -= 16f;
-            drawTotalRow(canvas, "Seller net amount", totals.sellerNetAmount(), document.currency(), x, row, true);
+        boolean buyerCopy = document.role() == OrderSummaryPdfRole.BUYER;
+        float height = buyerCopy ? 86f : 102f;
+        canvas.ensure(height + 12f);
+        float labelX = MARGIN + CONTENT_WIDTH - 238f;
+        float amountX = MARGIN + CONTENT_WIDTH;
+        float row = canvas.y() - 12f;
+        if (buyerCopy) {
+            drawTotalRow(canvas, "Merchandise subtotal", totals.itemsSubtotal(), document.currency(), labelX, amountX, row, false);
+            row -= 17f;
+            drawTotalRow(canvas, "Shipping", totals.shippingFee(), document.currency(), labelX, amountX, row, false);
+            row -= 17f;
+            drawTotalRow(canvas, "Discount", totals.discountTotal().negate(), document.currency(), labelX, amountX, row, false);
+            row -= 20f;
+            drawTotalRow(canvas, "TOTAL PAID", totals.totalPaid(), document.currency(), labelX, amountX, row, true);
+        } else if (document.role() == OrderSummaryPdfRole.SELLER) {
+            drawTotalRow(canvas, "Items sold", totals.itemsSubtotal(), document.currency(), labelX, amountX, row, false);
+            row -= 17f;
+            drawTotalRow(canvas, "Shipping collected", totals.shippingFee(), document.currency(), labelX, amountX, row, false);
+            row -= 17f;
+            drawTotalRow(canvas, "Platform commission (5%)", totals.commissionAmount().negate(), document.currency(), labelX, amountX, row, false);
+            row -= 20f;
+            drawTotalRow(canvas, "NET RECEIVABLE", totals.sellerNetAmount(), document.currency(), labelX, amountX, row, true);
+        } else {
+            drawTotalRow(canvas, "Buyer paid", totals.totalPaid(), document.currency(), labelX, amountX, row, false);
+            row -= 17f;
+            drawTotalRow(canvas, "Seller merchandise gross", totals.itemsSubtotal(), document.currency(), labelX, amountX, row, false);
+            row -= 17f;
+            drawTotalRow(canvas, "Platform commission (5%)", totals.commissionAmount().negate(), document.currency(), labelX, amountX, row, false);
+            row -= 20f;
+            drawTotalRow(canvas, "SELLER NET", totals.sellerNetAmount(), document.currency(), labelX, amountX, row, true);
         }
-        if (compactHistory) {
-            drawCompactStatusHistory(canvas, document.statusHistory(), panelTop);
-        }
-        canvas.move(height + 12f);
+        canvas.move(height + 8f);
     }
 
-    private void drawStatusHistory(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
-        if (document.role() != OrderSummaryPdfRole.ADMIN || document.statusHistory().isEmpty() || hasCompactStatusHistory(document)) {
-            return;
+    private void drawRoleOverview(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
+        canvas.ensure(67f);
+        canvas.panel(57f);
+        float titleY = canvas.y() - 16f;
+        String heading;
+        String firstLine;
+        String secondLine;
+        OrderSummaryPdfDocument.Shipping shipping = document.shipping();
+        if (document.role() == OrderSummaryPdfRole.BUYER) {
+            heading = "DELIVERY OVERVIEW";
+            firstLine = "Carrier: " + valueOrUnavailable(shipping == null ? null : shipping.carrierName())
+                    + " · Tracking: " + valueOrUnavailable(shipping == null ? null : shipping.trackingNumber());
+            secondLine = "Estimated delivery: " + valueOrUnavailable(shipping == null ? null : shipping.estimatedDelivery())
+                    + " · Deliver to the buyer address above";
+        } else if (document.role() == OrderSummaryPdfRole.SELLER) {
+            heading = "FULFILLMENT & PAYOUT";
+            String paymentStatus = document.payment() == null ? document.status() : valueOrUnavailable(document.payment().status());
+            firstLine = "Payment " + paymentStatus.toLowerCase(Locale.ROOT) + " · Prepare this order for dispatch";
+            secondLine = "Carrier: " + valueOrUnavailable(shipping == null ? null : shipping.carrierName())
+                    + " · Tracking: " + valueOrUnavailable(shipping == null ? null : shipping.trackingNumber());
+        } else {
+            heading = "RISK & AUDIT";
+            firstLine = "Order status: " + document.status();
+            String event = document.statusHistory().isEmpty() ? "No dispute or audit notes are available." : document.statusHistory().getLast().note();
+            secondLine = event == null || event.isBlank() ? "No dispute or audit notes are available." : event;
         }
-        canvas.ensure(48f);
-        canvas.section("STATUS HISTORY");
-        for (OrderSummaryPdfDocument.StatusEvent event : document.statusHistory()) {
-            List<String> notes = event.note() == null ? List.of() : wrap(event.note(), CONTENT_WIDTH - 145f, canvas.fonts.regular, 8.5f);
-            float height = Math.max(30f, 18f + (notes.size() * 10.5f));
-            if (!canvas.fits(height)) {
-                canvas.openPage(false);
-                canvas.section("STATUS HISTORY (CONTINUED)");
-            }
-            canvas.line(canvas.y());
-            canvas.text(formatDate(event.occurredAt()), MARGIN + 6f, canvas.y() - 14f, 8f, canvas.fonts.regular, MUTED);
-            canvas.text(event.status(), MARGIN + 136f, canvas.y() - 14f, 8.5f, canvas.fonts.bold, INK);
-            float noteY = canvas.y() - 14f;
-            for (String note : notes) {
-                canvas.text(note, MARGIN + 230f, noteY, 8.5f, canvas.fonts.regular, INK);
-                noteY -= 10.5f;
-            }
-            canvas.move(height);
-        }
-        canvas.move(8f);
+        canvas.text(heading, MARGIN + 12f, titleY, 9f, canvas.fonts.bold, INK);
+        canvas.text(firstLine, MARGIN + 12f, titleY - 14f, 8.2f, canvas.fonts.regular, MUTED);
+        canvas.text(ellipsis(secondLine, 106), MARGIN + 12f, titleY - 27f, 8.2f, canvas.fonts.regular, MUTED);
+        canvas.move(69f);
     }
 
-    private void drawDocumentNote(Canvas canvas, float availableHeight, boolean compactHistory) throws IOException {
-        float noteHeight = compactHistory ? 50f : Math.min(57f, availableHeight);
-        canvas.panelAt(MARGIN, canvas.y(), 260f, noteHeight);
-        canvas.label("DOCUMENT NOTE", MARGIN + 12f, canvas.y() - 16f);
-        canvas.text("Generated from Pegasus TCG order data.", MARGIN + 12f, canvas.y() - 32f, 8f, canvas.fonts.regular, MUTED);
-        canvas.text("Not a tax invoice or receipt.", MARGIN + 12f, canvas.y() - 44f, 8f, canvas.fonts.regular, MUTED);
+    private void drawFullDocumentNote(Canvas canvas) throws IOException {
+        canvas.ensure(66f);
+        canvas.panel(54f);
+        float y = canvas.y() - 16f;
+        canvas.text("DOCUMENT NOTE", MARGIN + 12f, y, 9f, canvas.fonts.bold, INK);
+        String note = switch (canvas.document.role()) {
+            case BUYER -> "This order summary is generated from the latest Pegasus TCG order data. It is a purchase record and is not a tax invoice.";
+            case SELLER -> "Operational copy. Buyer delivery information must only be used to fulfill this order and must not be shared.";
+            case ADMIN -> "Internal administrative record. Includes account, commission, dispute, and audit information. Do not distribute externally.";
+        };
+        canvas.text(note, MARGIN + 12f, y - 15f, 8.1f, canvas.fonts.regular, MUTED);
+        canvas.move(66f);
     }
 
-    private void drawCompactStatusHistory(
-            Canvas canvas, List<OrderSummaryPdfDocument.StatusEvent> history, float panelTop) throws IOException {
-        float y = panelTop - 63f;
-        canvas.label("STATUS HISTORY", MARGIN + 12f, y);
-        for (OrderSummaryPdfDocument.StatusEvent event : history) {
-            y -= 13f;
-            canvas.text(formatDate(event.occurredAt()), MARGIN + 12f, y, 7.5f, canvas.fonts.regular, MUTED);
-            canvas.text(event.status(), MARGIN + 140f, y, 7.5f, canvas.fonts.bold, INK);
-        }
-    }
-
-    private boolean hasCompactStatusHistory(OrderSummaryPdfDocument document) {
-        return document.role() == OrderSummaryPdfRole.ADMIN
-                && !document.statusHistory().isEmpty()
-                && document.statusHistory().size() <= 2;
-    }
-
-    private void drawTotalRow(Canvas canvas, String label, BigDecimal value, String currency, float x, float y, boolean emphasize)
+    private void drawTotalRow(
+            Canvas canvas, String label, BigDecimal value, String currency, float labelX, float amountX, float y, boolean emphasize)
             throws IOException {
         FontFace font = emphasize ? canvas.fonts.bold : canvas.fonts.regular;
         float size = emphasize ? 9.5f : 8.5f;
-        canvas.text(label, x + 12f, y, size, font, emphasize ? INK : MUTED);
-        canvas.right(money(value, currency), MARGIN + CONTENT_WIDTH - 12f, y, size, font, INK);
+        canvas.text(label, labelX, y, size, font, emphasize ? INK : MUTED);
+        canvas.right(money(value, currency), amountX, y, emphasize ? 13f : size, font, INK);
     }
 
-    private void drawFooters(PDDocument pdf, Fonts fonts) throws IOException {
+    private void drawFooters(PDDocument pdf, Fonts fonts, OrderSummaryPdfDocument document) throws IOException {
         int pageCount = pdf.getNumberOfPages();
         for (int index = 0; index < pageCount; index++) {
             PDPage page = pdf.getPage(index);
             try (PDPageContentStream content = new PDPageContentStream(pdf, page, AppendMode.APPEND, true, true)) {
-                text(content, "PEGASUS TCG · support@pegasustcg.com", MARGIN, FOOTER_Y, 8.5f, fonts.regular, MUTED);
+                String footer = switch (document.role()) {
+                    case BUYER -> "PEGASUS TCG · support@pegasustcg.com";
+                    case SELLER -> "PEGASUS TCG · Seller Operations";
+                    case ADMIN -> "PEGASUS TCG · Internal Use Only";
+                };
+                text(content, footer, MARGIN, FOOTER_Y, 8.5f, fonts.regular, MUTED);
                 right(content, "Page " + (index + 1) + " of " + pageCount, PAGE_WIDTH - MARGIN, FOOTER_Y, 8.5f, fonts.regular, MUTED);
             }
         }
     }
 
-    private static String itemDescription(OrderSummaryPdfDocument.LineItem item) {
+    private static String itemDetails(OrderSummaryPdfDocument.LineItem item) {
         List<String> details = new ArrayList<>();
         if (item.variantLabel() != null) details.add(item.variantLabel());
         if (item.condition() != null) details.add(item.condition());
         if (item.gameName() != null) details.add(item.gameName());
-        return details.isEmpty() ? item.productName() : item.productName() + " · " + String.join(" · ", details);
+        return details.isEmpty() ? null : String.join(" · ", details);
     }
 
     private static String money(BigDecimal value, String currency) {
         BigDecimal amount = value == null ? BigDecimal.ZERO : value;
+        if ("THB".equals(currency)) {
+            BigDecimal normalized = amount.stripTrailingZeros();
+            if (normalized.scale() <= 0) {
+                return String.format(Locale.US, "฿%,.0f", amount);
+            }
+            return String.format(Locale.US, "฿%,.2f", amount.setScale(2, RoundingMode.HALF_UP));
+        }
         return String.format(Locale.US, "%s %,.2f", currency, amount.setScale(2, RoundingMode.HALF_UP));
     }
 
@@ -331,17 +301,27 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         return value == null ? "Not available" : DATE_TIME.format(value);
     }
 
+    private static String formatShortDate(OffsetDateTime value) {
+        return value == null ? "Not available" : value.format(DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH));
+    }
+
     private static String valueOrUnavailable(String value) {
         return value == null ? "Not available" : value;
     }
 
+    private static String ellipsis(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength - 1) + "…";
+    }
+
     private static String roleCopy(OrderSummaryPdfDocument document) {
-        String copy = switch (document.role()) {
-            case BUYER -> "Buyer copy";
-            case SELLER -> "Seller copy";
-            case ADMIN -> "Internal admin copy";
+        return switch (document.role()) {
+            case BUYER -> "Buyer copy · Order #" + document.orderNumber() + " · " + formatShortDate(document.generatedAt());
+            case SELLER -> "Seller copy · Store order #" + valueOrUnavailable(document.sellerOrderNumber());
+            case ADMIN -> "Internal admin copy · Order #" + document.orderNumber();
         };
-        return copy + " · Order #" + document.orderNumber() + " · " + formatDate(document.generatedAt());
     }
 
     private static String fileName(String orderNumber) {
@@ -541,10 +521,10 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
 
         private void panelAt(float x, float top, float width, float height) throws IOException {
             content.setNonStrokingColor(PANEL);
-            content.addRect(x, top - height, width, height);
+            roundedRect(x, top, width, height, 6f);
             content.fill();
             content.setStrokingColor(BORDER);
-            content.addRect(x, top - height, width, height);
+            roundedRect(x, top, width, height, 6f);
             content.stroke();
         }
 
@@ -564,29 +544,50 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         private void badge(String value, float x, float top) throws IOException {
             float width = 86f;
             float height = 20f;
-            fill(x, top - height, width, height, PRIMARY);
-            text(value, x + 10f, top - 13.5f, 8f, fonts.bold, Color.WHITE);
+            content.setNonStrokingColor(PRIMARY);
+            roundedRect(x, top, width, height, 9f);
+            content.fill();
+            float textX = x + (width - textWidth(fonts.bold, 8f, value)) / 2f;
+            text(value, textX, top - 13.5f, 8f, fonts.bold, Color.WHITE);
         }
 
-        private void partyCard(float x, float width, String title, String primary, String secondary, String tertiary) throws IOException {
-            whitePanelAt(x, y, width, 78f);
+        private void partyCard(float x, float width, String title, List<String> details) throws IOException {
+            whitePanelAt(x, y, width, 88f);
             text(title, x + 14f, y - 16f, 9f, fonts.bold, INK);
-            text(primary, x + 14f, y - 31f, 8.5f, fonts.regular, MUTED);
-            if (secondary != null) {
-                text(secondary, x + 14f, y - 44f, 8.5f, fonts.regular, MUTED);
+            float detailY = y - 31f;
+            if (details.isEmpty()) {
+                text("Not available", x + 14f, detailY, 8.25f, fonts.regular, MUTED);
+                return;
             }
-            if (tertiary != null) {
-                text(tertiary, x + 14f, y - 57f, 8.5f, fonts.regular, MUTED);
+            for (int index = 0; index < Math.min(details.size(), 4); index++) {
+                text(details.get(index), x + 14f, detailY, 8.25f, fonts.regular, MUTED);
+                detailY -= 11.5f;
             }
         }
 
         private void whitePanelAt(float x, float top, float width, float height) throws IOException {
             content.setNonStrokingColor(Color.WHITE);
-            content.addRect(x, top - height, width, height);
+            roundedRect(x, top, width, height, 6f);
             content.fill();
             content.setStrokingColor(BORDER);
-            content.addRect(x, top - height, width, height);
+            roundedRect(x, top, width, height, 6f);
             content.stroke();
+        }
+
+        private void roundedRect(float x, float top, float width, float height, float radius) throws IOException {
+            float bottom = top - height;
+            float r = Math.min(radius, Math.min(width, height) / 2f);
+            float k = 0.55228475f * r;
+            content.moveTo(x + r, top);
+            content.lineTo(x + width - r, top);
+            content.curveTo(x + width - r + k, top, x + width, top - r + k, x + width, top - r);
+            content.lineTo(x + width, bottom + r);
+            content.curveTo(x + width, bottom + r - k, x + width - r + k, bottom, x + width - r, bottom);
+            content.lineTo(x + r, bottom);
+            content.curveTo(x + r - k, bottom, x, bottom + r - k, x, bottom + r);
+            content.lineTo(x, top - r);
+            content.curveTo(x, top - r + k, x + r - k, top, x + r, top);
+            content.closePath();
         }
 
         private float y() {
