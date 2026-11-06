@@ -430,6 +430,7 @@ public class AuctionRepository {
             String query,
             Short gameId,
             Long sellerId,
+            String sellerUsername,
             Long catalogVariantId,
             Sort sort,
             int limit,
@@ -463,6 +464,13 @@ public class AuctionRepository {
 
         if (query.sellerId() != null) {
             cond = cond.and(AUCTION.SELLER_PROFILE_ID.eq(query.sellerId()));
+        }
+        if (query.sellerUsername() != null && !query.sellerUsername().isBlank()) {
+            String username = query.sellerUsername().trim();
+            cond = cond.and(DSL.exists(DSL.selectOne().from(SELLER_PROFILE)
+                    .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                    .where(SELLER_PROFILE.ID.eq(AUCTION.SELLER_PROFILE_ID))
+                    .and(USER_ACCOUNT.USERNAME.eq(username))));
         }
 
         if (query.catalogVariantId() != null) {

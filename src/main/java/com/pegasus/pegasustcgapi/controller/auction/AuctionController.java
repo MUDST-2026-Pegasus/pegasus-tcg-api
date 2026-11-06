@@ -93,12 +93,13 @@ public class AuctionController {
             @RequestParam(required = false) Filter filter,
             @RequestParam(required = false) Short gameId,
             @RequestParam(required = false) Long sellerId,
+            @RequestParam(required = false) String sellerUsername,
             @RequestParam(required = false) Long variantId,
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "ENDING_SOON") Sort sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ApiResult.success(auctionBrowseService.list(filter, gameId, sellerId, variantId, q, sort, page, size));
+        return ApiResult.success(auctionBrowseService.list(filter, gameId, sellerId, sellerUsername, variantId, q, sort, page, size));
     }
 
     @Operation(summary = "Get one auction",
