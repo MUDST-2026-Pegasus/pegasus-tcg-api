@@ -32,9 +32,12 @@ public class AdminWeeklyStockProfitRepository {
                       JOIN game g ON g.id = cp.game_id
                      WHERE so.status = 'COMPLETED' AND so.completed_at >= CAST(? AS timestamptz) AND so.completed_at < CAST(? AS timestamptz)
                 )
-                SELECT COALESCE(SUM(line_total), 0) AS gmv,
-                       COALESCE(SUM(commission_amount * line_total / NULLIF(order_gmv, 0)), 0) AS commission,
-                       COALESCE(SUM(line_total - cost - commission_amount * line_total / NULLIF(order_gmv, 0)), 0) AS profit
+                SELECT COALESCE(ROUND(SUM(line_total), 2), 0) AS gmv,
+                       COALESCE(ROUND(SUM(CASE WHEN commission_amount > 0 THEN commission_amount * line_total / NULLIF(order_gmv, 0)
+                                         ELSE ROUND(line_total * 0.03, 2) END), 2), 0) AS commission,
+                       COALESCE(ROUND(SUM(CASE WHEN cost > 0 THEN line_total - cost - commission_amount * line_total / NULLIF(order_gmv, 0)
+                                         WHEN commission_amount > 0 THEN commission_amount * line_total / NULLIF(order_gmv, 0)
+                                         ELSE ROUND(line_total * 0.03, 2) END), 2), 0) AS profit
                   FROM completed_lines
                  WHERE (CAST(? AS varchar) IS NULL OR replace(lower(game), '-', '') = replace(lower(CAST(? AS varchar)), '-', ''))
                    AND (CAST(? AS varchar) IS NULL
@@ -130,12 +133,14 @@ public class AdminWeeklyStockProfitRepository {
                             OR (CAST(? AS varchar) = 'SEALED' AND cp.product_type IN
                                 ('BOOSTER_PACK','BOOSTER_BOX','ELITE_TRAINER_BOX','STARTER_DECK','BUNDLE')))
                 ), profits AS (
-                    SELECT gl.slug, gl.name, SUM(gl.line_total - gl.cost) AS gross_profit,
-                           SUM(gl.commission_amount * gl.line_total / NULLIF(al.order_gmv, 0)) AS commission
+                    SELECT gl.slug, gl.name,
+                           ROUND(SUM(CASE WHEN gl.cost > 0 THEN gl.line_total - gl.cost - (gl.commission_amount * gl.line_total / NULLIF(al.order_gmv, 0))
+                                    WHEN gl.commission_amount > 0 THEN gl.commission_amount * gl.line_total / NULLIF(al.order_gmv, 0)
+                                    ELSE ROUND(gl.line_total * 0.03, 2) END), 2) AS profit
                       FROM game_lines gl JOIN all_lines al ON al.id = gl.id
                      GROUP BY gl.slug, gl.name
                 )
-                SELECT p.slug, p.name, p.gross_profit - p.commission AS profit
+                SELECT p.slug, p.name, p.profit
                   FROM profits p
                  ORDER BY p.name
                 """, from, to, game, game, type, type, type)
@@ -168,8 +173,96 @@ public class AdminWeeklyStockProfitRepository {
                         r.get("stock", Long.class)));
     }
 
+    public List<GameBreakdownStat> gameBreakdownRows(OffsetDateTime from, OffsetDateTime to, String game, String type) {
+        return dsl.fetch("""
+                WITH latest_stock AS (
+                    SELECT DISTINCT ON (listing_id) listing_id, status, quantity_available, deleted_at
+                      FROM listing_stock_history
+                     WHERE changed_at < CAST(? AS timestamptz)
+                     ORDER BY listing_id, changed_at DESC, id DESC
+                ), stock_by_game AS (
+                    SELECT g.slug, g.name,
+                           COALESCE(SUM(h.quantity_available), 0) AS remaining_stock,
+                           COALESCE(SUM(h.quantity_available) FILTER (WHERE cp.product_type = 'SINGLE_CARD'), 0) AS single_cards,
+                           COALESCE(SUM(h.quantity_available) FILTER (WHERE cp.product_type IN
+                               ('BOOSTER_PACK','BOOSTER_BOX','ELITE_TRAINER_BOX','STARTER_DECK','BUNDLE')), 0) AS sealed_boxes
+                      FROM latest_stock h
+                      JOIN listing l ON l.id = h.listing_id
+                      JOIN catalog_variant cv ON cv.id = l.catalog_variant_id
+                      JOIN catalog_product cp ON cp.id = cv.catalog_product_id
+                      JOIN game g ON g.id = cp.game_id
+                     WHERE h.status = 'ACTIVE' AND h.deleted_at IS NULL
+                       AND (CAST(? AS varchar) IS NULL OR replace(lower(g.slug), '-', '') = replace(lower(CAST(? AS varchar)), '-', ''))
+                       AND (CAST(? AS varchar) IS NULL OR (CAST(? AS varchar) = 'SINGLE_CARD' AND cp.product_type = 'SINGLE_CARD')
+                            OR (CAST(? AS varchar) = 'SEALED' AND cp.product_type IN
+                                ('BOOSTER_PACK','BOOSTER_BOX','ELITE_TRAINER_BOX','STARTER_DECK','BUNDLE')))
+                     GROUP BY g.slug, g.name
+                ), completed_lines AS (
+                    SELECT so.id AS seller_order_id, so.commission_amount,
+                           oi.quantity, oi.line_total, oi.unit_cost_snapshot * oi.quantity AS cost,
+                           cp.product_type, g.slug, g.name,
+                           SUM(oi.line_total) OVER (PARTITION BY so.id) AS order_gmv
+                      FROM seller_order so
+                      JOIN order_item oi ON oi.seller_order_id = so.id
+                      JOIN catalog_variant cv ON cv.id = oi.catalog_variant_id
+                      JOIN catalog_product cp ON cp.id = cv.catalog_product_id
+                      JOIN game g ON g.id = cp.game_id
+                     WHERE so.status = 'COMPLETED'
+                       AND so.completed_at >= CAST(? AS timestamptz)
+                       AND so.completed_at < CAST(? AS timestamptz)
+                ), sales_by_game AS (
+                    SELECT slug, name,
+                           COALESCE(SUM(quantity), 0) AS sold_count,
+                           COALESCE(ROUND(SUM(line_total), 2), 0) AS gmv,
+                           COALESCE(ROUND(SUM(CASE WHEN commission_amount > 0 THEN commission_amount * line_total / NULLIF(order_gmv, 0)
+                                             ELSE ROUND(line_total * 0.03, 2) END), 2), 0) AS commission,
+                           COALESCE(ROUND(SUM(CASE WHEN cost > 0 THEN line_total - cost - commission_amount * line_total / NULLIF(order_gmv, 0)
+                                             WHEN commission_amount > 0 THEN commission_amount * line_total / NULLIF(order_gmv, 0)
+                                             ELSE ROUND(line_total * 0.03, 2) END), 2), 0) AS profit
+                      FROM completed_lines
+                     WHERE (CAST(? AS varchar) IS NULL OR replace(lower(slug), '-', '') = replace(lower(CAST(? AS varchar)), '-', ''))
+                       AND (CAST(? AS varchar) IS NULL OR (CAST(? AS varchar) = 'SINGLE_CARD' AND product_type = 'SINGLE_CARD')
+                            OR (CAST(? AS varchar) = 'SEALED' AND product_type IN
+                                ('BOOSTER_PACK','BOOSTER_BOX','ELITE_TRAINER_BOX','STARTER_DECK','BUNDLE')))
+                     GROUP BY slug, name
+                )
+                SELECT COALESCE(st.slug, sa.slug) AS slug,
+                       COALESCE(st.name, sa.name) AS name,
+                       COALESCE(st.remaining_stock, 0) AS remaining_stock,
+                       COALESCE(st.single_cards, 0) AS single_cards,
+                       COALESCE(st.sealed_boxes, 0) AS sealed_boxes,
+                       COALESCE(sa.sold_count, 0) AS sold_count,
+                       COALESCE(sa.gmv, 0) AS gmv,
+                       COALESCE(sa.commission, 0) AS commission,
+                       COALESCE(sa.profit, 0) AS profit
+                  FROM stock_by_game st
+                  FULL OUTER JOIN sales_by_game sa ON st.slug = sa.slug
+                 ORDER BY name
+                """, to, game, game, type, type, type, from, to, game, game, type, type, type)
+                .map(r -> new GameBreakdownStat(
+                        r.get("slug", String.class),
+                        r.get("name", String.class),
+                        r.get("remaining_stock", Long.class),
+                        r.get("single_cards", Long.class),
+                        r.get("sealed_boxes", Long.class),
+                        r.get("sold_count", Long.class),
+                        r.get("gmv", BigDecimal.class),
+                        r.get("commission", BigDecimal.class),
+                        r.get("profit", BigDecimal.class)));
+    }
+
     public record Totals(BigDecimal gmv, BigDecimal commission, BigDecimal netProfit) {}
     public record DailyAmounts(LocalDate date, BigDecimal singles, BigDecimal sealed) {}
     public record GameProfit(String slug, String name, BigDecimal profit) {}
     public record GameStock(String slug, String name, long stock) {}
+    public record GameBreakdownStat(
+            String slug,
+            String name,
+            long remainingStock,
+            long singleCards,
+            long sealedBoxes,
+            long soldCount,
+            BigDecimal gmv,
+            BigDecimal commission,
+            BigDecimal profit) {}
 }

@@ -54,8 +54,35 @@ public class ApiClient {
         }
     }
 
+    /** Binary / non-JSON response for file exports (CSV, XLSX, PDF). */
+    public record RawResponse(int status, byte[] bytes, Map<String, String> headers) {
+
+        public Optional<String> header(String name) {
+            return Optional.ofNullable(headers.get(name.toLowerCase()));
+        }
+    }
+
     public Response get(String path, String bearer) {
         return send(request(path, bearer, Map.of()).GET());
+    }
+
+    public RawResponse getBytes(String path, String bearer) {
+        try {
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                    .timeout(Duration.ofSeconds(30));
+            if (bearer != null) {
+                builder.header("Authorization", bearer);
+            }
+            HttpResponse<byte[]> response = http.send(builder.GET().build(), BodyHandlers.ofByteArray());
+            Map<String, String> headers = new LinkedHashMap<>();
+            response.headers().map().forEach((name, values) -> headers.put(name.toLowerCase(), values.getFirst()));
+            return new RawResponse(response.statusCode(), response.body(), headers);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while calling the API", e);
+        }
     }
 
     public Response post(String path, String bearer, Object body) {

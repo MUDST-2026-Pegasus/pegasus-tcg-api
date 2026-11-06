@@ -1,13 +1,18 @@
 package com.pegasus.pegasustcgapi.service.metrics;
 
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.BreakdownRow;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.BreakdownTotals;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.DailySales;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameBreakdown;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameDistributionItem;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.Report;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.ReportMeta;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.Summary;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.DailyAmounts;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameBreakdownStat;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameProfit;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameStock;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.Totals;
@@ -22,6 +27,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.WeekFields;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -35,8 +41,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AdminWeeklyStockProfitService {
 
-    static final ZoneId ZONE = ZoneId.of("Asia/Bangkok");
+    public static final ZoneId ZONE = ZoneId.of("Asia/Bangkok");
+    public static final BigDecimal COMMISSION_RATE_PERCENT = new BigDecimal("3.0");
+    public static final BigDecimal COMMISSION_RATE = new BigDecimal("0.03");
     private static final BigDecimal HUNDRED = new BigDecimal("100");
+    private static final BigDecimal ZERO_ONE_DECIMAL = new BigDecimal("0.0");
+
     private final AdminWeeklyStockProfitRepository repository;
 
     public AdminWeeklyStockProfitService(AdminWeeklyStockProfitRepository repository) {
@@ -57,7 +67,6 @@ public class AdminWeeklyStockProfitService {
         OffsetDateTime to = start.plusWeeks(1).atStartOfDay(ZONE).toOffsetDateTime();
         Totals totals = repository.completedTotals(from, to, game, type);
         Totals previous = repository.completedTotals(from.minusWeeks(1), from, game, type);
-        BigDecimal wow = percentChange(totals.gmv(), previous.gmv());
 
         Map<LocalDate, DailyAmounts> days = new HashMap<>();
         repository.dailyAmounts(from, to, game, type).forEach(row -> days.put(row.date(), row));
@@ -69,12 +78,28 @@ public class AdminWeeklyStockProfitService {
                     row == null ? BigDecimal.ZERO : row.sealed()));
         }
 
-        long stock = repository.activeStock(to, game, type);
+        long rawStock = repository.activeStock(to, game, type);
         long depleted = repository.completedQuantity(from, to, game, type);
         Map<String, GameStock> stockByGame = new HashMap<>();
         repository.activeStockByGame(to, game, type).forEach(row -> stockByGame.put(row.slug(), row));
         Map<String, GameProfit> profitByGame = new HashMap<>();
         repository.profitByGame(from, to, game, type).forEach(row -> profitByGame.put(row.slug(), row));
+
+        boolean hasData = totals.gmv().signum() > 0 || depleted > 0;
+        ReportMeta meta = new ReportMeta(start, end, ZONE.getId(), game, type, COMMISSION_RATE_PERCENT);
+
+        if (!hasData) {
+            Summary emptySummary = new Summary(
+                    BigDecimal.ZERO, BigDecimal.ZERO,
+                    BigDecimal.ZERO, BigDecimal.ZERO,
+                    BigDecimal.ZERO, 0, 0, 0, 0, ZERO_ONE_DECIMAL);
+            return new Report(start, end, false, meta, emptySummary,
+                    List.copyOf(chart), List.of(), List.of(), List.of(), BreakdownTotals.zero());
+        }
+
+        BigDecimal wow = percentChange(totals.gmv(), previous.gmv());
+        long stock = rawStock;
+
         Map<String, GameBreakdown> rawBreakdown = new HashMap<>();
         stockByGame.forEach((slug, row) -> rawBreakdown.put(slug, new GameBreakdown(row.name(), row.stock(),
                 null, profitByGame.containsKey(slug) ? profitByGame.get(slug).profit() : BigDecimal.ZERO, null)));
@@ -93,15 +118,218 @@ public class AdminWeeklyStockProfitService {
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         breakdown.sort((a, b) -> a.game().compareToIgnoreCase(b.game()));
 
-        return new Report(start, end, new Summary(totals.gmv(), totals.commission(), totals.netProfit(), stock, depleted, wow),
-                List.copyOf(chart), List.copyOf(breakdown));
+        List<GameBreakdownStat> detailedRows = repository.gameBreakdownRows(from, to, game, type);
+        List<BreakdownRow> breakdownTable = buildBreakdownTable(detailedRows, rawBreakdown, depleted, totals);
+        BreakdownTotals tableTotals = buildBreakdownTotals(breakdownTable, stock, depleted, totals);
+        List<GameDistributionItem> gameDistribution = buildGameDistribution(breakdownTable, tableTotals);
+
+        Summary summary = new Summary(
+                totals.gmv(), totals.gmv(),
+                totals.commission(), totals.commission(),
+                totals.netProfit(),
+                stock + depleted, depleted, stock, depleted, wow);
+
+        return new Report(start, end, true, meta, summary,
+                List.copyOf(chart), List.copyOf(breakdown),
+                List.copyOf(gameDistribution), List.copyOf(breakdownTable), tableTotals);
     }
 
-    static BigDecimal percentChange(BigDecimal current, BigDecimal previous) {
-        if (previous == null || previous.signum() == 0) {
-            return null;
+    private static List<BreakdownRow> buildBreakdownTable(
+            List<GameBreakdownStat> detailedRows,
+            Map<String, GameBreakdown> fallbackBreakdown,
+            long totalDepleted,
+            Totals totals) {
+        List<BreakdownRow> rows = new ArrayList<>();
+        if (detailedRows != null && !detailedRows.isEmpty()) {
+            for (GameBreakdownStat stat : detailedRows) {
+                long remaining = stat.remainingStock();
+                long sold = stat.soldCount();
+                long initial = calculateInitialStock(remaining, sold);
+                String status = classifyStockStatus(initial, sold, remaining);
+                rows.add(new BreakdownRow(
+                        stat.name(),
+                        stat.slug(),
+                        initial,
+                        sold,
+                        remaining,
+                        stat.singleCards(),
+                        stat.sealedBoxes(),
+                        stat.gmv(),
+                        stat.commission(),
+                        stat.profit(),
+                        status,
+                        statusLabel(status)));
+            }
+        } else if (!fallbackBreakdown.isEmpty()) {
+            int count = fallbackBreakdown.size();
+            for (Map.Entry<String, GameBreakdown> entry : fallbackBreakdown.entrySet()) {
+                GameBreakdown gb = entry.getValue();
+                long remaining = gb.remainingStock();
+                long sold = count == 1 ? totalDepleted : 0;
+                long initial = calculateInitialStock(remaining, sold);
+                BigDecimal rowGmv = count == 1 ? totals.gmv() : gb.profit();
+                BigDecimal rowCommission = count == 1 ? totals.commission() : calculateCommission(rowGmv);
+                BigDecimal rowProfit = gb.profit();
+                String status = classifyStockStatus(initial, sold, remaining);
+                rows.add(new BreakdownRow(
+                        gb.game(),
+                        entry.getKey(),
+                        initial,
+                        sold,
+                        remaining,
+                        remaining,
+                        0,
+                        rowGmv,
+                        rowCommission,
+                        rowProfit,
+                        status,
+                        statusLabel(status)));
+            }
         }
-        return current.subtract(previous).multiply(HUNDRED).divide(previous, 2, RoundingMode.HALF_UP);
+        rows.sort(Comparator.comparing(BreakdownRow::gmv, Comparator.reverseOrder())
+                .thenComparing(Comparator.comparingLong(BreakdownRow::remainingStock).reversed())
+                .thenComparing(BreakdownRow::game, String.CASE_INSENSITIVE_ORDER));
+        return rows;
+    }
+
+    private static BreakdownTotals buildBreakdownTotals(
+            List<BreakdownRow> rows, long fallbackStock, long fallbackDepleted, Totals fallbackTotals) {
+        if (rows.isEmpty()) {
+            return new BreakdownTotals(
+                    fallbackStock + fallbackDepleted,
+                    fallbackDepleted,
+                    fallbackStock,
+                    fallbackStock,
+                    0,
+                    fallbackTotals.gmv(),
+                    fallbackTotals.gmv(),
+                    fallbackTotals.commission(),
+                    fallbackTotals.commission(),
+                    fallbackTotals.netProfit());
+        }
+        long initialStock = 0;
+        long soldCount = 0;
+        long remainingStock = 0;
+        long singleCards = 0;
+        long sealedBoxes = 0;
+        BigDecimal gmv = BigDecimal.ZERO;
+        BigDecimal commission = BigDecimal.ZERO;
+        BigDecimal netProfit = BigDecimal.ZERO;
+        for (BreakdownRow row : rows) {
+            initialStock += row.initialStock();
+            soldCount += row.soldCount();
+            remainingStock += row.remainingStock();
+            singleCards += row.singleCards();
+            sealedBoxes += row.sealedBoxes();
+            gmv = gmv.add(row.gmv());
+            commission = commission.add(row.commission());
+            netProfit = netProfit.add(row.netProfit());
+        }
+        return new BreakdownTotals(
+                initialStock, soldCount, remainingStock, singleCards, sealedBoxes,
+                gmv, gmv, commission, commission, netProfit);
+    }
+
+    private static List<GameDistributionItem> buildGameDistribution(
+            List<BreakdownRow> rows, BreakdownTotals totals) {
+        List<GameDistributionItem> dist = new ArrayList<>(rows.size());
+        for (BreakdownRow row : rows) {
+            BigDecimal pct;
+            if (totals.gmv().signum() > 0) {
+                pct = percentShare(row.gmv(), totals.gmv());
+            } else if (totals.remainingStock() > 0) {
+                pct = percentShare(BigDecimal.valueOf(row.remainingStock()),
+                        BigDecimal.valueOf(totals.remainingStock()));
+            } else {
+                pct = BigDecimal.ZERO;
+            }
+            dist.add(new GameDistributionItem(
+                    row.game(),
+                    row.gameSlug(),
+                    row.gmv(),
+                    row.netProfit(),
+                    row.remainingStock(),
+                    pct == null ? BigDecimal.ZERO : pct));
+        }
+        return dist;
+    }
+
+    public static BigDecimal calculateCommission(BigDecimal gmv) {
+        if (gmv == null || gmv.signum() <= 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return gmv.multiply(COMMISSION_RATE).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    public static BigDecimal calculatePlatformNetProfit(BigDecimal gmv) {
+        return calculateCommission(gmv);
+    }
+
+    public static long calculateRemainingStock(long initialStock, long soldCount) {
+        if (initialStock < 0 || soldCount < 0 || soldCount > initialStock) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED,
+                    "initialStock and soldCount must be non-negative with soldCount <= initialStock");
+        }
+        return initialStock - soldCount;
+    }
+
+    public static long calculateInitialStock(long remainingStock, long soldCount) {
+        return remainingStock + soldCount;
+    }
+
+    public static String classifyStockStatus(long initialStock, long soldCount, long remainingStock) {
+        if (remainingStock <= 0 || (remainingStock < 1300)
+                || (initialStock > 0 && (double) remainingStock / initialStock <= 0.15)) {
+            return "LOW_STOCK";
+        }
+        if (initialStock > 0 && (double) soldCount / initialStock >= 0.20) {
+            return "FAST_MOVING";
+        }
+        return "NORMAL";
+    }
+
+    public static String statusLabel(String status) {
+        return switch (status) {
+            case "LOW_STOCK" -> "สต็อกต่ำ";
+            case "FAST_MOVING" -> "สต็อกหมุนเวียนเร็ว";
+            default -> "ปกติ";
+        };
+    }
+
+    public static boolean isWithinBangkokWeek(OffsetDateTime timestamp, LocalDate mondayStart) {
+        if (timestamp == null || mondayStart == null) {
+            return false;
+        }
+        OffsetDateTime from = mondayStart.atStartOfDay(ZONE).toOffsetDateTime();
+        OffsetDateTime to = mondayStart.plusWeeks(1).atStartOfDay(ZONE).toOffsetDateTime();
+        return !timestamp.isBefore(from) && timestamp.isBefore(to);
+    }
+
+    public record OrderSample(String status, BigDecimal gmv, OffsetDateTime completedAt) {}
+
+    public static Totals calculateCompletedMetrics(
+            List<OrderSample> orders, LocalDate mondayStart) {
+        if (orders == null || orders.isEmpty()) {
+            return new Totals(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        }
+        BigDecimal gmv = BigDecimal.ZERO;
+        for (OrderSample order : orders) {
+            if (order != null
+                    && "COMPLETED".equalsIgnoreCase(order.status())
+                    && isWithinBangkokWeek(order.completedAt(), mondayStart)
+                    && order.gmv() != null) {
+                gmv = gmv.add(order.gmv());
+            }
+        }
+        BigDecimal commission = calculateCommission(gmv);
+        return new Totals(gmv, commission, commission);
+    }
+
+    public static BigDecimal percentChange(BigDecimal current, BigDecimal previous) {
+        if (current == null || previous == null || previous.signum() == 0) {
+            return ZERO_ONE_DECIMAL;
+        }
+        return current.subtract(previous).multiply(HUNDRED).divide(previous, 1, RoundingMode.HALF_UP);
     }
 
     private static BigDecimal percentShare(BigDecimal value, BigDecimal total) {
