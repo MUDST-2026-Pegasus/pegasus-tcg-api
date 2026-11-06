@@ -7,11 +7,13 @@ import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.StockThresho
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.StockThresholdsUpdate;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.metrics.AdminWeeklyStockProfitService;
+import com.pegasus.pegasustcgapi.service.metrics.AdminWeeklyStockProfitService.ExportDataset;
 import com.pegasus.pegasustcgapi.service.metrics.AdminWeeklyStockProfitService.ExportFile;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.Set;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -64,14 +66,18 @@ public class AdminWeeklyStockProfitController {
         return ApiResult.success("Thresholds updated", reports.updateThresholds(request, principal.userId()));
     }
 
-    @Operation(summary = "Export the weekly stock and profit report as CSV or XLSX")
+    @Operation(summary = "Export the weekly stock and profit report as CSV or XLSX",
+            description = "datasets picks what the file carries: kpi (summary and daily rows), breakdown "
+                    + "(game and product-type tables) or both, comma-separated. Omit it for both.")
     @GetMapping("/export")
     public ResponseEntity<byte[]> export(@RequestParam String startDate, @RequestParam String endDate,
             @RequestParam(required = false) String gameCategory,
             @RequestParam(required = false) String productType,
-            @RequestParam(defaultValue = "csv") String format) {
+            @RequestParam(defaultValue = "csv") String format,
+            @RequestParam(required = false) String datasets) {
+        Set<ExportDataset> selected = AdminWeeklyStockProfitService.parseExportDatasets(datasets);
         Report report = reports.report(startDate, endDate, gameCategory, productType);
-        ExportFile file = reports.export(report, format);
+        ExportFile file = reports.export(report, format, selected);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(file.contentType()))
                 .header(HttpHeaders.CONTENT_DISPOSITION,

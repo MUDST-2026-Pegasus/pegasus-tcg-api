@@ -37,10 +37,12 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.WeekFields;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.springframework.stereotype.Service;
@@ -474,34 +476,102 @@ public class AdminWeeklyStockProfitService {
         };
     }
 
-    /** CSV is UTF-8 with a BOM for Excel; XLSX is a small standards-compliant workbook. */
+    /** Which parts of the report an export carries. */
+    public enum ExportDataset { KPI, BREAKDOWN }
+
+    /** @param raw comma-separated {@code kpi} and {@code breakdown}; absent means both */
+    public static Set<ExportDataset> parseExportDatasets(String raw) {
+        if (raw == null) return EnumSet.allOf(ExportDataset.class);
+        Set<ExportDataset> datasets = EnumSet.noneOf(ExportDataset.class);
+        for (String part : raw.split(",", -1)) {
+            switch (part.trim().toLowerCase(Locale.ROOT)) {
+                case "kpi" -> datasets.add(ExportDataset.KPI);
+                case "breakdown" -> datasets.add(ExportDataset.BREAKDOWN);
+                default -> throw new BadRequestException(ErrorCode.VALIDATION_FAILED,
+                        "datasets must be kpi, breakdown or both, comma-separated");
+            }
+        }
+        return datasets;
+    }
+
     public ExportFile export(Report report, String format) {
+        return export(report, format, EnumSet.allOf(ExportDataset.class));
+    }
+
+    /** CSV is UTF-8 with a BOM for Excel; XLSX is a small standards-compliant workbook. */
+    public ExportFile export(Report report, String format, Set<ExportDataset> datasets) {
         String normalized = format == null ? "csv" : format.trim().toLowerCase(Locale.ROOT);
         int week = report.startDate().get(WeekFields.ISO.weekOfWeekBasedYear());
         int year = report.startDate().get(WeekFields.ISO.weekBasedYear());
         String base = "pegasus_weekly_report_%04d_%02d".formatted(year, week);
         if (normalized.equals("csv")) {
-            StringBuilder csv = new StringBuilder("\uFEFFsection,date,game,singles,sealed,gmv,commission,netProfit,remainingStock,stockDepleted,wowChangePercent\r\n");
-            for (DailySales d : report.chartData()) {
-                csvRow(csv, "daily", d.date().toString(), "", d.singles().toPlainString(),
-                        d.sealed().toPlainString(), "", "", "", "", "", "");
-            }
-            Summary s = report.summary();
-            csvRow(csv, "summary", "", "", "", "", s.gmv().toPlainString(),
-                    s.commission().toPlainString(), s.netProfit().toPlainString(),
-                    Long.toString(s.remainingStock()), Long.toString(s.stockDepleted()),
-                    s.wowChangePercent() == null ? "" : s.wowChangePercent().toPlainString());
-            for (GameBreakdown game : report.breakdownByGame()) {
-                csvRow(csv, "game", "", game.game(), "", "", "", "",
-                        game.profit().toPlainString(), Long.toString(game.remainingStock()), "", "");
+            StringBuilder csv = new StringBuilder("\uFEFF");
+            csv.append(String.join(",", EXPORT_COLUMNS)).append("\r\n");
+            for (List<Object> row : exportRows(report, datasets)) {
+                String[] values = new String[EXPORT_COLUMNS.size()];
+                for (int i = 0; i < values.length; i++) values[i] = csvValue(row.get(i));
+                csvRow(csv, values);
             }
             return new ExportFile(base + ".csv", "text/csv; charset=UTF-8", csv.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
         if (normalized.equals("xlsx")) {
             return new ExportFile(base + ".xlsx",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", workbook(report));
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", workbook(report, datasets));
         }
         throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "format must be csv or xlsx");
+    }
+
+    private static final List<String> EXPORT_COLUMNS = List.of(
+            "section", "date", "game", "singles", "sealed", "gmv", "commission", "netProfit",
+            "remainingStock", "stockDepleted", "wowChangePercent", "other", "productType",
+            "initialStock", "soldCount", "status");
+
+    /**
+     * Rows in {@link #EXPORT_COLUMNS} order. In the daily section singles, sealed and other
+     * are baht; in the breakdown sections they are units in stock.
+     */
+    private static List<List<Object>> exportRows(Report report, Set<ExportDataset> datasets) {
+        List<List<Object>> rows = new ArrayList<>();
+        if (datasets.contains(ExportDataset.KPI)) {
+            Summary s = report.summary();
+            rows.add(exportRow("summary", null, null, null, null, s.gmv(), s.commission(), s.netProfit(),
+                    s.remainingStock(), s.stockDepleted(), s.wowChangePercent(), null, null,
+                    s.initialStock(), s.soldCount(), null));
+            for (DailySales d : report.chartData()) {
+                rows.add(exportRow("daily", d.date().toString(), null, d.singles(), d.sealed(), null, null, null,
+                        null, null, null, d.other(), null, null, null, null));
+            }
+        }
+        if (datasets.contains(ExportDataset.BREAKDOWN)) {
+            for (GameBreakdown g : report.breakdownByGame()) {
+                rows.add(exportRow("game", null, g.game(), null, null, null, null, g.profit(),
+                        g.remainingStock(), null, null, null, null, null, null, null));
+            }
+            for (BreakdownRow r : report.breakdownTable()) {
+                rows.add(exportRow("breakdown", null, r.game(), r.singleCards(), r.sealedBoxes(), r.gmv(),
+                        r.commission(), r.netProfit(), r.remainingStock(), null, null, r.otherItems(), null,
+                        r.initialStock(), r.soldCount(), r.status()));
+            }
+            for (GameTypeBreakdownRow r : report.breakdownByGameAndType()) {
+                rows.add(exportRow("breakdown_type", null, r.game(), null, null, r.gmv(), r.commission(),
+                        r.netProfit(), r.remainingStock(), null, null, null, r.productType(),
+                        r.initialStock(), r.soldCount(), r.status()));
+            }
+            BreakdownTotals t = report.totals();
+            rows.add(exportRow("breakdown_total", null, null, t.singleCards(), t.sealedBoxes(), t.gmv(),
+                    t.commission(), t.netProfit(), t.remainingStock(), null, null, t.otherItems(), null,
+                    t.initialStock(), t.soldCount(), null));
+        }
+        return rows;
+    }
+
+    private static List<Object> exportRow(Object... values) {
+        return java.util.Arrays.asList(values);
+    }
+
+    private static String csvValue(Object value) {
+        if (value == null) return "";
+        return value instanceof BigDecimal decimal ? decimal.toPlainString() : value.toString();
     }
 
     private static String escapeCsv(String text) {
@@ -516,19 +586,19 @@ public class AdminWeeklyStockProfitService {
         csv.append("\r\n");
     }
 
-    private static byte[] workbook(Report report) {
+    private static byte[] workbook(Report report, Set<ExportDataset> datasets) {
         try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); ZipOutputStream zip = new ZipOutputStream(bytes)) {
             put(zip, "[Content_Types].xml", "<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>");
             put(zip, "_rels/.rels", "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>");
             put(zip, "xl/workbook.xml", "<?xml version=\"1.0\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Weekly Report\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
             put(zip, "xl/_rels/workbook.xml.rels", "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>");
             StringBuilder sheet = new StringBuilder("<?xml version=\"1.0\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
-            int row = 1;
-            row = textRow(sheet, row, "Section", "Date", "Game", "Singles", "Sealed", "GMV", "Commission", "Net profit", "Remaining stock", "Stock depleted", "WoW change %");
-            Summary s = report.summary();
-            row = numberRow(sheet, row, "summary", "", "", "", "", s.gmv(), s.commission(), s.netProfit(), s.remainingStock(), s.stockDepleted(), s.wowChangePercent());
-            for (DailySales d : report.chartData()) row = numberRow(sheet, row, "daily", d.date().toString(), "", d.singles(), d.sealed(), null, null, null, null, null);
-            for (GameBreakdown g : report.breakdownByGame()) row = textThenNumbers(sheet, row, g.game(), g.remainingStock(), g.profit());
+            int row = textRow(sheet, 1, "Section", "Date", "Game", "Singles", "Sealed", "GMV", "Commission", "Net profit",
+                    "Remaining stock", "Stock depleted", "WoW change %", "Other", "Product type",
+                    "Initial stock", "Sold", "Status");
+            for (List<Object> values : exportRows(report, datasets)) {
+                row = numberRow(sheet, row, values.toArray());
+            }
             sheet.append("</sheetData></worksheet>");
             put(zip, "xl/worksheets/sheet1.xml", sheet.toString());
             zip.finish();
@@ -555,14 +625,6 @@ public class AdminWeeklyStockProfitService {
             } else inlineCell(xml, col, row, v.toString());
         }
         xml.append("</row>");
-        return row + 1;
-    }
-
-    private static int textThenNumbers(StringBuilder xml, int row, String game, long stock, BigDecimal profit) {
-        xml.append("<row r=\"").append(row).append("\">");
-        inlineCell(xml, 0, row, "game"); inlineCell(xml, 2, row, game);
-        xml.append("<c r=\"I").append(row).append("\"><v>").append(stock).append("</v></c>");
-        xml.append("<c r=\"H").append(row).append("\"><v>").append(profit).append("</v></c></row>");
         return row + 1;
     }
 

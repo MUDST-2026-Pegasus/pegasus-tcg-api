@@ -183,7 +183,7 @@ public class AdminWeeklyStockProfitSteps {
     @Then("the exported CSV content matches the main report figures")
     public void verifyExportedCsvContent() {
         String csv = new String(rawResponse.body(), StandardCharsets.UTF_8);
-        assertThat(csv.trim().split("\\r?\\n")).hasSize(12);
+        assertThat(csv.trim().split("\\r?\\n")).hasSize(22);
         assertThat(csv).contains("\"summary\",\"\",\"\",\"\",\"\",\"428500.00\",\"12855.00\",\"12855.00\",\"6184\",\"1470\",\"18.2\"");
     }
 }

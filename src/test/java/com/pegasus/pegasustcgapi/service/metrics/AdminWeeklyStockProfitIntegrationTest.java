@@ -460,8 +460,8 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
 
         String csvContent = new String(csvResp.body(), StandardCharsets.UTF_8);
         String[] lines = csvContent.trim().split("\\r?\\n");
-        // 1 header + 7 daily rows + 1 summary row + 3 game rows = 12 rows
-        assertThat(lines).hasSize(12);
+        // 1 header + 1 summary + 7 daily + 3 game + 3 breakdown + 6 breakdown_type + 1 breakdown_total
+        assertThat(lines).hasSize(22);
         assertThat(csvContent).contains("\"summary\",\"\",\"\",\"\",\"\",\"428500.00\",\"12855.00\",\"12855.00\",\"6184\",\"1470\",\"18.2\"");
         assertThat(csvContent).contains("\"game\",\"\",\"Pokémon\"");
         assertThat(csvContent).contains("\"game\",\"\",\"One Piece\"");
@@ -480,7 +480,7 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
         Map<String, String> entries = unzipEntries(xlsxResp.body());
         assertThat(entries).containsKey("xl/worksheets/sheet1.xml");
         String sheetXml = entries.get("xl/worksheets/sheet1.xml");
-        assertThat(sheetXml).contains("<row r=\"1\">").contains("<row r=\"12\">");
+        assertThat(sheetXml).contains("<row r=\"1\">").contains("<row r=\"22\">");
         assertThat(sheetXml).contains("428500.00").contains("12855.00").contains("6184").contains("1470");
         assertThat(sheetXml).contains("Pokémon").contains("One Piece").contains("Other TCG");
     }
@@ -703,6 +703,48 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
             assertThat(day.gmv()).isZero();
             assertThat(day.remainingStock()).isZero();
         });
+    }
+
+    @Test
+    void exportCarriesOnlyTheChosenDatasetsAndTheBreakdownRows() throws IOException {
+        seedStandardAugust2026Dataset(dsl, data);
+        ApiClient client = new ApiClient(port);
+        String admin = data.bearer(data.admin());
+        String base = "/api/v1/admin/reports/weekly-stock-profit/export?startDate=2026-08-03&endDate=2026-08-09";
+
+        String both = csv(client.getBytes(base, admin, "text/csv"));
+        assertThat(both).contains(
+                "\"breakdown\",\"\",\"Pokémon\",\"2464\",\"1000\",\"239960.00\",\"7198.80\",\"7198.80\",\"3464\",\"\",\"\",\"0\",\"\",\"4254\",\"790\",\"NORMAL\"");
+        assertThat(both).contains(
+                "\"breakdown_type\",\"\",\"One Piece\",\"\",\"\",\"6840.00\",\"205.20\",\"205.20\",\"500\",\"\",\"\",\"\",\"SEALED\",\"516\",\"16\",\"NORMAL\"");
+        assertThat(both).contains(
+                "\"breakdown_total\",\"\",\"\",\"4284\",\"1900\",\"428500.00\",\"12855.00\",\"12855.00\",\"6184\"");
+
+        String kpi = csv(client.getBytes(base + "&datasets=kpi", admin, "text/csv"));
+        assertThat(kpi.trim().split("\\r?\\n")).hasSize(9);
+        assertThat(kpi).contains("\"summary\"").contains("\"daily\"")
+                .doesNotContain("\"game\",").doesNotContain("\"breakdown");
+
+        String breakdown = csv(client.getBytes(base + "&datasets=breakdown", admin, "text/csv"));
+        assertThat(breakdown.trim().split("\\r?\\n")).hasSize(14);
+        assertThat(breakdown).contains("\"breakdown_total\"")
+                .doesNotContain("\"summary\"").doesNotContain("\"daily\"");
+
+        assertThat(csv(client.getBytes(base + "&datasets=breakdown,kpi", admin, "text/csv")).split("\r\n"))
+                .hasSize(22);
+
+        assertThat(client.getBytes(base + "&datasets=stock", admin, "text/csv").status()).isEqualTo(400);
+        assertThat(client.getBytes(base + "&datasets=", admin, "text/csv").status()).isEqualTo(400);
+
+        BinaryResponse xlsx = client.getBytes(base + "&format=xlsx&datasets=breakdown", admin, "*/*");
+        String sheet = unzipEntries(xlsx.body()).get("xl/worksheets/sheet1.xml");
+        assertThat(sheet).contains("<row r=\"14\">").doesNotContain("<row r=\"15\">")
+                .contains("breakdown_type").doesNotContain("summary");
+    }
+
+    private static String csv(BinaryResponse response) {
+        assertThat(response.status()).isEqualTo(200);
+        return new String(response.body(), StandardCharsets.UTF_8);
     }
 
     private static Map<String, String> unzipEntries(byte[] bytes) throws IOException {
