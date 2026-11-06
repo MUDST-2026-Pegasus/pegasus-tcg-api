@@ -24,7 +24,8 @@ class AuctionOrderTimeoutLifecycleTest {
     private final LedgerPort ledger = mock(LedgerPort.class);
     private final OrderLifecycleService service = new OrderLifecycleService(orders, mock(SellerPort.class),
             mock(PlatformSettingService.class), inventory, ledger, mock(CollectionPort.class),
-            Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC), null);
+            Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC), null,
+            mock(com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.class));
 
     @Test
     void createdUnpaidOrderIsCancelledAndCardReleased() {

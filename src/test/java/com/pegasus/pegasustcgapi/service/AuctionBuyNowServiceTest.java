@@ -76,8 +76,11 @@ class AuctionBuyNowServiceTest {
 
     @BeforeEach
     void setUp() {
-        validator = new AuctionEligibilityValidator(addresses, userVerification, auctions, sellers);
-        service = new AuctionBuyNowService(auctions, validator, FIXED_CLOCK);
+        validator = new AuctionEligibilityValidator(addresses, userVerification, auctions, sellers, settings);
+        service = new AuctionBuyNowService(auctions, validator, FIXED_CLOCK, settings);
+        org.mockito.Mockito.lenient().when(settings.getInt(PlatformSettingService.AUCTION_STRIKE_LIMIT)).thenReturn(3);
+        org.mockito.Mockito.lenient().when(settings.getAuctionPaymentWindow())
+                .thenReturn(java.time.Duration.ofHours(24));
     }
 
     private Auction sampleAuction(

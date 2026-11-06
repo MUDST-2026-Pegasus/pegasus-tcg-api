@@ -41,11 +41,6 @@ public class AuctionCloseService {
         this.settings = settings;
     }
 
-    public AuctionCloseService(AuctionRepository auctions, ListingUnitRepository units,
-            InventoryService inventoryService) {
-        this(auctions, units, inventoryService, null);
-    }
-
     /**
      * Closes an auction that has reached its endsAt under a pessimistic row lock.
      *
@@ -92,9 +87,7 @@ public class AuctionCloseService {
             return true;
         }
 
-        OffsetDateTime paymentDueAt = now.plus(settings == null
-                ? AuctionPolicy.DEFAULT_PAYMENT_WINDOW
-                : settings.getAuctionPaymentWindow());
+        OffsetDateTime paymentDueAt = now.plus(settings.getAuctionPaymentWindow());
         boolean updated = auctions.recordAuctionWon(auction.id(), winnerId, auction.currentPrice(), now, paymentDueAt);
         if (updated) {
             log.info("Auction #{} closed: winner #{}, amount {}, payment due at {}",

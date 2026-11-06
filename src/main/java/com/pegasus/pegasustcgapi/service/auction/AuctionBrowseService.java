@@ -84,9 +84,10 @@ public class AuctionBrowseService {
             GameRepository games,
             CardSetRepository cardSets,
             ListingCardRenderer cards,
-            Clock clock) {
+            Clock clock,
+            com.pegasus.pegasustcgapi.service.setting.PlatformSettingService settings) {
         this(auctions,
-             new AuctionEligibilityValidator(addresses, userVerification, auctions, sellers),
+             new AuctionEligibilityValidator(addresses, userVerification, auctions, sellers, settings),
              new AuctionItemMapper(cards, variants, products, games, cardSets, auctions),
              clock);
     }

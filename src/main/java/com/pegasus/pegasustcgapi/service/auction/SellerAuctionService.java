@@ -91,12 +91,6 @@ public class SellerAuctionService {
         this.settings = settings;
     }
 
-    public SellerAuctionService(AuctionRepository auctions, ListingUnitRepository units,
-            InventoryService inventoryService, SellerPort sellers, LedgerPort ledgerPort,
-            AuctionItemMapper auctionItemMapper, Clock clock) {
-        this(auctions, units, inventoryService, sellers, ledgerPort, auctionItemMapper, clock, null);
-    }
-
     public SellerAuctionService(
             AuctionRepository auctions,
             ListingUnitRepository units,
@@ -108,10 +102,11 @@ public class SellerAuctionService {
             GameRepository games,
             CardSetRepository cardSets,
             ListingCardRenderer cards,
-            Clock clock) {
+            Clock clock,
+            PlatformSettingService settings) {
         this(auctions, units, inventoryService, sellers, ledgerPort,
                 new AuctionItemMapper(cards, variants, products, games, cardSets, auctions),
-                clock, null);
+                clock, settings);
     }
 
     // ---------- Rule 1: Seller Verification ----------
@@ -230,10 +225,8 @@ public class SellerAuctionService {
         }
         Instant endsAt = request.endsAt().toInstant();
 
-        var minimum = settings == null ? AuctionPolicy.MIN_AUCTION_DURATION
-                : settings.getMinutes(PlatformSettingService.AUCTION_MIN_DURATION_MINUTES);
-        var maximum = settings == null ? AuctionPolicy.MAX_AUCTION_DURATION
-                : settings.getDays(PlatformSettingService.AUCTION_MAX_DURATION_DAYS);
+        var minimum = settings.getMinutes(PlatformSettingService.AUCTION_MIN_DURATION_MINUTES);
+        var maximum = settings.getDays(PlatformSettingService.AUCTION_MAX_DURATION_DAYS);
         if (endsAt.isBefore(now.plus(minimum))) {
             throw new BadRequestException(ErrorCode.AUCTION_END_TOO_SOON, "The closing time must be at least " + minimum.toMinutes() + " minutes from now");
         }

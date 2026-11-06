@@ -48,14 +48,8 @@ public class AuctionEligibilityValidator {
         this.settings = settings;
     }
 
-    public AuctionEligibilityValidator(AddressRepository addresses, UserVerificationPort userVerification,
-            AuctionRepository auctions, SellerPort sellers) {
-        this(addresses, userVerification, auctions, sellers, null);
-    }
-
     private int strikeLimit() {
-        return settings == null ? AuctionPolicy.MAX_STRIKES_ALLOWED
-                : settings.getInt(PlatformSettingService.AUCTION_STRIKE_LIMIT);
+        return settings.getInt(PlatformSettingService.AUCTION_STRIKE_LIMIT);
     }
 
     /**

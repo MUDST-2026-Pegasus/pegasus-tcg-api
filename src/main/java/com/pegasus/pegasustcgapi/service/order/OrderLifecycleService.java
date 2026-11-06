@@ -124,25 +124,6 @@ public class OrderLifecycleService {
         this.auctionRepository = auctionRepository;
     }
 
-    public OrderLifecycleService(OrderRepository orderRepository, SellerPort sellerPort,
-            PlatformSettingService platformSettingService, InventoryPort inventoryPort,
-            LedgerPort ledgerPort, CollectionPort collectionPort, Clock clock, StorageService storageService) {
-        this(orderRepository, sellerPort, platformSettingService, inventoryPort, ledgerPort,
-                collectionPort, clock, storageService, null);
-    }
-
-    public OrderLifecycleService(
-            OrderRepository orderRepository,
-            SellerPort sellerPort,
-            PlatformSettingService platformSettingService,
-            InventoryPort inventoryPort,
-            LedgerPort ledgerPort,
-            CollectionPort collectionPort,
-            Clock clock) {
-        this(orderRepository, sellerPort, platformSettingService,
-                inventoryPort, ledgerPort, collectionPort, clock, null);
-    }
-
     // ==========================================
     // Buyer Operations
     // ==========================================
@@ -489,7 +470,7 @@ public class OrderLifecycleService {
         }
 
         rollupSalesOrderStatus(salesOrder.getId());
-        if (salesOrder.getAuctionId() != null && auctionRepository != null) {
+        if (salesOrder.getAuctionId() != null) {
             auctionRepository.markSoldForOrder(salesOrder.getAuctionId(), salesOrder.getId());
         }
     }

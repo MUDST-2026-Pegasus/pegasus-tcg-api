@@ -76,7 +76,9 @@ class AuctionCloseSchedulerTest {
 
     @BeforeEach
     void setUp() {
-        realCloseService = new AuctionCloseService(auctions, units, inventoryService);
+        realCloseService = new AuctionCloseService(auctions, units, inventoryService, settings);
+        org.mockito.Mockito.lenient().when(settings.getAuctionPaymentWindow())
+                .thenReturn(java.time.Duration.ofHours(24));
     }
 
     private Auction sampleAuction(

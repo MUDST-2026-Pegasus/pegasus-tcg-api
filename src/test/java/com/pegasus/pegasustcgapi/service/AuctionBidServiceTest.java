@@ -80,8 +80,11 @@ class AuctionBidServiceTest {
 
     @BeforeEach
     void setUp() {
-        validator = new AuctionEligibilityValidator(addresses, userVerification, auctions, sellers);
-        service = new AuctionBidService(auctions, validator, FIXED_CLOCK);
+        validator = new AuctionEligibilityValidator(addresses, userVerification, auctions, sellers, settings);
+        service = new AuctionBidService(auctions, validator, FIXED_CLOCK, settings);
+        org.mockito.Mockito.lenient().when(settings.getInt(PlatformSettingService.AUCTION_STRIKE_LIMIT)).thenReturn(3);
+        org.mockito.Mockito.lenient().when(settings.getSeconds(PlatformSettingService.AUCTION_EXTENSION_SECONDS))
+                .thenReturn(java.time.Duration.ofSeconds(120));
     }
 
     private Auction sampleAuction(

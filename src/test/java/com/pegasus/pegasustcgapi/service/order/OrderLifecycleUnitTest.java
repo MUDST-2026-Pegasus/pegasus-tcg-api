@@ -83,6 +83,9 @@ class OrderLifecycleUnitTest {
     @Mock
     private CollectionPort collectionPort;
 
+    @Mock
+    private com.pegasus.pegasustcgapi.repository.auction.AuctionRepository auctionRepository;
+
     @InjectMocks
     private OrderLifecycleService service;
 
