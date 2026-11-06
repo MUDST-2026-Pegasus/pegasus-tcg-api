@@ -77,6 +77,9 @@ class AdminOrderIntegrationTest extends PostgresIntegrationTest {
             assertThat(row.paidAt()).isNull();
             assertThat(row.tracking()).isNull();
             assertThat(row.reviewRating()).isNull();
+            assertThat(row.source()).isEqualTo("CART");
+            assertThat(row.auctionId()).isNull();
+            assertThat(row.auctionNumber()).isNull();
         });
     }
 

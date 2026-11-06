@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.service.seller;
 import com.pegasus.pegasustcgapi.service.metrics.AdminMetricsService;
 
 import com.pegasus.pegasustcgapi.dto.seller.SellerDashboardViews.Dashboard;
+import com.pegasus.pegasustcgapi.dto.seller.SellerDashboardViews.Auctions;
 import com.pegasus.pegasustcgapi.dto.seller.SellerDashboardViews.Listings;
 import com.pegasus.pegasustcgapi.dto.seller.SellerDashboardViews.LowStockListing;
 import com.pegasus.pegasustcgapi.dto.seller.SellerDashboardViews.MonthSummary;
@@ -129,7 +130,9 @@ public class SellerDashboardService {
                 listings,
                 reviews,
                 wallet(shop),
-                recent);
+                recent,
+                new Auctions(dashboard.liveAuctionCount(shopId, OffsetDateTime.now(clock)),
+                        dashboard.awaitingAuctionPaymentCount(shopId)));
     }
 
     /**

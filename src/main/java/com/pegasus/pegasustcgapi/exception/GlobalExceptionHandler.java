@@ -8,6 +8,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -223,6 +224,9 @@ public class GlobalExceptionHandler {
                 OffsetDateTime.now(),
                 violations, details);
 
-        return ResponseEntity.status(code.status()).body(ApiResult.error(message, detail));
+        // API errors remain JSON even when a caller requests a binary success body (for example a PDF).
+        return ResponseEntity.status(code.status())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ApiResult.error(message, detail));
     }
 }

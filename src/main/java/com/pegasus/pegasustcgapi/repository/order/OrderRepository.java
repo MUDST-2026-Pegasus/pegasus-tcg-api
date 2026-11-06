@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.repository.order;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.Auction.AUCTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogImage.CATALOG_IMAGE;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
@@ -69,6 +70,12 @@ public class OrderRepository {
         this(dsl, Clock.systemUTC());
     }
 
+    public Map<Long, String> findAuctionNumbers(Collection<Long> auctionIds) {
+        if (auctionIds.isEmpty()) return Map.of();
+        return dsl.select(AUCTION.ID, AUCTION.AUCTION_NUMBER).from(AUCTION)
+                .where(AUCTION.ID.in(auctionIds)).fetchMap(AUCTION.ID, AUCTION.AUCTION_NUMBER);
+    }
+
     public record ListingSnapshotDetails(
             Long listingId,
             long catalogVariantId,
@@ -98,6 +105,13 @@ public class OrderRepository {
         return dsl.selectFrom(SALES_ORDER)
                 .where(SALES_ORDER.ID.eq(id))
                 .fetchOptional();
+    }
+
+    public Optional<String> findCurrencyBySalesOrderId(long id) {
+        return dsl.select(SALES_ORDER.CURRENCY)
+                .from(SALES_ORDER)
+                .where(SALES_ORDER.ID.eq(id))
+                .fetchOptional(SALES_ORDER.CURRENCY);
     }
 
     public boolean hasPaymentUnderReview(long salesOrderId) {
@@ -677,6 +691,21 @@ public class OrderRepository {
                 .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
                 .where(SELLER_PROFILE.ID.in(sellerProfileIds))
                 .fetchMap(SELLER_PROFILE.ID, r -> r.value2());
+    }
+
+    public Map<Long, SellerIdentity> findSellerIdentitiesByProfileIds(Collection<Long> sellerProfileIds) {
+        if (sellerProfileIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(SELLER_PROFILE.ID, USER_ACCOUNT.USERNAME, USER_ACCOUNT.DISPLAY_NAME)
+                .from(SELLER_PROFILE)
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .where(SELLER_PROFILE.ID.in(sellerProfileIds))
+                .fetchMap(SELLER_PROFILE.ID,
+                        row -> new SellerIdentity(row.value2(), row.value3()));
+    }
+
+    public record SellerIdentity(String username, String displayName) {
     }
 
     public record ReorderProductMetadata(String productSlug, String rarity) {}

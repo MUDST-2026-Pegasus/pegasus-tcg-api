@@ -175,7 +175,7 @@ final class AuctionSamples {
                         AuctionViewerState.LOST, thb(6100), thb(5800), SHIPPING, null, null,
                         false, now.minusDays(4), null, null));
         return new MyAuctionPage(PageResponse.of(items, page, size, 14),
-                counts(MyTab.class, 14, 3, 1, 4, 6), 0, STRIKE_LIMIT, null, now);
+                counts(MyTab.class, 14, 3, 1, 4, 6), 0, STRIKE_LIMIT, null, null, now);
     }
 
     // ---- seller -------------------------------------------------------------------------

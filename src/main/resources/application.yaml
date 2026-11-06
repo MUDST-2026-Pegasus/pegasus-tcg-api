@@ -2,7 +2,7 @@ app:
   payment:
     promptpay:
       type: ${PROMPTPAY_TYPE:PHONE}
-      target: ${PROMPTPAY_TARGET:0947761119}
+      target: ${PROMPTPAY_TARGET:}
       bank: ${PROMPTPAY_BANK:}
       name: ${PROMPTPAY_NAME:PEGASUS TCG}
 
@@ -136,7 +136,7 @@ pegasus:
     mock-enabled: ${PAYMENT_MOCK_ENABLED:false}
     promptpay:
       type: ${PROMPTPAY_TYPE:PHONE}
-      target: ${PROMPTPAY_TARGET:0947761119}
+      target: ${PROMPTPAY_TARGET:}
       bank: ${PROMPTPAY_BANK:}
       name: ${PROMPTPAY_NAME:PEGASUS TCG}
 

@@ -15,6 +15,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.CatalogImageResponse;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.ProductAuctionStats;
+import com.pegasus.pegasustcgapi.service.auction.AuctionBrowseService;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductSummaryResponse;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -71,6 +73,9 @@ class CatalogProductControllerTest {
 
     @Mock
     private ProductMarketService market;
+
+    @Mock
+    private AuctionBrowseService auctions;
 
     @InjectMocks
     private CatalogProductController controller;
@@ -200,12 +205,17 @@ class CatalogProductControllerTest {
         given(products.requireActiveByIdOrSlug("charizard-ex")).willReturn(product);
         given(variants.listOfProduct(7L, false)).willReturn(List.of(variant));
         given(images.listOfProduct(7L, false)).willReturn(List.of(image));
+        given(auctions.productStats(7L)).willReturn(new ProductAuctionStats(2,
+                new java.math.BigDecimal("2500.00"), OffsetDateTime.parse("2026-11-06T18:00:00+07:00")));
 
         mockMvc.perform(get(PRODUCTS + "/charizard-ex"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.product.slug").value("charizard-ex"))
                 .andExpect(jsonPath("$.data.variants[0].sku").value("SV3-199-EN"))
-                .andExpect(jsonPath("$.data.images[0].primary").value(true));
+                .andExpect(jsonPath("$.data.images[0].primary").value(true))
+                .andExpect(jsonPath("$.data.auctions.openCount").value(2))
+                .andExpect(jsonPath("$.data.auctions.lowestCurrentPrice").value(2500.00))
+                .andExpect(jsonPath("$.data.auctions.nearestEndAt").value("2026-11-06T18:00:00+07:00"));
     }
 
     @Test

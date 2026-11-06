@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductDetailResponse;
+import com.pegasus.pegasustcgapi.dto.catalog.ProductDetailResponse.Auctions;
 import com.pegasus.pegasustcgapi.dto.pricing.ProductMarketResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductSummaryResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.TrendingProductResponse;
@@ -13,6 +14,7 @@ import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.catalog.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.catalog.CatalogVariant;
 import com.pegasus.pegasustcgapi.model.catalog.ProductType;
+import com.pegasus.pegasustcgapi.service.auction.AuctionBrowseService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogImageService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogProductService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogSearchService;
@@ -47,15 +49,18 @@ public class CatalogProductController {
     private final CatalogImageService images;
     private final CatalogSearchService search;
     private final ProductMarketService market;
+    private final AuctionBrowseService auctions;
 
     public CatalogProductController(CatalogProductService products, CatalogVariantService variants,
-            CatalogImageService images, CatalogSearchService search, ProductMarketService market) {
+            CatalogImageService images, CatalogSearchService search, ProductMarketService market,
+            AuctionBrowseService auctions) {
 
         this.products = products;
         this.variants = variants;
         this.images = images;
         this.search = search;
         this.market = market;
+        this.auctions = auctions;
     }
 
     /**
@@ -134,10 +139,13 @@ public class CatalogProductController {
     public ApiResult<ProductDetailResponse> product(@PathVariable String idOrSlug) {
         CatalogProduct product = products.requireActiveByIdOrSlug(idOrSlug);
 
+        var auctionStats = auctions.productStats(product.id());
         return ApiResult.success(new ProductDetailResponse(
                 product,
                 variants.listOfProduct(product.id(), false),
-                images.listOfProduct(product.id(), false)));
+                images.listOfProduct(product.id(), false),
+                new Auctions(auctionStats.openCount(), auctionStats.lowestCurrentPrice(),
+                        auctionStats.nearestEndAt())));
     }
 
     /** Separate from product detail so existing clients and browse pages do not fetch market history unnecessarily. */

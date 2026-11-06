@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.repository.order;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.Auction.AUCTION;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
@@ -92,7 +93,8 @@ public class AdminOrderRepository {
             SALES_ORDER.BUYER_ID, BUYER.USERNAME, BUYER.DISPLAY_NAME, BUYER.AVATAR_URL,
             SELLER_ORDER.CREATED_AT, SALES_ORDER.PAID_AT, SELLER_ORDER.SHIPPED_AT,
             SELLER_ORDER.COMPLETED_AT, SELLER_ORDER.CANCELLED_AT,
-            ITEM_COUNT, CARRIER_NAME, TRACKING_NUMBER, RETURN_REASON, REVIEW_RATING);
+            ITEM_COUNT, CARRIER_NAME, TRACKING_NUMBER, RETURN_REASON, REVIEW_RATING,
+            SALES_ORDER.SOURCE, SALES_ORDER.AUCTION_ID, AUCTION.AUCTION_NUMBER);
 
     private final DSLContext dsl;
 
@@ -186,7 +188,8 @@ public class AdminOrderRepository {
                 .join(SALES_ORDER).on(SALES_ORDER.ID.eq(SELLER_ORDER.SALES_ORDER_ID))
                 .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(SELLER_ORDER.SELLER_PROFILE_ID))
                 .join(SELLER_ACCOUNT).on(SELLER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
-                .join(BUYER).on(BUYER.ID.eq(SALES_ORDER.BUYER_ID));
+                .join(BUYER).on(BUYER.ID.eq(SALES_ORDER.BUYER_ID))
+                .leftJoin(AUCTION).on(AUCTION.ID.eq(SALES_ORDER.AUCTION_ID));
     }
 
     private static Condition conditions(AdminOrderQuery query) {
@@ -268,7 +271,8 @@ public class AdminOrderRepository {
                 r.get(CARRIER_NAME),
                 r.get(TRACKING_NUMBER),
                 r.get(RETURN_REASON),
-                r.get(REVIEW_RATING));
+                r.get(REVIEW_RATING),
+                r.get(SALES_ORDER.SOURCE), r.get(SALES_ORDER.AUCTION_ID), r.get(AUCTION.AUCTION_NUMBER));
     }
 
     /**
@@ -323,7 +327,10 @@ public class AdminOrderRepository {
             String carrierName,
             String trackingNumber,
             String returnReasonCode,
-            Short reviewRating) {
+            Short reviewRating,
+            String source,
+            Long auctionId,
+            String auctionNumber) {
     }
 
     /** The parts of the parent order the seller's own view leaves out. */

@@ -92,6 +92,8 @@ public final class SellerDashboardViews {
             OffsetDateTime createdAt) {
     }
 
+    public record Auctions(long live, long awaitingPayment) {}
+
     /** @param orders sub-orders of every age per status; statuses with none are left out */
     public record Dashboard(
             Period period,
@@ -101,6 +103,11 @@ public final class SellerDashboardViews {
             Listings listings,
             Reviews reviews,
             Wallet wallet,
-            List<RecentOrder> recentOrders) {
+            List<RecentOrder> recentOrders,
+            Auctions auctions) {
+        public Dashboard(Period period, Sales sales, MonthSummary month, Map<String, Long> orders,
+                Listings listings, Reviews reviews, Wallet wallet, List<RecentOrder> recentOrders) {
+            this(period, sales, month, orders, listings, reviews, wallet, recentOrders, new Auctions(0, 0));
+        }
     }
 }

@@ -490,7 +490,7 @@ public class OrderLifecycleService {
         SellerOrderStatus current = SellerOrderStatus.of(order.getStatus());
         if (!current.canMoveTo(target)) throw new ConflictException(ErrorCode.RETURN_STATE);
         if (orderRepository.updateSellerOrderStatus(sellerOrderId, List.of(current.name()), target.name(),
-                null, null, null, null, null, null) != 1) {
+                null, null, null, target == SellerOrderStatus.COMPLETED ? now() : null, null, null) != 1) {
             throw new ConflictException(ErrorCode.RETURN_STATE);
         }
         orderRepository.insertStatusHistory(sellerOrderId, current.name(), target.name(), actorUserId, reason);
@@ -753,6 +753,34 @@ public class OrderLifecycleService {
         rollupSalesOrderStatus(so.getSalesOrderId());
     }
 
+    /** Called inside the auction timeout transaction after the parent order row is locked. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean expireUnpaidAuctionOrder(long salesOrderId, long auctionId) {
+        SalesOrderRecord sale = orderRepository.findSalesOrderByIdForUpdate(salesOrderId).orElse(null);
+        if (sale == null || !"AUCTION".equals(sale.getSource())
+                || !java.util.Objects.equals(sale.getAuctionId(), auctionId)
+                || orderRepository.hasPaymentUnderReview(salesOrderId)) return false;
+
+        // A buyer may have cancelled an unpaid checkout already. Its card was released then.
+        if ("CANCELLED".equals(sale.getStatus())) return true;
+        if (!"PENDING_PAYMENT".equals(sale.getStatus())) return false;
+
+        List<SellerOrderRecord> children = orderRepository.findSellerOrdersBySalesOrderId(salesOrderId);
+        if (children.size() != 1 || !"PENDING_PAYMENT".equals(children.getFirst().getStatus())) return false;
+
+        SellerOrderRecord child = children.getFirst();
+        String reason = "Cancelled automatically: auction payment was not received in time";
+        int updated = orderRepository.updateSellerOrderStatus(child.getId(),
+                List.of("PENDING_PAYMENT"), "CANCELLED", null, null, null, null, now(), reason);
+        if (updated != 1) return false;
+        orderRepository.insertStatusHistory(child.getId(), "PENDING_PAYMENT", "CANCELLED", null, reason);
+        List<Long> unitIds = orderRepository.findUnitIdsBySellerOrderId(child.getId());
+        if (!unitIds.isEmpty()) inventoryPort.release(unitIds);
+        ledgerPort.refundOnCancel(child.getId(), reason, null);
+        rollupSalesOrderStatus(salesOrderId);
+        return true;
+    }
+
     // ==========================================
     // Pessimistic Aggregate Status Rollup
     // ==========================================
@@ -994,6 +1022,8 @@ public class OrderLifecycleService {
         Map<Long, SellerOrderDetailsResponse> sellerResponsesById = sellerDetailsById(allSellerOrders);
         Set<Long> underReview = orderRepository.findSalesOrderIdsWithPaymentUnderReview(salesOrderIds);
         Map<Long, List<PromotionRedemptionRepository.Applied>> appliedBySalesOrder = appliedPromotions(salesOrderIds);
+        Map<Long, String> auctionNumbers = orderRepository.findAuctionNumbers(salesOrders.stream()
+                .map(SalesOrderRecord::getAuctionId).filter(java.util.Objects::nonNull).toList());
         Duration cancelWindow = platformSettingService.getHours(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS);
 
         return salesOrders.stream().map(so -> {
@@ -1030,7 +1060,9 @@ public class OrderLifecycleService {
                     sellerResponses.stream().map(SellerOrderDetailsResponse::platformDiscount)
                             .reduce(BigDecimal.ZERO, BigDecimal::add),
                     promotions,
-                    so.getPaidAt() == null && "PENDING_PAYMENT".equals(so.getStatus()) && !promotions.isEmpty());
+                    so.getPaidAt() == null && "PENDING_PAYMENT".equals(so.getStatus()) && !promotions.isEmpty(),
+                    so.getSource(), so.getAuctionId(),
+                    so.getAuctionId() == null ? null : auctionNumbers.get(so.getAuctionId()));
         }).toList();
     }
 

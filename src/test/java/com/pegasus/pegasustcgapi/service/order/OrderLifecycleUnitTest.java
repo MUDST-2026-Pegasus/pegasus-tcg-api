@@ -104,6 +104,8 @@ class OrderLifecycleUnitTest {
         when(so.getId()).thenReturn(id);
         when(so.getBuyerId()).thenReturn(buyerPrincipal.userId());
         when(so.getStatus()).thenReturn(status);
+        when(so.getSource()).thenReturn("CART");
+        when(so.getAuctionId()).thenReturn(null);
         when(so.getOrderNumber()).thenReturn("PGS-20260920-%06d".formatted(id));
         // Unpaid orders have no cancellation window; paid ones are measured from paid_at.
         when(so.getPaidAt()).thenReturn(
@@ -323,6 +325,26 @@ class OrderLifecycleUnitTest {
 
             assertThat(response.paymentUnderReview()).isTrue();
             assertThat(response.cancellableUntil()).isEqualTo(paidAt.plusHours(24));
+            assertThat(response.source()).isEqualTo("CART");
+            assertThat(response.auctionId()).isNull();
+            assertThat(response.auctionNumber()).isNull();
+        }
+
+        @Test
+        void getBuyerOrder_ExposesAuctionOrigin() {
+            SalesOrderRecord parent = mockSalesOrder(3L, "PAID");
+            when(parent.getSource()).thenReturn("AUCTION");
+            when(parent.getAuctionId()).thenReturn(42L);
+            when(orderRepository.findSalesOrderByIdAndBuyerId(3L, buyerPrincipal.userId()))
+                    .thenReturn(Optional.of(parent));
+            when(orderRepository.findAuctionNumbers(List.of(42L)))
+                    .thenReturn(Map.of(42L, "AUC-2026-0042"));
+
+            OrderDetailsResponse response = service.getBuyerOrder(buyerPrincipal, 3L);
+
+            assertThat(response.source()).isEqualTo("AUCTION");
+            assertThat(response.auctionId()).isEqualTo(42L);
+            assertThat(response.auctionNumber()).isEqualTo("AUC-2026-0042");
         }
 
         @Test
