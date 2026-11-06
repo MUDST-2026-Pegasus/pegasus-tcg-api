@@ -37,6 +37,26 @@ class BidderStrikeServiceTest {
     }
 
     @Test
+    void loweredLimitCreatesBanOnceAfterThresholdWasPassed() {
+        when(auctions.insertStrike(7, 13, null, now)).thenReturn(true);
+        when(settings.getInt(PlatformSettingService.AUCTION_STRIKE_LIMIT)).thenReturn(2);
+        when(settings.getDays(PlatformSettingService.AUCTION_BAN_DAYS)).thenReturn(java.time.Duration.ofDays(30));
+        when(auctions.countActiveStrikes(7)).thenReturn(4);
+        service.recordUnpaidWin(7, 13, null, now);
+        verify(auctions).insertBan(7, now, now.plusDays(30));
+    }
+
+    @Test
+    void existingActiveBanIsNotDuplicated() {
+        when(auctions.insertStrike(7, 13, null, now)).thenReturn(true);
+        when(settings.getInt(PlatformSettingService.AUCTION_STRIKE_LIMIT)).thenReturn(2);
+        when(auctions.countActiveStrikes(7)).thenReturn(4);
+        when(auctions.findActiveBanUntil(7, now)).thenReturn(Optional.of(now.plusDays(5)));
+        service.recordUnpaidWin(7, 13, null, now);
+        verify(auctions, never()).insertBan(anyLong(), any(), any());
+    }
+
+    @Test
     void duplicateAuctionCannotCreateSecondStrikeOrBan() {
         service.recordUnpaidWin(7, 12, null, now);
         verify(auctions, never()).insertBan(anyLong(), any(), any());

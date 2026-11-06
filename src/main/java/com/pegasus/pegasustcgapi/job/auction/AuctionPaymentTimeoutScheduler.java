@@ -6,6 +6,8 @@ import com.pegasus.pegasustcgapi.service.auction.AuctionPaymentTimeoutService;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,6 +25,7 @@ public class AuctionPaymentTimeoutScheduler {
     private final JobLock lock;
     private final Clock clock;
     private final int batchSize;
+    private final Set<Long> failedAuctions = ConcurrentHashMap.newKeySet();
 
     public AuctionPaymentTimeoutScheduler(AuctionRepository auctions, AuctionPaymentTimeoutService timeout,
             JobLock lock, Clock clock, @Value("${pegasus.auction.payment-timeout-batch-size:100}") int batchSize) {
@@ -50,9 +53,14 @@ public class AuctionPaymentTimeoutScheduler {
             int progress = 0;
             for (Long id : ids) {
                 try {
-                    if (timeout.expire(id, now)) progress++;
+                    if (timeout.expire(id, now)) {
+                        progress++;
+                        failedAuctions.remove(id);
+                    }
                 } catch (Exception e) {
-                    log.error("Failed to expire unpaid auction #{}", id, e);
+                    if (failedAuctions.add(id)) {
+                        log.warn("Failed to expire unpaid auction #{}; subsequent failures will be suppressed until it succeeds", id, e);
+                    }
                 }
             }
             if (ids.size() < batchSize || progress == 0) return;

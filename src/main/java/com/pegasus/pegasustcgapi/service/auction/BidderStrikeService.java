@@ -23,7 +23,8 @@ public class BidderStrikeService {
         if (!auctions.insertStrike(userId, auctionId, salesOrderId, now)) return;
         int limit = settings.getInt(PlatformSettingService.AUCTION_STRIKE_LIMIT);
         if (limit < 1) throw new IllegalStateException("Auction strike limit must be positive");
-        if (auctions.countActiveStrikes(userId) == limit) {
+        if (auctions.countActiveStrikes(userId) >= limit
+                && auctions.findActiveBanUntil(userId, now).isEmpty()) {
             auctions.insertBan(userId, now, now.plus(settings.getDays(PlatformSettingService.AUCTION_BAN_DAYS)));
         }
     }
