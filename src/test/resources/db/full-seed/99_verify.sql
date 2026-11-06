@@ -102,8 +102,20 @@ BEGIN
 
     -- Every auction status used by the demo UI and each penalty step must exist.
     SELECT count(DISTINCT status) INTO n FROM auction
-     WHERE status IN ('LIVE', 'AWAITING_PAYMENT', 'SOLD', 'UNSOLD', 'SUSPENDED');
-    IF n <> 5 THEN RAISE EXCEPTION 'verify: auction demo statuses are incomplete'; END IF;
+     WHERE status IN ('LIVE', 'AWAITING_PAYMENT', 'SOLD', 'UNSOLD', 'SUSPENDED', 'CANCELLED');
+    IF n <> 6 THEN RAISE EXCEPTION 'verify: auction demo statuses are incomplete'; END IF;
+    SELECT count(*) INTO bad FROM auction a
+     WHERE a.status = 'SOLD' AND NOT EXISTS (
+         SELECT 1 FROM sales_order so JOIN payment p ON p.sales_order_id = so.id
+          WHERE so.id = a.sales_order_id AND so.source = 'AUCTION'
+            AND so.auction_id = a.id AND so.status = 'PAID' AND p.status = 'SUCCEEDED');
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: sold auction without a paid order'; END IF;
+    SELECT count(*) INTO bad FROM auction a
+     WHERE a.status = 'AWAITING_PAYMENT' AND a.sales_order_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM sales_order so WHERE so.id = a.sales_order_id
+                       AND so.source = 'AUCTION' AND so.auction_id = a.id
+                       AND so.status = 'PENDING_PAYMENT');
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: pending auction checkout has no unpaid order'; END IF;
     SELECT count(DISTINCT strike_count) INTO n FROM (
         SELECT count(*) AS strike_count FROM bidder_strike
          WHERE cleared_at IS NULL GROUP BY user_id) penalties;
