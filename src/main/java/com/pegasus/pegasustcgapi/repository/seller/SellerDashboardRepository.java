@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.repository.seller;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.Auction.AUCTION;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminMetricsRepository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
@@ -42,6 +43,16 @@ public class SellerDashboardRepository {
 
     public SellerDashboardRepository(DSLContext dsl) {
         this.dsl = dsl;
+    }
+
+    public long liveAuctionCount(long sellerProfileId, OffsetDateTime now) {
+        return dsl.fetchCount(AUCTION, AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
+                .and(AUCTION.STATUS.eq("LIVE")).and(AUCTION.ENDS_AT.gt(now)));
+    }
+
+    public long awaitingAuctionPaymentCount(long sellerProfileId) {
+        return dsl.fetchCount(AUCTION, AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
+                .and(AUCTION.STATUS.eq("AWAITING_PAYMENT")));
     }
 
     // ---------- sales ----------

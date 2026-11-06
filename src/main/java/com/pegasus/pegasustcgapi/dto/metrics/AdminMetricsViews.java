@@ -61,11 +61,18 @@ public final class AdminMetricsViews {
             ActiveListingsStat activeListings,
             CommissionStat commission,
             MoneyStat promotionCost,
-            MoneyStat saleSubsidy) {
+            MoneyStat saleSubsidy,
+            long liveAuctions,
+            BigDecimal auctionSalesLast30Days) {
+
+        public Stats(MoneyStat gmv, CountStat newSellers, ActiveListingsStat activeListings,
+                CommissionStat commission, MoneyStat promotionCost, MoneyStat saleSubsidy) {
+            this(gmv, newSellers, activeListings, commission, promotionCost, saleSubsidy, 0, BigDecimal.ZERO);
+        }
 
         public Stats(MoneyStat gmv, CountStat newSellers, ActiveListingsStat activeListings,
                 CommissionStat commission, MoneyStat promotionCost) {
-            this(gmv, newSellers, activeListings, commission, promotionCost, null);
+            this(gmv, newSellers, activeListings, commission, promotionCost, null, 0, BigDecimal.ZERO);
         }
     }
 

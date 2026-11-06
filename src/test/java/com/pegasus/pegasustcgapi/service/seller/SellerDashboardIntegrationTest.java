@@ -72,6 +72,8 @@ class SellerDashboardIntegrationTest extends PostgresIntegrationTest {
         Dashboard dashboard = dashboards.dashboard(seller.principal(), null);
 
         assertThat(dashboard.sales().value()).isEqualByComparingTo("300.00");
+        assertThat(dashboard.auctions().live()).isZero();
+        assertThat(dashboard.auctions().awaitingPayment()).isZero();
         assertThat(dashboard.sales().orderCount()).isEqualTo(1);
         assertThat(dashboard.sales().previous()).isEqualByComparingTo("0");
         assertThat(dashboard.orders())

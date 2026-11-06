@@ -148,7 +148,7 @@ public class SellerOrderDeskService {
                     row.paidAt(),
                     shipBy(row.paidAt(), shop),
                     context.shippingAddressSnapshot(),
-                    context.buyerNote());
+                    context.buyerNote(), row.source(), row.auctionId(), row.auctionNumber());
         }).toList();
     }
 

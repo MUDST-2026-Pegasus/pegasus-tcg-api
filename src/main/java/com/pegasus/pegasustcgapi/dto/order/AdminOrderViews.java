@@ -47,7 +47,10 @@ public final class AdminOrderViews {
             OffsetDateTime cancelledAt,
             Tracking tracking,
             String returnReasonCode,
-            Short reviewRating) {
+            Short reviewRating,
+            String source,
+            Long auctionId,
+            String auctionNumber) {
 
         public static Summary from(AdminOrderRow row) {
             return new Summary(
@@ -68,7 +71,7 @@ public final class AdminOrderViews {
                     row.trackingNumber() == null
                             ? null : new Tracking(row.carrierName(), row.trackingNumber()),
                     row.returnReasonCode(),
-                    row.reviewRating());
+                    row.reviewRating(), row.source(), row.auctionId(), row.auctionNumber());
         }
     }
 

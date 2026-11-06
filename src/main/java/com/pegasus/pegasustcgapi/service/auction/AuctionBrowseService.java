@@ -22,6 +22,7 @@ import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
 import com.pegasus.pegasustcgapi.port.UserVerificationPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.ProductAuctionStats;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.PublicAuctionQuery;
 import com.pegasus.pegasustcgapi.repository.catalog.CardSetRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogProductRepository;
@@ -55,6 +56,11 @@ public class AuctionBrowseService {
     private final AuctionEligibilityValidator validator;
     private final AuctionItemMapper itemMapper;
     private final Clock clock;
+
+    @Transactional(readOnly = true)
+    public ProductAuctionStats productStats(long productId) {
+        return auctions.productStats(productId, OffsetDateTime.now(clock));
+    }
 
     @Autowired
     public AuctionBrowseService(

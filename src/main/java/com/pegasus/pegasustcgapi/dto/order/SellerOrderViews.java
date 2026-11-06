@@ -40,7 +40,16 @@ public final class SellerOrderViews {
             OffsetDateTime paidAt,
             OffsetDateTime shipBy,
             String shippingAddressSnapshot,
-            String buyerNote) {
+            String buyerNote,
+            String source,
+            Long auctionId,
+            String auctionNumber) {
+        public Summary(SellerOrderDetailsResponse order, String orderNumber, Buyer buyer,
+                OffsetDateTime paidAt, OffsetDateTime shipBy, String shippingAddressSnapshot,
+                String buyerNote) {
+            this(order, orderNumber, buyer, paidAt, shipBy, shippingAddressSnapshot,
+                    buyerNote, "CART", null, null);
+        }
     }
 
     /** The slip itself stays with the admin who checks it; the seller sees the outcome. */

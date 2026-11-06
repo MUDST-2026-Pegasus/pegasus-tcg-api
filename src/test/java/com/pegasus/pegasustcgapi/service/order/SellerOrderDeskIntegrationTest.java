@@ -90,6 +90,9 @@ class SellerOrderDeskIntegrationTest extends PostgresIntegrationTest {
             assertThat(row.buyer().username()).isEqualTo(mine.buyer().username());
             assertThat(row.shippingAddressSnapshot()).isNotBlank();
             assertThat(row.buyerNote()).isEqualTo("Please use a top loader");
+            assertThat(row.source()).isEqualTo("CART");
+            assertThat(row.auctionId()).isNull();
+            assertThat(row.auctionNumber()).isNull();
             assertThat(row.paidAt()).isNotNull();
             assertThat(Duration.between(row.paidAt(), row.shipBy()).toDays()).isPositive();
         });

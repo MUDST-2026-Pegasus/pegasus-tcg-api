@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.repository.order;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.Auction.AUCTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogImage.CATALOG_IMAGE;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
@@ -67,6 +68,12 @@ public class OrderRepository {
 
     public OrderRepository(DSLContext dsl) {
         this(dsl, Clock.systemUTC());
+    }
+
+    public Map<Long, String> findAuctionNumbers(Collection<Long> auctionIds) {
+        if (auctionIds.isEmpty()) return Map.of();
+        return dsl.select(AUCTION.ID, AUCTION.AUCTION_NUMBER).from(AUCTION)
+                .where(AUCTION.ID.in(auctionIds)).fetchMap(AUCTION.ID, AUCTION.AUCTION_NUMBER);
     }
 
     public record ListingSnapshotDetails(
