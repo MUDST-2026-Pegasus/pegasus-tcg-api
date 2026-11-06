@@ -11,6 +11,7 @@ import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameDistribu
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.DailyAmounts;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.DailyStock;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameBreakdownStat;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameProfit;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameStock;
@@ -77,6 +78,23 @@ class AdminWeeklyStockProfitServiceTest {
             assertThat(game.game()).isEqualTo("Pokémon");
             assertThat(game.remainingStock()).isEqualTo(7);
         });
+    }
+
+    @Test
+    void kpiHistoryHasNoStockForDaysThatHaveNotHappened() {
+        when(repository.completedTotals(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(new Totals(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(repository.dailyStock(LocalDate.parse("2026-11-02"), LocalDate.parse("2026-11-08"), null, null))
+                .thenReturn(List.of(new DailyStock(LocalDate.parse("2026-11-07"), 40L)));
+
+        var history = service().report("2026-11-02", "2026-11-08", null, null).kpiHistory();
+
+        assertThat(history).hasSize(7);
+        assertThat(history.get(0).remainingStock()).isZero();
+        assertThat(history.get(5).date()).isEqualTo(LocalDate.parse("2026-11-07"));
+        assertThat(history.get(5).remainingStock()).isEqualTo(40L);
+        assertThat(history.get(6).remainingStock()).isNull();
     }
 
     @Test

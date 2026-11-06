@@ -666,6 +666,45 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
         assertThat(rows).extracting(row -> row.statusLabel()).containsExactly("สต็อกต่ำ", "สต็อกหมุนเวียนเร็ว");
     }
 
+    @Test
+    void kpiHistoryCarriesDailyMoneyAndClosingStockInBangkokDays() {
+        seedStandardAugust2026Dataset(dsl, data);
+        var report = reportService.report("2026-08-03", "2026-08-09", null, null);
+
+        var history = report.kpiHistory();
+        assertThat(history).hasSize(7);
+        assertThat(history.getFirst().date()).isEqualTo(java.time.LocalDate.parse("2026-08-03"));
+        assertThat(history.getFirst().gmv()).isEqualByComparingTo("150000.00");
+        assertThat(history.getFirst().netProfit()).isEqualByComparingTo("4500.00");
+        assertThat(history.getFirst().commission()).isEqualByComparingTo("4500.00");
+        // Sunday 23:59:59 in Bangkok still belongs to Sunday.
+        assertThat(history.getLast().gmv()).isEqualByComparingTo("9500.00");
+
+        assertThat(history.stream().map(day -> day.gmv()).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .isEqualByComparingTo(report.summary().gmv());
+        assertThat(history.stream().map(day -> day.netProfit()).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .isEqualByComparingTo(report.summary().netProfit());
+        assertThat(history.stream().map(day -> day.commission()).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .isEqualByComparingTo(report.summary().commission());
+
+        // The seeded stock appears on Wednesday 5 August and is still there on Sunday.
+        assertThat(history.get(1).remainingStock()).isZero();
+        assertThat(history.get(2).remainingStock()).isEqualTo(6184L);
+        assertThat(history.getLast().remainingStock()).isEqualTo(report.summary().remainingStock());
+
+        var onePiece = reportService.report("2026-08-03", "2026-08-09", "one-piece", null).kpiHistory();
+        assertThat(onePiece.getLast().remainingStock()).isEqualTo(1484L);
+
+        // A week with nothing still gets seven points for the sparklines.
+        var empty = reportService.report("2026-08-10", "2026-08-16", null, null);
+        assertThat(empty.hasData()).isFalse();
+        assertThat(empty.kpiHistory()).hasSize(7);
+        assertThat(empty.kpiHistory()).allSatisfy(day -> {
+            assertThat(day.gmv()).isZero();
+            assertThat(day.remainingStock()).isZero();
+        });
+    }
+
     private static Map<String, String> unzipEntries(byte[] bytes) throws IOException {
         Map<String, String> files = new HashMap<>();
         try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(bytes))) {

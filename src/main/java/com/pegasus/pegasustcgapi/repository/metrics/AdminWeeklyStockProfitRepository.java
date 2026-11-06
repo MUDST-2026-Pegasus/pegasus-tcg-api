@@ -99,6 +99,42 @@ public class AdminWeeklyStockProfitRepository {
                         r.get("other", BigDecimal.class)));
     }
 
+    /** Completed-order money per Bangkok day; days without sales are absent. */
+    public List<DailyMoney> dailyMoney(OffsetDateTime from, OffsetDateTime to, String game, String group) {
+        return dsl.fetch("WITH " + COMPLETED_LINES + " SELECT (completed_at AT TIME ZONE 'Asia/Bangkok')::date AS day, "
+                + GMV_SUM + " AS gmv, " + COMMISSION_SUM + " AS commission, " + PROFIT_SUM + " AS profit"
+                + " FROM completed_lines WHERE " + FILTERS + " GROUP BY day ORDER BY day",
+                from, to, game, game, group, group)
+                .map(r -> new DailyMoney(r.get("day", LocalDate.class), r.get("gmv", BigDecimal.class),
+                        r.get("commission", BigDecimal.class), r.get("profit", BigDecimal.class)));
+    }
+
+    /** Available units on ACTIVE listings at the end of each Bangkok day from start to end. */
+    public List<DailyStock> dailyStock(LocalDate start, LocalDate end, String game, String group) {
+        return dsl.fetch("""
+                SELECT d.day, s.stock
+                  FROM (SELECT generate_series(CAST(? AS date), CAST(? AS date), interval '1 day')::date AS day) d
+                 CROSS JOIN LATERAL (
+                    SELECT COALESCE(SUM(a.quantity_available), 0) AS stock
+                      FROM (
+                        SELECT h.quantity_available, g.slug, %s AS product_group
+                          FROM (SELECT DISTINCT ON (listing_id) listing_id, status, quantity_available, deleted_at
+                                  FROM listing_stock_history
+                                 WHERE changed_at < ((d.day + 1)::timestamp AT TIME ZONE 'Asia/Bangkok')
+                                 ORDER BY listing_id, changed_at DESC, id DESC) h
+                          JOIN listing l ON l.id = h.listing_id
+                          JOIN catalog_variant cv ON cv.id = l.catalog_variant_id
+                          JOIN catalog_product cp ON cp.id = cv.catalog_product_id
+                          JOIN game g ON g.id = cp.game_id
+                         WHERE h.status = 'ACTIVE' AND h.deleted_at IS NULL
+                      ) a
+                     WHERE %s
+                 ) s
+                 ORDER BY d.day
+                """.formatted(PRODUCT_GROUP, FILTERS), start, end, game, game, group, group)
+                .map(r -> new DailyStock(r.get("day", LocalDate.class), r.get("stock", Long.class)));
+    }
+
     /** Available units on ACTIVE listings at the report cutoff. */
     public long activeStock(OffsetDateTime asOf, String game, String group) {
         Record r = dsl.fetchOne("WITH " + ACTIVE_STOCK
@@ -223,6 +259,8 @@ public class AdminWeeklyStockProfitRepository {
 
     public record Totals(BigDecimal gmv, BigDecimal commission, BigDecimal netProfit) {}
     public record DailyAmounts(LocalDate date, BigDecimal singles, BigDecimal sealed, BigDecimal other) {}
+    public record DailyMoney(LocalDate date, BigDecimal gmv, BigDecimal commission, BigDecimal netProfit) {}
+    public record DailyStock(LocalDate date, long stock) {}
     public record GameProfit(String slug, String name, BigDecimal profit) {}
     public record GameStock(String slug, String name, long stock) {}
     public record GameBreakdownStat(

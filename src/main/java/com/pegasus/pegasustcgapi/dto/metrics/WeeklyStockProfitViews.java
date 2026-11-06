@@ -43,6 +43,10 @@ public final class WeeklyStockProfitViews {
 
     public record DailySales(LocalDate date, BigDecimal singles, BigDecimal sealed, BigDecimal other) {}
 
+    /** @param remainingStock stock at the end of the day; null for a day that has not happened yet */
+    public record DailyKpi(LocalDate date, BigDecimal gmv, BigDecimal netProfit, BigDecimal commission,
+            Long remainingStock) {}
+
     public record GameBreakdown(String game, long remainingStock, BigDecimal stockPercent,
             BigDecimal profit, BigDecimal profitPercent) {}
 
@@ -125,6 +129,7 @@ public final class WeeklyStockProfitViews {
             ReportMeta meta,
             Summary summary,
             List<DailySales> chartData,
+            List<DailyKpi> kpiHistory,
             List<GameBreakdown> breakdownByGame,
             List<GameDistributionItem> gameDistribution,
             List<BreakdownRow> breakdownTable,
@@ -139,6 +144,7 @@ public final class WeeklyStockProfitViews {
                     new ReportMeta(startDate, endDate, "Asia/Bangkok", null, null, new BigDecimal("3.0")),
                     summary,
                     chartData,
+                    List.of(),
                     breakdownByGame,
                     List.of(),
                     List.of(),

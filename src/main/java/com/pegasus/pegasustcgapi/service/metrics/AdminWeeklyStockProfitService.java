@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.service.metrics;
 
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.BreakdownRow;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.BreakdownTotals;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.DailyKpi;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.DailySales;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameBreakdown;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameDistributionItem;
@@ -15,6 +16,8 @@ import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.DailyAmounts;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.DailyMoney;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.DailyStock;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameBreakdownStat;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameProfit;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameStock;
@@ -118,6 +121,9 @@ public class AdminWeeklyStockProfitService {
         Map<String, GameProfit> profitByGame = new HashMap<>();
         repository.profitByGame(from, to, game, type).forEach(row -> profitByGame.put(row.slug(), row));
 
+        List<DailyKpi> kpiHistory = buildKpiHistory(start, end, today,
+                repository.dailyMoney(from, to, game, type), repository.dailyStock(start, end, game, type));
+
         boolean hasData = totals.gmv().signum() > 0 || depleted > 0 || rawStock > 0;
         ReportMeta meta = new ReportMeta(start, end, ZONE.getId(), game, type, COMMISSION_RATE_PERCENT);
 
@@ -127,7 +133,7 @@ public class AdminWeeklyStockProfitService {
                     BigDecimal.ZERO, BigDecimal.ZERO,
                     BigDecimal.ZERO, 0, 0, 0, 0, ZERO_ONE_DECIMAL);
             return new Report(start, end, false, meta, emptySummary,
-                    List.copyOf(chart), List.of(), List.of(), List.of(), List.of(), BreakdownTotals.zero());
+                    List.copyOf(chart), kpiHistory, List.of(), List.of(), List.of(), List.of(), BreakdownTotals.zero());
         }
 
         BigDecimal wow = percentChange(totals.gmv(), previous.gmv());
@@ -166,8 +172,27 @@ public class AdminWeeklyStockProfitService {
                 stock + depleted, depleted, stock, depleted, wow);
 
         return new Report(start, end, true, meta, summary,
-                List.copyOf(chart), List.copyOf(breakdown),
+                List.copyOf(chart), kpiHistory, List.copyOf(breakdown),
                 List.copyOf(gameDistribution), List.copyOf(breakdownTable), byGameAndType, tableTotals);
+    }
+
+    /** Seven days for the KPI sparklines. Stock of a day still to come is unknown, not zero. */
+    private static List<DailyKpi> buildKpiHistory(LocalDate start, LocalDate end, LocalDate today,
+            List<DailyMoney> money, List<DailyStock> stock) {
+        Map<LocalDate, DailyMoney> moneyByDay = new HashMap<>();
+        money.forEach(row -> moneyByDay.put(row.date(), row));
+        Map<LocalDate, Long> stockByDay = new HashMap<>();
+        stock.forEach(row -> stockByDay.put(row.date(), row.stock()));
+        List<DailyKpi> days = new ArrayList<>(7);
+        for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+            DailyMoney row = moneyByDay.get(date);
+            days.add(new DailyKpi(date,
+                    row == null ? BigDecimal.ZERO : row.gmv(),
+                    row == null ? BigDecimal.ZERO : row.netProfit(),
+                    row == null ? BigDecimal.ZERO : row.commission(),
+                    date.isAfter(today) ? null : stockByDay.getOrDefault(date, 0L)));
+        }
+        return List.copyOf(days);
     }
 
     private static List<BreakdownRow> buildBreakdownTable(
