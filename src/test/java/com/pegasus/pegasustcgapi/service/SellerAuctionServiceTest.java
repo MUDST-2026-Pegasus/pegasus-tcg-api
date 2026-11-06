@@ -39,6 +39,7 @@ import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.service.auction.SellerAuctionService;
 import com.pegasus.pegasustcgapi.service.inventory.InventoryService;
 import com.pegasus.pegasustcgapi.service.listing.ListingCardRenderer;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
@@ -98,6 +99,9 @@ class SellerAuctionServiceTest {
 
     @Mock
     private ListingCardRenderer cards;
+
+    @Mock
+    private PlatformSettingService settings;
 
 
     private SellerAuctionService service;
@@ -239,6 +243,22 @@ class SellerAuctionServiceTest {
         @BeforeEach
         void initSeller() {
             given(sellers.requireProfile(USER_ID)).willReturn(verifiedSeller);
+        }
+
+        @Test
+        void durationLimitsReadCurrentSettings() {
+            service = new SellerAuctionService(auctions, units, inventoryService, sellers,
+                    ledgerPort, new com.pegasus.pegasustcgapi.service.auction.AuctionItemMapper(
+                            cards, variants, products, games, cardSets, auctions), FIXED_CLOCK, settings);
+            given(settings.getMinutes(PlatformSettingService.AUCTION_MIN_DURATION_MINUTES))
+                    .willReturn(Duration.ofMinutes(5));
+            given(settings.getDays(PlatformSettingService.AUCTION_MAX_DURATION_DAYS))
+                    .willReturn(Duration.ofDays(1));
+            CreateAuction request = new CreateAuction(UNIT_UID, new BigDecimal("1000.00"),
+                    new BigDecimal("50.00"), NOW.plusMinutes(4), null, null);
+            assertThatThrownBy(() -> service.create(USER_ID, request))
+                    .extracting(SellerAuctionServiceTest::codeOf)
+                    .isEqualTo(ErrorCode.AUCTION_END_TOO_SOON);
         }
 
         @Test

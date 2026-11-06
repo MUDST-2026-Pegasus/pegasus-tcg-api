@@ -30,6 +30,7 @@ import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.repository.user.AddressRepository;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBidService;
 import com.pegasus.pegasustcgapi.service.auction.AuctionEligibilityValidator;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -70,6 +71,9 @@ class AuctionBidServiceTest {
 
     @Mock
     private SellerPort sellers;
+
+    @Mock
+    private PlatformSettingService settings;
 
     private AuctionEligibilityValidator validator;
     private AuctionBidService service;
@@ -352,6 +356,22 @@ class AuctionBidServiceTest {
     @Nested
     @DisplayName("Anti-Sniping Clock Extension (< 120s vs >= 120s)")
     class AntiSnipingTests {
+
+        @Test
+        void extensionReadsCurrentSetting() {
+            service = new AuctionBidService(auctions, validator, FIXED_CLOCK, settings);
+            given(settings.getSeconds(PlatformSettingService.AUCTION_EXTENSION_SECONDS))
+                    .willReturn(java.time.Duration.ofSeconds(30));
+            stubEligibleUser(USER_ID);
+            Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"),
+                    new BigDecimal("50.00"), new BigDecimal("1000.00"), 1, NOW.plusSeconds(20));
+            given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
+            given(auctions.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1050.00")), any()))
+                    .willReturn(106L);
+
+            assertThat(service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1050.00"), null).endsAt())
+                    .isEqualTo(NOW.plusSeconds(30));
+        }
 
         @Test
         @DisplayName("Anti-sniping: remaining time < 120s (119s) triggers 120s extension")

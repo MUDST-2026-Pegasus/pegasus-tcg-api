@@ -27,6 +27,7 @@ import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.repository.user.AddressRepository;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBuyNowService;
 import com.pegasus.pegasustcgapi.service.auction.AuctionEligibilityValidator;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -66,6 +67,9 @@ class AuctionBuyNowServiceTest {
 
     @Mock
     private SellerPort sellers;
+
+    @Mock
+    private PlatformSettingService settings;
 
     private AuctionEligibilityValidator validator;
     private AuctionBuyNowService service;
@@ -136,6 +140,20 @@ class AuctionBuyNowServiceTest {
     @Nested
     @DisplayName("Happy Path")
     class HappyPathTests {
+
+        @Test
+        void buyNowUsesCurrentPaymentSetting() {
+            service = new AuctionBuyNowService(auctions, validator, FIXED_CLOCK, settings);
+            stubEligibleUser(USER_ID);
+            Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("3500.00"),
+                    0, NOW.plusHours(24), null, null, null);
+            given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
+            given(settings.getAuctionPaymentWindow()).willReturn(java.time.Duration.ofSeconds(36));
+            given(auctions.recordBuyNowWin(AUCTION_ID, USER_ID, new BigDecimal("3500.00"),
+                    NOW, NOW.plusSeconds(36))).willReturn(true);
+
+            assertThat(service.buyNow(AUCTION_ID, USER_ID).paymentDueAt()).isEqualTo(NOW.plusSeconds(36));
+        }
 
         @Test
         @DisplayName("buyNow successfully transitions auction to AWAITING_PAYMENT and returns AuctionWin")

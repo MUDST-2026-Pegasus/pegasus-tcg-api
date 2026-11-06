@@ -100,6 +100,18 @@ BEGIN
     SELECT count(*) INTO n FROM price_sale;
     IF n <> 8 THEN RAISE EXCEPTION 'verify: expected 8 price sales, found %', n; END IF;
 
+    -- Every auction status used by the demo UI and each penalty step must exist.
+    SELECT count(DISTINCT status) INTO n FROM auction
+     WHERE status IN ('LIVE', 'AWAITING_PAYMENT', 'SOLD', 'UNSOLD', 'SUSPENDED');
+    IF n <> 5 THEN RAISE EXCEPTION 'verify: auction demo statuses are incomplete'; END IF;
+    SELECT count(DISTINCT strike_count) INTO n FROM (
+        SELECT count(*) AS strike_count FROM bidder_strike
+         WHERE cleared_at IS NULL GROUP BY user_id) penalties;
+    IF n <> 3 THEN RAISE EXCEPTION 'verify: auction penalty examples are incomplete'; END IF;
+    SELECT count(*) INTO n FROM bidding_ban
+     WHERE lifted_at IS NULL AND banned_until > now();
+    IF n < 1 THEN RAISE EXCEPTION 'verify: no active auction bidding ban'; END IF;
+
     -- 10. Every table covered by this seed has something in it. Auction and
     -- listing_sale_price is filled by the app's refresher, not the seed.
     FOR t IN SELECT c.relname FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
