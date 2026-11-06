@@ -1022,6 +1022,8 @@ public class OrderLifecycleService {
         Map<Long, SellerOrderDetailsResponse> sellerResponsesById = sellerDetailsById(allSellerOrders);
         Set<Long> underReview = orderRepository.findSalesOrderIdsWithPaymentUnderReview(salesOrderIds);
         Map<Long, List<PromotionRedemptionRepository.Applied>> appliedBySalesOrder = appliedPromotions(salesOrderIds);
+        Map<Long, String> auctionNumbers = orderRepository.findAuctionNumbers(salesOrders.stream()
+                .map(SalesOrderRecord::getAuctionId).filter(java.util.Objects::nonNull).toList());
         Duration cancelWindow = platformSettingService.getHours(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS);
 
         return salesOrders.stream().map(so -> {
@@ -1058,7 +1060,9 @@ public class OrderLifecycleService {
                     sellerResponses.stream().map(SellerOrderDetailsResponse::platformDiscount)
                             .reduce(BigDecimal.ZERO, BigDecimal::add),
                     promotions,
-                    so.getPaidAt() == null && "PENDING_PAYMENT".equals(so.getStatus()) && !promotions.isEmpty());
+                    so.getPaidAt() == null && "PENDING_PAYMENT".equals(so.getStatus()) && !promotions.isEmpty(),
+                    so.getSource(), so.getAuctionId(),
+                    so.getAuctionId() == null ? null : auctionNumbers.get(so.getAuctionId()));
         }).toList();
     }
 

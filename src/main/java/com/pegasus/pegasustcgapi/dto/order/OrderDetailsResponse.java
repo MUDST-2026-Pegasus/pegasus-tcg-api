@@ -37,7 +37,10 @@ public record OrderDetailsResponse(
         BigDecimal platformDiscountTotal,
         List<AppliedPromotion> promotions,
         /** Cancelling now gives the codes back: true while the order is unpaid and holds a code. */
-        boolean promotionsRestoredOnCancel
+        boolean promotionsRestoredOnCancel,
+        String source,
+        Long auctionId,
+        String auctionNumber
 ) {
     public OrderDetailsResponse(
             long id,
@@ -62,6 +65,6 @@ public record OrderDetailsResponse(
         this(id, orderNumber, buyerId, status, currency, itemsSubtotal, shippingTotal, discountTotal, grandTotal,
                 shippingAddressId, shippingAddressSnapshot, buyerNote, placedAt, paidAt, completedAt, cancelledAt,
                 sellerOrders, paymentUnderReview, cancellableUntil, BigDecimal.ZERO, BigDecimal.ZERO, List.of(),
-                false);
+                false, "CART", null, null);
     }
 }

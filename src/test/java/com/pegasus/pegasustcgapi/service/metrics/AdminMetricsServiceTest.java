@@ -1,15 +1,40 @@
 package com.pegasus.pegasustcgapi.service.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.pegasus.pegasustcgapi.dto.metrics.AdminMetricsViews.GameShare;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminMetricsRepository.GameSales;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminMetricsRepository;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminMetricsRepository.ActiveListings;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminMetricsRepository.CommissionTotals;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class AdminMetricsServiceTest {
+
+    @Test
+    void overviewIncludesLiveAuctionsAndRollingAuctionSales() {
+        AdminMetricsRepository repository = mock(AdminMetricsRepository.class);
+        Clock clock = Clock.fixed(Instant.parse("2026-11-06T10:00:00Z"), ZoneOffset.UTC);
+        when(repository.activeListings()).thenReturn(new ActiveListings(0, 0));
+        when(repository.commissionBetween(any(), any()))
+                .thenReturn(new CommissionTotals(BigDecimal.ZERO, BigDecimal.ZERO));
+        when(repository.liveAuctionCount(any())).thenReturn(3L);
+        when(repository.auctionSalesLast30Days(any())).thenReturn(new BigDecimal("8450.00"));
+
+        var overview = new AdminMetricsService(repository, clock).overview("2026-11");
+
+        assertThat(overview.stats().liveAuctions()).isEqualTo(3);
+        assertThat(overview.stats().auctionSalesLast30Days()).isEqualByComparingTo("8450.00");
+    }
 
     private static GameSales game(int id, String amount) {
         return new GameSales((short) id, "Game " + id, new BigDecimal(amount));

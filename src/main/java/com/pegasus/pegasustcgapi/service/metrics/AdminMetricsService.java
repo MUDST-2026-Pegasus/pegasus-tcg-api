@@ -117,8 +117,10 @@ public class AdminMetricsService {
                 metrics.saleSubsidyBetween(previousFrom, from),
                 series(weeks, metrics.weeklySaleSubsidy(sparkFrom, sparkTo, ZONE), BigDecimal.ZERO));
 
+        OffsetDateTime now = OffsetDateTime.now(clock);
         Stats stats = new Stats(gmv, newSellers,
-                new ActiveListingsStat(active.listings(), active.sellers()), commission, promotionCost, saleSubsidy);
+                new ActiveListingsStat(active.listings(), active.sellers()), commission, promotionCost, saleSubsidy,
+                metrics.liveAuctionCount(now), metrics.auctionSalesLast30Days(now));
 
         return new Overview(
                 new Period(selected.toString(), from, to, previousFrom, from),

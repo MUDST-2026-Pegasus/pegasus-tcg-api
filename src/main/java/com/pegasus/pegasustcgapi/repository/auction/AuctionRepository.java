@@ -527,6 +527,20 @@ public class AuctionRepository {
         return dsl.fetchCount(AUCTION, cond);
     }
 
+    /** Current live auctions across every printing of one catalogue product. */
+    public ProductAuctionStats productStats(long productId, OffsetDateTime now) {
+        return dsl.select(DSL.count(), DSL.min(AUCTION.CURRENT_PRICE), DSL.min(AUCTION.ENDS_AT))
+                .from(AUCTION)
+                .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(AUCTION.CATALOG_VARIANT_ID))
+                .where(CATALOG_VARIANT.CATALOG_PRODUCT_ID.eq(productId))
+                .and(AUCTION.STATUS.eq(AuctionStatus.LIVE.name()))
+                .and(AUCTION.ENDS_AT.gt(now))
+                .fetchSingle(r -> new ProductAuctionStats(r.value1(), r.value2(), r.value3()));
+    }
+
+    public record ProductAuctionStats(int openCount, BigDecimal lowestCurrentPrice,
+            OffsetDateTime nearestEndAt) {}
+
     public Optional<Long> findLeadingBidderId(long auctionId) {
         return dsl.select(AUCTION_BID.BIDDER_ID)
                 .from(AUCTION_BID)
