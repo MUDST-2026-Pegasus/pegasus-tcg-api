@@ -249,6 +249,25 @@ public class AuctionRepository {
                 .execute() == 1;
     }
 
+    /** Admin suspension also applies while a winner is awaiting payment. */
+    public boolean suspendByAdmin(long auctionId, long adminId, String reason, OffsetDateTime now) {
+        return dsl.update(AUCTION)
+                .set(AUCTION.STATUS, AuctionStatus.SUSPENDED.name())
+                .set(AUCTION.SUSPENDED_REASON, reason)
+                .set(AUCTION.SUSPENDED_BY, adminId)
+                .set(AUCTION.SUSPENDED_AT, now)
+                .set(AUCTION.VERSION, AUCTION.VERSION.plus(1))
+                .set(AUCTION.UPDATED_AT, now)
+                .where(AUCTION.ID.eq(auctionId))
+                .and(AUCTION.STATUS.in(AuctionStatus.LIVE.name(), AuctionStatus.AWAITING_PAYMENT.name()))
+                .execute() == 1;
+    }
+
+    public void cancelAllBids(long auctionId) {
+        dsl.update(AUCTION_BID).set(AUCTION_BID.STATUS, BidStatus.CANCELLED.name())
+                .where(AUCTION_BID.AUCTION_ID.eq(auctionId)).execute();
+    }
+
     public boolean recordAuctionUnsold(long auctionId, OffsetDateTime closedAt) {
         return dsl.update(AUCTION)
                 .set(AUCTION.STATUS, AuctionStatus.UNSOLD.name())
@@ -658,6 +677,21 @@ public class AuctionRepository {
                         .and(BIDDING_BAN.LIFTED_AT.isNull())
                         .and(BIDDING_BAN.BANNED_UNTIL.gt(now)))
                 .fetchOptional(0, OffsetDateTime.class);
+    }
+
+    /** Clears both enforcement paths checked by AuctionEligibilityValidator. */
+    public void liftBanAndClearStrikes(long userId, long adminId, String reason, OffsetDateTime now) {
+        dsl.update(BIDDING_BAN).set(BIDDING_BAN.LIFTED_AT, now)
+                .set(BIDDING_BAN.LIFTED_BY, adminId)
+                .set(BIDDING_BAN.LIFT_REASON, reason)
+                .where(BIDDING_BAN.USER_ID.eq(userId))
+                .and(BIDDING_BAN.LIFTED_AT.isNull())
+                .and(BIDDING_BAN.BANNED_UNTIL.gt(now)).execute();
+        dsl.update(BIDDER_STRIKE).set(BIDDER_STRIKE.CLEARED_AT, now)
+                .set(BIDDER_STRIKE.CLEARED_BY, adminId)
+                .set(BIDDER_STRIKE.CLEAR_REASON, reason)
+                .where(BIDDER_STRIKE.USER_ID.eq(userId))
+                .and(BIDDER_STRIKE.CLEARED_AT.isNull()).execute();
     }
 
     // ---------- buyer's auctions ----------
