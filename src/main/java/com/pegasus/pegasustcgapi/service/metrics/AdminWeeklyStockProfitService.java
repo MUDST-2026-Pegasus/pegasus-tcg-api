@@ -75,7 +75,8 @@ public class AdminWeeklyStockProfitService {
             DailyAmounts row = days.get(date);
             chart.add(new DailySales(date,
                     row == null ? BigDecimal.ZERO : row.singles(),
-                    row == null ? BigDecimal.ZERO : row.sealed()));
+                    row == null ? BigDecimal.ZERO : row.sealed(),
+                    row == null ? BigDecimal.ZERO : row.other()));
         }
 
         long rawStock = repository.activeStock(to, game, type);
@@ -154,6 +155,7 @@ public class AdminWeeklyStockProfitService {
                         remaining,
                         stat.singleCards(),
                         stat.sealedBoxes(),
+                        stat.otherItems(),
                         stat.gmv(),
                         stat.commission(),
                         stat.profit(),
@@ -179,6 +181,7 @@ public class AdminWeeklyStockProfitService {
                         remaining,
                         remaining,
                         0,
+                        0,
                         rowGmv,
                         rowCommission,
                         rowProfit,
@@ -201,6 +204,7 @@ public class AdminWeeklyStockProfitService {
                     fallbackStock,
                     fallbackStock,
                     0,
+                    0,
                     fallbackTotals.gmv(),
                     fallbackTotals.gmv(),
                     fallbackTotals.commission(),
@@ -212,6 +216,7 @@ public class AdminWeeklyStockProfitService {
         long remainingStock = 0;
         long singleCards = 0;
         long sealedBoxes = 0;
+        long otherItems = 0;
         BigDecimal gmv = BigDecimal.ZERO;
         BigDecimal commission = BigDecimal.ZERO;
         BigDecimal netProfit = BigDecimal.ZERO;
@@ -221,12 +226,13 @@ public class AdminWeeklyStockProfitService {
             remainingStock += row.remainingStock();
             singleCards += row.singleCards();
             sealedBoxes += row.sealedBoxes();
+            otherItems += row.otherItems();
             gmv = gmv.add(row.gmv());
             commission = commission.add(row.commission());
             netProfit = netProfit.add(row.netProfit());
         }
         return new BreakdownTotals(
-                initialStock, soldCount, remainingStock, singleCards, sealedBoxes,
+                initialStock, soldCount, remainingStock, singleCards, sealedBoxes, otherItems,
                 gmv, gmv, commission, commission, netProfit);
     }
 
@@ -370,8 +376,9 @@ public class AdminWeeklyStockProfitService {
         return switch (type.trim().toLowerCase(Locale.ROOT)) {
             case "single_card" -> "SINGLE_CARD";
             case "sealed_box" -> "SEALED";
+            case "other" -> "OTHER";
             default -> throw new BadRequestException(ErrorCode.VALIDATION_FAILED,
-                    "productType must be single_card or sealed_box");
+                    "productType must be single_card, sealed_box or other");
         };
     }
 

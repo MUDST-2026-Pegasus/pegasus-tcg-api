@@ -37,7 +37,7 @@ public final class WeeklyStockProfitViews {
         }
     }
 
-    public record DailySales(LocalDate date, BigDecimal singles, BigDecimal sealed) {}
+    public record DailySales(LocalDate date, BigDecimal singles, BigDecimal sealed, BigDecimal other) {}
 
     public record GameBreakdown(String game, long remainingStock, BigDecimal stockPercent,
             BigDecimal profit, BigDecimal profitPercent) {}
@@ -58,6 +58,7 @@ public final class WeeklyStockProfitViews {
             long remainingStock,
             long singleCards,
             long sealedBoxes,
+            long otherItems,
             BigDecimal gmv,
             BigDecimal commission,
             BigDecimal netProfit,
@@ -70,6 +71,7 @@ public final class WeeklyStockProfitViews {
             long remainingStock,
             long singleCards,
             long sealedBoxes,
+            long otherItems,
             BigDecimal gmv,
             BigDecimal weeklyGmv,
             BigDecimal commission,
@@ -77,7 +79,7 @@ public final class WeeklyStockProfitViews {
             BigDecimal netProfit) {
 
         public static BreakdownTotals zero() {
-            return new BreakdownTotals(0, 0, 0, 0, 0,
+            return new BreakdownTotals(0, 0, 0, 0, 0, 0,
                     BigDecimal.ZERO, BigDecimal.ZERO,
                     BigDecimal.ZERO, BigDecimal.ZERO,
                     BigDecimal.ZERO);
@@ -108,7 +110,7 @@ public final class WeeklyStockProfitViews {
                     List.of(),
                     summary == null ? BreakdownTotals.zero() : new BreakdownTotals(
                             summary.initialStock(), summary.soldCount(), summary.remainingStock(),
-                            summary.remainingStock(), 0,
+                            summary.remainingStock(), 0, 0,
                             summary.gmv(), summary.weeklyGmv(),
                             summary.commission(), summary.commissionCollected(),
                             summary.netProfit()));

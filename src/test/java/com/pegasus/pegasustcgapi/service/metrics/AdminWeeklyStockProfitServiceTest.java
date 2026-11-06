@@ -43,7 +43,7 @@ class AdminWeeklyStockProfitServiceTest {
         when(repository.completedTotals(from.minusWeeks(1), from, "pokemon", null))
                 .thenReturn(new Totals(new BigDecimal("500"), new BigDecimal("50"), new BigDecimal("100")));
         when(repository.dailyAmounts(from, to, "pokemon", null)).thenReturn(List.of(
-                new DailyAmounts(LocalDate.parse("2026-10-26"), new BigDecimal("100"), BigDecimal.ZERO)));
+                new DailyAmounts(LocalDate.parse("2026-10-26"), new BigDecimal("100"), BigDecimal.ZERO, BigDecimal.ZERO)));
         when(repository.activeStock(to, "pokemon", null)).thenReturn(7L);
         when(repository.completedQuantity(from, to, "pokemon", null)).thenReturn(2L);
         when(repository.activeStockByGame(to, "pokemon", null)).thenReturn(List.of(
@@ -105,8 +105,8 @@ class AdminWeeklyStockProfitServiceTest {
         when(repository.completedTotals(from.minusWeeks(1), from, null, null))
                 .thenReturn(new Totals(new BigDecimal("362500.00"), new BigDecimal("10875.00"), new BigDecimal("10875.00")));
         when(repository.dailyAmounts(from, to, null, null)).thenReturn(List.of(
-                new DailyAmounts(LocalDate.parse("2026-08-03"), new BigDecimal("40000.00"), new BigDecimal("20000.00")),
-                new DailyAmounts(LocalDate.parse("2026-08-09"), new BigDecimal("250000.00"), new BigDecimal("118500.00"))));
+                new DailyAmounts(LocalDate.parse("2026-08-03"), new BigDecimal("40000.00"), new BigDecimal("20000.00"), BigDecimal.ZERO),
+                new DailyAmounts(LocalDate.parse("2026-08-09"), new BigDecimal("250000.00"), new BigDecimal("118500.00"), BigDecimal.ZERO)));
         when(repository.activeStock(to, null, null)).thenReturn(6184L);
         when(repository.completedQuantity(from, to, null, null)).thenReturn(1470L);
         when(repository.activeStockByGame(to, null, null)).thenReturn(List.of(
@@ -118,11 +118,11 @@ class AdminWeeklyStockProfitServiceTest {
                 new GameProfit("one-piece", "One Piece", new BigDecimal("3085.20")),
                 new GameProfit("other-tcg", "Other TCG", new BigDecimal("2571.00"))));
         when(repository.gameBreakdownRows(from, to, null, null)).thenReturn(List.of(
-                new GameBreakdownStat("pokemon", "Pokémon", 3464L, 2464L, 1000L, 790L,
+                new GameBreakdownStat("pokemon", "Pokémon", 3464L, 2464L, 1000L, 0L, 790L,
                         new BigDecimal("239960.00"), new BigDecimal("7198.80"), new BigDecimal("7198.80")),
-                new GameBreakdownStat("one-piece", "One Piece", 1484L, 984L, 500L, 416L,
+                new GameBreakdownStat("one-piece", "One Piece", 1484L, 984L, 500L, 0L, 416L,
                         new BigDecimal("102840.00"), new BigDecimal("3085.20"), new BigDecimal("3085.20")),
-                new GameBreakdownStat("other-tcg", "Other TCG", 1236L, 836L, 400L, 264L,
+                new GameBreakdownStat("other-tcg", "Other TCG", 1236L, 836L, 400L, 0L, 264L,
                         new BigDecimal("85700.00"), new BigDecimal("2571.00"), new BigDecimal("2571.00"))));
 
         var report = service().report("2026-08-03", "2026-08-09", null, null);

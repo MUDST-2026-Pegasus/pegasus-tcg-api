@@ -485,6 +485,44 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
         assertThat(sheetXml).contains("Pokémon").contains("One Piece").contains("Other TCG");
     }
 
+    @Test
+    void otherProductTypesAddUpInTheChartAndTheStockSplit() {
+        Seller seller = data.seller();
+        var buyer = data.buyer();
+        String slug = "cr15-other-" + data.tag().toLowerCase();
+        short gameId = ensureGame(dsl, slug.toUpperCase(), "CR15 Other " + slug, slug);
+        long single = createVariant(dsl, data, gameId, "SINGLE_CARD");
+        long accessory = createVariant(dsl, data, gameId, "ACCESSORY");
+        OffsetDateTime activeAt = OffsetDateTime.parse("2024-03-05T10:00:00+07:00");
+        OffsetDateTime closedAt = OffsetDateTime.parse("2024-03-11T00:01:00+07:00");
+        createHistoricalListingStock(dsl, seller.profileId(), single, 100, activeAt, closedAt);
+        createHistoricalListingStock(dsl, seller.profileId(), accessory, 50, activeAt, closedAt);
+        insertOrderWithItem(dsl, data, buyer.userId(), seller.profileId(), single,
+                "COMPLETED", OffsetDateTime.parse("2024-03-06T12:00:00+07:00"),
+                2, new BigDecimal("100.00"), new BigDecimal("200.00"), new BigDecimal("6.00"));
+        insertOrderWithItem(dsl, data, buyer.userId(), seller.profileId(), accessory,
+                "COMPLETED", OffsetDateTime.parse("2024-03-06T13:00:00+07:00"),
+                1, new BigDecimal("100.00"), new BigDecimal("100.00"), new BigDecimal("3.00"));
+
+        var report = reportService.report("2024-03-04", "2024-03-10", slug, null);
+
+        assertThat(report.summary().gmv()).isEqualByComparingTo("300.00");
+        assertThat(report.chartData().stream()
+                .map(day -> day.singles().add(day.sealed()).add(day.other()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)).isEqualByComparingTo("300.00");
+        assertThat(report.breakdownTable()).singleElement().satisfies(row -> {
+            assertThat(row.singleCards()).isEqualTo(100);
+            assertThat(row.sealedBoxes()).isZero();
+            assertThat(row.otherItems()).isEqualTo(50);
+            assertThat(row.remainingStock()).isEqualTo(150);
+        });
+        assertThat(report.totals().otherItems()).isEqualTo(50);
+
+        var onlyOther = reportService.report("2024-03-04", "2024-03-10", slug, "other");
+        assertThat(onlyOther.summary().gmv()).isEqualByComparingTo("100.00");
+        assertThat(onlyOther.summary().remainingStock()).isEqualTo(50);
+    }
+
     private static Map<String, String> unzipEntries(byte[] bytes) throws IOException {
         Map<String, String> files = new HashMap<>();
         try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(bytes))) {
