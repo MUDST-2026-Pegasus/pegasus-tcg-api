@@ -193,9 +193,14 @@ public class AuctionRepository {
                 .fetch(AUCTION.ID);
     }
 
-    public List<Long> findExpiredPaymentAuctionIds(OffsetDateTime now, int limit) {
+    /**
+     * Unpaid wins past their deadline with an id above {@code afterId}, in id order, so a sweep
+     * pages forward and an auction that keeps failing cannot hold back the ones after it.
+     */
+    public List<Long> findExpiredPaymentAuctionIds(OffsetDateTime now, long afterId, int limit) {
         return dsl.select(AUCTION.ID).from(AUCTION)
                 .where(AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name()))
+                .and(AUCTION.ID.gt(afterId))
                 .and(AUCTION.PAYMENT_DUE_AT.le(now))
                 .and(AUCTION.SALES_ORDER_ID.isNull().or(AUCTION.SALES_ORDER_ID.in(
                         dsl.select(SALES_ORDER.ID).from(SALES_ORDER)
@@ -203,7 +208,7 @@ public class AuctionRepository {
                                 .andNotExists(dsl.selectOne().from(PAYMENT)
                                         .where(PAYMENT.SALES_ORDER_ID.eq(SALES_ORDER.ID))
                                         .and(PAYMENT.STATUS.in("AWAITING_VERIFICATION", "SUCCEEDED"))))))
-                .orderBy(AUCTION.PAYMENT_DUE_AT.asc(), AUCTION.ID.asc())
+                .orderBy(AUCTION.ID.asc())
                 .limit(limit).fetch(AUCTION.ID);
     }
 

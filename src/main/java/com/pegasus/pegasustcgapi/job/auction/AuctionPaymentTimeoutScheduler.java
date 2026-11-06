@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.service.auction.AuctionPaymentTimeoutService;
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,23 +48,27 @@ public class AuctionPaymentTimeoutScheduler {
 
     private void sweep() {
         OffsetDateTime now = OffsetDateTime.now(clock);
+        Set<Long> seen = new HashSet<>();
+        long afterId = 0;
         for (int round = 0; round < MAX_ROUNDS; round++) {
-            List<Long> ids = auctions.findExpiredPaymentAuctionIds(now, batchSize);
-            if (ids.isEmpty()) return;
-            int progress = 0;
+            // Page forward by id: an auction that fails or is skipped stays behind the cursor.
+            List<Long> ids = auctions.findExpiredPaymentAuctionIds(now, afterId, batchSize);
             for (Long id : ids) {
+                seen.add(id);
                 try {
-                    if (timeout.expire(id, now)) {
-                        progress++;
-                        failedAuctions.remove(id);
-                    }
+                    if (timeout.expire(id, now)) failedAuctions.remove(id);
                 } catch (Exception e) {
                     if (failedAuctions.add(id)) {
                         log.warn("Failed to expire unpaid auction #{}; subsequent failures will be suppressed until it succeeds", id, e);
                     }
                 }
             }
-            if (ids.size() < batchSize || progress == 0) return;
+            if (ids.size() < batchSize) {
+                // A full pass saw every auction still due; forget failures that left the queue.
+                failedAuctions.retainAll(seen);
+                return;
+            }
+            afterId = ids.getLast();
         }
         log.warn("Auction payment timeout stopped after {} rounds", MAX_ROUNDS);
     }
