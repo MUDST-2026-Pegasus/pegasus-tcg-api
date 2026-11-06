@@ -23,6 +23,7 @@ import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.service.auction.AuctionCloseService;
 import com.pegasus.pegasustcgapi.service.inventory.InventoryService;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -67,6 +68,9 @@ class AuctionCloseSchedulerTest {
 
     @Mock
     private AuctionCloseService mockAuctionCloseService;
+
+    @Mock
+    private PlatformSettingService settings;
 
     private AuctionCloseService realCloseService;
 
@@ -200,6 +204,24 @@ class AuctionCloseSchedulerTest {
     @Nested
     @DisplayName("AuctionCloseService Business Rules")
     class AuctionCloseServiceRuleTests {
+
+        @Test
+        void winnerDeadlineUsesCurrentPaymentSetting() {
+            realCloseService = new AuctionCloseService(auctions, units, inventoryService, settings);
+            long auctionId = 506L;
+            Auction auction = sampleAuction(auctionId, AuctionStatus.LIVE, 1,
+                    new BigDecimal("1100.00"), NOW.minusSeconds(1), LEADING_BID_ID);
+            given(auctions.lock(auctionId)).willReturn(Optional.of(auction));
+            given(auctions.findBidById(LEADING_BID_ID)).willReturn(Optional.of(
+                    new AuctionBid(LEADING_BID_ID, auctionId, WINNER_ID,
+                            new BigDecimal("1100.00"), BidStatus.ACTIVE, null, NOW.minusMinutes(1))));
+            given(settings.getAuctionPaymentWindow()).willReturn(java.time.Duration.ofSeconds(36));
+
+            realCloseService.closeAuction(auctionId, NOW);
+
+            verify(auctions).recordAuctionWon(auctionId, WINNER_ID,
+                    new BigDecimal("1100.00"), NOW, NOW.plusSeconds(36));
+        }
 
         @Test
         @DisplayName("Case 1: Auction with bids transitions to AWAITING_PAYMENT with leading bidder and payment_due_at")

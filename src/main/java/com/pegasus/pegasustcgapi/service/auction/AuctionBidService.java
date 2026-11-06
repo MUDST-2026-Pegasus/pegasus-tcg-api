@@ -7,6 +7,7 @@ import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionBid;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
@@ -15,6 +16,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,14 +29,22 @@ public class AuctionBidService {
     private final AuctionRepository auctions;
     private final AuctionEligibilityValidator validator;
     private final Clock clock;
+    private final PlatformSettingService settings;
 
+    @Autowired
     public AuctionBidService(
             AuctionRepository auctions,
             AuctionEligibilityValidator validator,
-            Clock clock) {
+            Clock clock,
+            PlatformSettingService settings) {
         this.auctions = auctions;
         this.validator = validator;
         this.clock = clock;
+        this.settings = settings;
+    }
+
+    public AuctionBidService(AuctionRepository auctions, AuctionEligibilityValidator validator, Clock clock) {
+        this(auctions, validator, clock, null);
     }
 
     /**
@@ -99,10 +109,12 @@ public class AuctionBidService {
         // 4. Check if caller is a new bidder for this auction
         boolean isNewBidder = !auctions.hasBid(auctionId, userId);
 
-        // 5. Anti-sniping check: if within last 120s, push endsAt to now + 120s
+        // 5. Read the current anti-sniping window on every bid.
+        Duration extension = settings == null ? Duration.ofSeconds(AuctionPolicy.ANTI_SNIPING_WINDOW_SECONDS)
+                : settings.getSeconds(PlatformSettingService.AUCTION_EXTENSION_SECONDS);
         Duration remaining = Duration.between(now, auction.endsAt());
-        boolean extended = !remaining.isNegative() && remaining.getSeconds() < AuctionPolicy.ANTI_SNIPING_WINDOW_SECONDS;
-        OffsetDateTime newEndsAt = extended ? now.plusSeconds(AuctionPolicy.ANTI_SNIPING_WINDOW_SECONDS) : auction.endsAt();
+        boolean extended = !remaining.isNegative() && remaining.compareTo(extension) < 0;
+        OffsetDateTime newEndsAt = extended ? now.plus(extension) : auction.endsAt();
 
         // 6. Insert new bid record (guarded against duplicate idempotency key)
         long bidId;
