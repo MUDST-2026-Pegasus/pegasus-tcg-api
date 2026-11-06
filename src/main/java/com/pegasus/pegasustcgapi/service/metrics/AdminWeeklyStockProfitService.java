@@ -223,7 +223,7 @@ public class AdminWeeklyStockProfitService {
         for (int col = 0; col < values.length; col++) {
             Object v = values[col];
             if (v == null) continue;
-            if (v instanceof Number || v instanceof BigDecimal) {
+            if (v instanceof Number) {
                 xml.append("<c r=\"").append(colName(col)).append(row).append("\"><v>").append(v).append("</v></c>");
             } else inlineCell(xml, col, row, v.toString());
         }
