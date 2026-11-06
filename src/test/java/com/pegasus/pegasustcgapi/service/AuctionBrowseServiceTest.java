@@ -190,6 +190,18 @@ class AuctionBrowseServiceTest {
     class CatalogListingTests {
 
         @Test
+        void storefrontPassesSellerUsernameToCatalogQuery() {
+            given(auctions.findPublicCatalog(any(PublicAuctionQuery.class))).willReturn(List.of());
+            given(auctions.publicFilterCounts(any())).willReturn(Map.of());
+
+            service.list(null, null, null, "tcg_corner", null, null, Sort.ENDING_SOON, 0, 20);
+
+            var query = org.mockito.ArgumentCaptor.forClass(PublicAuctionQuery.class);
+            org.mockito.Mockito.verify(auctions).findPublicCatalog(query.capture());
+            assertThat(query.getValue().sellerUsername()).isEqualTo("tcg_corner");
+        }
+
+        @Test
         @DisplayName("list() with filters and sort calls repository with correct query and returns summaries")
         void list_WithFiltersAndSort_ReturnsSummaries() {
             stubCardRendererBatch();

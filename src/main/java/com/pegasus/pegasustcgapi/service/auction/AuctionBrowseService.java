@@ -105,6 +105,20 @@ public class AuctionBrowseService {
             Sort sort,
             int page,
             int size) {
+        return list(filter, gameId, sellerId, null, variantId, q, sort, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public AuctionPage list(
+            Filter filter,
+            Short gameId,
+            Long sellerId,
+            String sellerUsername,
+            Long variantId,
+            String q,
+            Sort sort,
+            int page,
+            int size) {
 
         OffsetDateTime now = OffsetDateTime.now(clock);
         Paging paging = Paging.of(page, size);
@@ -114,6 +128,7 @@ public class AuctionBrowseService {
                 q,
                 gameId,
                 sellerId,
+                sellerUsername,
                 variantId,
                 sort,
                 paging.size(),
