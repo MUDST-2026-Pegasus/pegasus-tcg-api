@@ -236,7 +236,8 @@ public class SecurityConfig {
                 "baggage"));
         config.setExposedHeaders(List.of(
                 "X-Cart-Session",
-                "Idempotency-Key"));
+                "Idempotency-Key",
+                "Content-Disposition"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 
