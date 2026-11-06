@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.service.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -15,6 +16,7 @@ import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitReposi
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameStock;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.Totals;
 import com.pegasus.pegasustcgapi.service.metrics.AdminWeeklyStockProfitService.OrderSample;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -34,9 +36,12 @@ class AdminWeeklyStockProfitServiceTest {
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-11-07T05:00:00Z"), ZoneOffset.UTC);
 
     @Mock AdminWeeklyStockProfitRepository repository;
+    @Mock PlatformSettingService settings;
 
     private AdminWeeklyStockProfitService service() {
-        return new AdminWeeklyStockProfitService(repository, CLOCK);
+        lenient().when(settings.getInt(PlatformSettingService.REPORT_LOW_STOCK_THRESHOLD)).thenReturn(500);
+        lenient().when(settings.getInt(PlatformSettingService.REPORT_FAST_MOVING_PERCENT)).thenReturn(30);
+        return new AdminWeeklyStockProfitService(repository, settings, CLOCK);
     }
 
     @Test
@@ -72,6 +77,21 @@ class AdminWeeklyStockProfitServiceTest {
             assertThat(game.game()).isEqualTo("Pokémon");
             assertThat(game.remainingStock()).isEqualTo(7);
         });
+    }
+
+    @Test
+    void stockStatusFollowsTheConfiguredThresholds() {
+        // The rows of the CR15 design at 500 units / 30%.
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(2350, 610, 1740, 500, 30)).isEqualTo("NORMAL");
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(1149, 420, 729, 500, 30)).isEqualTo("FAST_MOVING");
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(540, 145, 395, 500, 30)).isEqualTo("LOW_STOCK");
+
+        // Both limits are exclusive.
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(1000, 300, 700, 700, 30)).isEqualTo("NORMAL");
+        // Selling most of the stock is fast moving, not low stock, while units remain above the limit.
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(10000, 9000, 1000, 500, 30)).isEqualTo("FAST_MOVING");
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(10, 10, 0, 0, 30)).isEqualTo("LOW_STOCK");
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(0, 0, 0, 0, 30)).isEqualTo("LOW_STOCK");
     }
 
     @Test
@@ -180,7 +200,7 @@ class AdminWeeklyStockProfitServiceTest {
         assertThat(report.breakdownTable()).extracting(BreakdownRow::game)
                 .containsExactly("Pokémon", "One Piece", "Other TCG");
         assertThat(report.breakdownTable()).extracting(BreakdownRow::status)
-                .containsExactly("NORMAL", "FAST_MOVING", "LOW_STOCK");
+                .containsExactly("NORMAL", "NORMAL", "NORMAL");
 
         assertThat(report.totals().initialStock()).isEqualTo(7654L);
         assertThat(report.totals().soldCount()).isEqualTo(1470L);

@@ -1,5 +1,9 @@
 package com.pegasus.pegasustcgapi.dto.metrics;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -85,6 +89,19 @@ public final class WeeklyStockProfitViews {
                     BigDecimal.ZERO);
         }
     }
+
+    /**
+     * @param standardCommissionRatePercent read-only here: {@code commission.default_rate},
+     *        owned by the commission settings
+     */
+    public record StockThresholds(
+            int lowStockThreshold,
+            int fastMovingPercent,
+            BigDecimal standardCommissionRatePercent) {}
+
+    public record StockThresholdsUpdate(
+            @NotNull @DecimalMin("0") @Digits(integer = 9, fraction = 0) BigDecimal lowStockThreshold,
+            @NotNull @DecimalMin("1") @DecimalMax("100") @Digits(integer = 3, fraction = 0) BigDecimal fastMovingPercent) {}
 
     public record Report(
             LocalDate startDate,

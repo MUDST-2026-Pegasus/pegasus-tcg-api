@@ -3,17 +3,23 @@ package com.pegasus.pegasustcgapi.controller.metrics;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.Report;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.StockThresholds;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.StockThresholdsUpdate;
+import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.metrics.AdminWeeklyStockProfitService;
 import com.pegasus.pegasustcgapi.service.metrics.AdminWeeklyStockProfitService.ExportFile;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,6 +45,23 @@ public class AdminWeeklyStockProfitController {
             @RequestParam(required = false) String gameCategory,
             @RequestParam(required = false) String productType) {
         return ApiResult.success(reports.report(startDate, endDate, gameCategory, productType));
+    }
+
+    @Operation(summary = "Read the stock status thresholds",
+            description = "Also returns the standard commission rate, which is changed from the "
+                    + "commission settings rather than here.")
+    @GetMapping("/thresholds")
+    public ApiResult<StockThresholds> thresholds() {
+        return ApiResult.success(reports.thresholds());
+    }
+
+    @Operation(summary = "Save the stock status thresholds",
+            description = "A row is low stock when remaining units are below lowStockThreshold, otherwise "
+                    + "fast moving when more than fastMovingPercent of its stock sold this week.")
+    @PutMapping("/thresholds")
+    public ApiResult<StockThresholds> updateThresholds(@Valid @RequestBody StockThresholdsUpdate request,
+            AuthPrincipal principal) {
+        return ApiResult.success("Thresholds updated", reports.updateThresholds(request, principal.userId()));
     }
 
     @Operation(summary = "Export the weekly stock and profit report as CSV or XLSX")

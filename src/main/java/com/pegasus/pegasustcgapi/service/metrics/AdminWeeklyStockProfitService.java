@@ -7,6 +7,8 @@ import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameBreakdow
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameDistributionItem;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.Report;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.ReportMeta;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.StockThresholds;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.StockThresholdsUpdate;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.Summary;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -16,6 +18,7 @@ import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitReposi
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameProfit;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameStock;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.Totals;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -49,11 +52,31 @@ public class AdminWeeklyStockProfitService {
     private static final BigDecimal ZERO_ONE_DECIMAL = new BigDecimal("0.0");
 
     private final AdminWeeklyStockProfitRepository repository;
+    private final PlatformSettingService settings;
     private final Clock clock;
 
-    public AdminWeeklyStockProfitService(AdminWeeklyStockProfitRepository repository, Clock clock) {
+    public AdminWeeklyStockProfitService(AdminWeeklyStockProfitRepository repository,
+            PlatformSettingService settings, Clock clock) {
         this.repository = repository;
+        this.settings = settings;
         this.clock = clock;
+    }
+
+    @Transactional(readOnly = true)
+    public StockThresholds thresholds() {
+        return new StockThresholds(
+                settings.getInt(PlatformSettingService.REPORT_LOW_STOCK_THRESHOLD),
+                settings.getInt(PlatformSettingService.REPORT_FAST_MOVING_PERCENT),
+                settings.getDecimal(PlatformSettingService.COMMISSION_DEFAULT_RATE));
+    }
+
+    @Transactional
+    public StockThresholds updateThresholds(StockThresholdsUpdate update, long adminId) {
+        settings.update(PlatformSettingService.REPORT_LOW_STOCK_THRESHOLD,
+                Integer.toString(update.lowStockThreshold().intValueExact()), adminId);
+        settings.update(PlatformSettingService.REPORT_FAST_MOVING_PERCENT,
+                Integer.toString(update.fastMovingPercent().intValueExact()), adminId);
+        return thresholds();
     }
 
     @Transactional(readOnly = true)
@@ -126,7 +149,8 @@ public class AdminWeeklyStockProfitService {
         breakdown.sort((a, b) -> a.game().compareToIgnoreCase(b.game()));
 
         List<GameBreakdownStat> detailedRows = repository.gameBreakdownRows(from, to, game, type);
-        List<BreakdownRow> breakdownTable = buildBreakdownTable(detailedRows, rawBreakdown, depleted, totals);
+        StockThresholds thresholds = thresholds();
+        List<BreakdownRow> breakdownTable = buildBreakdownTable(detailedRows, rawBreakdown, depleted, totals, thresholds);
         BreakdownTotals tableTotals = buildBreakdownTotals(breakdownTable, stock, depleted, totals);
         List<GameDistributionItem> gameDistribution = buildGameDistribution(breakdownTable, tableTotals);
 
@@ -145,14 +169,16 @@ public class AdminWeeklyStockProfitService {
             List<GameBreakdownStat> detailedRows,
             Map<String, GameBreakdown> fallbackBreakdown,
             long totalDepleted,
-            Totals totals) {
+            Totals totals,
+            StockThresholds thresholds) {
         List<BreakdownRow> rows = new ArrayList<>();
         if (detailedRows != null && !detailedRows.isEmpty()) {
             for (GameBreakdownStat stat : detailedRows) {
                 long remaining = stat.remainingStock();
                 long sold = stat.soldCount();
                 long initial = calculateInitialStock(remaining, sold);
-                String status = classifyStockStatus(initial, sold, remaining);
+                String status = classifyStockStatus(initial, sold, remaining,
+                        thresholds.lowStockThreshold(), thresholds.fastMovingPercent());
                 rows.add(new BreakdownRow(
                         stat.name(),
                         stat.slug(),
@@ -178,7 +204,8 @@ public class AdminWeeklyStockProfitService {
                 BigDecimal rowGmv = count == 1 ? totals.gmv() : gb.profit();
                 BigDecimal rowCommission = count == 1 ? totals.commission() : calculateCommission(rowGmv);
                 BigDecimal rowProfit = gb.profit();
-                String status = classifyStockStatus(initial, sold, remaining);
+                String status = classifyStockStatus(initial, sold, remaining,
+                        thresholds.lowStockThreshold(), thresholds.fastMovingPercent());
                 rows.add(new BreakdownRow(
                         gb.game(),
                         entry.getKey(),
@@ -289,12 +316,12 @@ public class AdminWeeklyStockProfitService {
         return remainingStock + soldCount;
     }
 
-    public static String classifyStockStatus(long initialStock, long soldCount, long remainingStock) {
-        if (remainingStock <= 0 || (remainingStock < 1300)
-                || (initialStock > 0 && (double) remainingStock / initialStock <= 0.15)) {
+    public static String classifyStockStatus(long initialStock, long soldCount, long remainingStock,
+            int lowStockThreshold, int fastMovingPercent) {
+        if (remainingStock <= 0 || remainingStock < lowStockThreshold) {
             return "LOW_STOCK";
         }
-        if (initialStock > 0 && (double) soldCount / initialStock >= 0.20) {
+        if (soldCount * 100 > fastMovingPercent * initialStock) {
             return "FAST_MOVING";
         }
         return "NORMAL";

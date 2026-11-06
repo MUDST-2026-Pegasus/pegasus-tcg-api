@@ -43,6 +43,11 @@ public class PlatformSettingService {
     /** Below this many listings the median is noise and AUTO_MEDIAN should skip the variant. */
     public static final String PRICING_MEDIAN_MIN_SAMPLE = "pricing.median_min_sample";
 
+    /** Weekly report: remaining units below this read as low stock. */
+    public static final String REPORT_LOW_STOCK_THRESHOLD = "report.low_stock_threshold";
+    /** Weekly report: percent of the week's stock sold, above which a row reads as fast moving. */
+    public static final String REPORT_FAST_MOVING_PERCENT = "report.fast_moving_percent";
+
     private final PlatformSettingRepository settings;
     private final ObjectMapper json;
 
@@ -156,6 +161,14 @@ public class PlatformSettingService {
                 throw new ApiException(ErrorCode.VALIDATION_FAILED,
                         "Setting " + key + " must be a positive whole number");
             }
+        }
+        if (REPORT_LOW_STOCK_THRESHOLD.equals(key) && !rawJson.matches("0|[1-9][0-9]{0,8}")) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "Setting " + key + " must be a whole number of units, zero or more");
+        }
+        if (REPORT_FAST_MOVING_PERCENT.equals(key) && !rawJson.matches("[1-9][0-9]?|100")) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "Setting " + key + " must be a whole percent from 1 to 100");
         }
         settings.update(key, rawJson, adminId);
         return get(key);

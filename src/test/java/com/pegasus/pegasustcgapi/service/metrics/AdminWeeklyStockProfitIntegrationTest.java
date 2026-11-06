@@ -543,6 +543,68 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
         assertThat(reportService.report("2024-04-08", "2024-04-14", slug, null).hasData()).isFalse();
     }
 
+    @Test
+    void thresholdEndpointsAreAdminOnly() {
+        ApiClient client = new ApiClient(port);
+        String url = "/api/v1/admin/reports/weekly-stock-profit/thresholds";
+        Map<String, Object> body = Map.of("lowStockThreshold", 500, "fastMovingPercent", 30);
+
+        assertThat(client.get(url, null).status()).isEqualTo(401);
+        assertThat(client.put(url, null, body).status()).isEqualTo(401);
+        assertThat(client.get(url, data.bearer(data.buyer())).status()).isEqualTo(403);
+        assertThat(client.put(url, data.bearer(data.buyer()), body).status()).isEqualTo(403);
+        String sellerToken = data.bearer(data.seller().principal());
+        assertThat(client.get(url, sellerToken).status()).isEqualTo(403);
+        assertThat(client.put(url, sellerToken, body).status()).isEqualTo(403);
+    }
+
+    @Test
+    void savedThresholdsDriveTheStockStatusAndInvalidOnesAreRefused() {
+        seedStandardAugust2026Dataset(dsl, data);
+        ApiClient client = new ApiClient(port);
+        String admin = data.bearer(data.admin());
+        String url = "/api/v1/admin/reports/weekly-stock-profit/thresholds";
+
+        Response defaults = client.get(url, admin);
+        assertThat(defaults.status()).isEqualTo(200);
+        assertThat(defaults.data().path("lowStockThreshold").asInt()).isEqualTo(500);
+        assertThat(defaults.data().path("fastMovingPercent").asInt()).isEqualTo(30);
+        assertThat(new BigDecimal(defaults.data().path("standardCommissionRatePercent").asText())).isPositive();
+        assertThat(statuses(reportService.report("2026-08-03", "2026-08-09", null, null)))
+                .containsExactly("NORMAL", "NORMAL", "NORMAL");
+
+        for (Map<String, Object> invalid : java.util.List.<Map<String, Object>>of(
+                Map.of("lowStockThreshold", -1, "fastMovingPercent", 30),
+                Map.of("lowStockThreshold", 500, "fastMovingPercent", 0),
+                Map.of("lowStockThreshold", 500, "fastMovingPercent", 101),
+                Map.of("lowStockThreshold", 500, "fastMovingPercent", 30.5),
+                Map.of("fastMovingPercent", 30))) {
+            assertThat(client.put(url, admin, invalid).status()).isEqualTo(400);
+        }
+        assertThat(client.get(url, admin).data().path("fastMovingPercent").asInt()).isEqualTo(30);
+
+        try {
+            Response saved = client.put(url, admin, Map.of("lowStockThreshold", 1300, "fastMovingPercent", 20));
+            assertThat(saved.status()).isEqualTo(200);
+            assertThat(saved.data().path("lowStockThreshold").asInt()).isEqualTo(1300);
+            assertThat(saved.data().path("fastMovingPercent").asInt()).isEqualTo(20);
+            assertThat(statuses(reportService.report("2026-08-03", "2026-08-09", null, null)))
+                    .containsExactly("NORMAL", "FAST_MOVING", "LOW_STOCK");
+
+            assertThat(client.put("/api/v1/admin/settings/report.fast_moving_percent", admin,
+                    Map.of("value", "abc")).status()).isEqualTo(400);
+        } finally {
+            client.put(url, admin, Map.of("lowStockThreshold", 500, "fastMovingPercent", 30));
+        }
+    }
+
+    private static java.util.List<String> statuses(
+            com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.Report report) {
+        return report.breakdownTable().stream()
+                .map(com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.BreakdownRow::status)
+                .toList();
+    }
+
     private static Map<String, String> unzipEntries(byte[] bytes) throws IOException {
         Map<String, String> files = new HashMap<>();
         try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(bytes))) {
