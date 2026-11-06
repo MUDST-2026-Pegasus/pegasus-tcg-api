@@ -159,6 +159,7 @@ BEGIN
           INTO card FROM listing_unit lu
          WHERE lu.status = 'IN_STOCK'
            AND lu.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM auction x WHERE x.listing_unit_id = lu.id)
          ORDER BY lu.id LIMIT 1;
         IF card.id IS NULL THEN RAISE EXCEPTION 'auction seed: not enough cards in stock'; END IF;
 
@@ -235,7 +236,9 @@ BEGIN
           INTO card FROM listing_unit lu
          WHERE lu.status = 'IN_STOCK'
            AND lu.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM auction x WHERE x.listing_unit_id = lu.id)
          ORDER BY lu.id LIMIT 1;
+        IF card.id IS NULL THEN RAISE EXCEPTION 'auction seed: not enough cards in stock for penalties'; END IF;
         INSERT INTO auction (auction_number, seller_profile_id, listing_unit_id,
                              catalog_variant_id, condition_code, starting_price, bid_increment,
                              current_price, bid_count, bidder_count, started_at,

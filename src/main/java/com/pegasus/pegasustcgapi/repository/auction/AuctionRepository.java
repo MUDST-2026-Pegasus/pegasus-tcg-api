@@ -193,9 +193,14 @@ public class AuctionRepository {
                 .fetch(AUCTION.ID);
     }
 
-    public List<Long> findExpiredPaymentAuctionIds(OffsetDateTime now, int limit) {
+    /**
+     * Unpaid wins past their deadline with an id above {@code afterId}, in id order, so a sweep
+     * pages forward and an auction that keeps failing cannot hold back the ones after it.
+     */
+    public List<Long> findExpiredPaymentAuctionIds(OffsetDateTime now, long afterId, int limit) {
         return dsl.select(AUCTION.ID).from(AUCTION)
                 .where(AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name()))
+                .and(AUCTION.ID.gt(afterId))
                 .and(AUCTION.PAYMENT_DUE_AT.le(now))
                 .and(AUCTION.SALES_ORDER_ID.isNull().or(AUCTION.SALES_ORDER_ID.in(
                         dsl.select(SALES_ORDER.ID).from(SALES_ORDER)
@@ -203,7 +208,7 @@ public class AuctionRepository {
                                 .andNotExists(dsl.selectOne().from(PAYMENT)
                                         .where(PAYMENT.SALES_ORDER_ID.eq(SALES_ORDER.ID))
                                         .and(PAYMENT.STATUS.in("AWAITING_VERIFICATION", "SUCCEEDED"))))))
-                .orderBy(AUCTION.PAYMENT_DUE_AT.asc(), AUCTION.ID.asc())
+                .orderBy(AUCTION.ID.asc())
                 .limit(limit).fetch(AUCTION.ID);
     }
 
@@ -659,13 +664,22 @@ public class AuctionRepository {
 
     /** Unpaid wins that still count towards a ban. */
     public int countActiveStrikes(long userId) {
-        OffsetDateTime lastBanEnd = dsl.select(DSL.max(BIDDING_BAN.BANNED_UNTIL))
-                .from(BIDDING_BAN).where(BIDDING_BAN.USER_ID.eq(userId))
-                .and(BIDDING_BAN.BANNED_UNTIL.le(OffsetDateTime.now(clock)))
-                .fetchOne(0, OffsetDateTime.class);
-        Condition countable = BIDDER_STRIKE.USER_ID.eq(userId).and(BIDDER_STRIKE.CLEARED_AT.isNull());
-        if (lastBanEnd != null) countable = countable.and(BIDDER_STRIKE.STRUCK_AT.gt(lastBanEnd));
-        return dsl.fetchCount(BIDDER_STRIKE, countable);
+        return dsl.fetchCount(BIDDER_STRIKE, BIDDER_STRIKE.USER_ID.eq(userId)
+                .and(countableStrike(OffsetDateTime.now(clock))));
+    }
+
+    /**
+     * A {@code bidder_strike} row that still counts: not cleared, and not struck before a ban
+     * that has already ended. A lifted ban ends when it was lifted, not at its original
+     * {@code banned_until}, so strikes earned after the lift keep counting.
+     */
+    public static Condition countableStrike(OffsetDateTime now) {
+        var banEnd = DSL.coalesce(BIDDING_BAN.LIFTED_AT, BIDDING_BAN.BANNED_UNTIL);
+        return BIDDER_STRIKE.CLEARED_AT.isNull()
+                .andNotExists(DSL.selectOne().from(BIDDING_BAN)
+                        .where(BIDDING_BAN.USER_ID.eq(BIDDER_STRIKE.USER_ID))
+                        .and(banEnd.le(now))
+                        .and(banEnd.ge(BIDDER_STRIKE.STRUCK_AT)));
     }
 
     /** Serializes strikes for one buyer, including strikes from different auctions. */
@@ -797,7 +811,7 @@ public class AuctionRepository {
                 .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(AUCTION.CATALOG_VARIANT_ID))
                 .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
                 .where(BIDDER_STRIKE.USER_ID.eq(userId))
-                .and(BIDDER_STRIKE.CLEARED_AT.isNull())
+                .and(countableStrike(OffsetDateTime.now(clock)))
                 .orderBy(BIDDER_STRIKE.STRUCK_AT.desc(), BIDDER_STRIKE.ID.desc())
                 .limit(1).fetchOptional(CATALOG_PRODUCT.NAME);
     }
