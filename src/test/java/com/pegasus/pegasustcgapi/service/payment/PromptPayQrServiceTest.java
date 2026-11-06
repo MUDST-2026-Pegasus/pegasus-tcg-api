@@ -22,7 +22,7 @@ class PromptPayQrServiceTest {
         properties = new PromptPayProperties(
                 "PHONE",
                 "0947761119",
-                "ธนาคารไทยพาณิชย์ (SCB)",
+                "",
                 "PEGASUS TCG"
         );
         qrService = new PromptPayQrService(properties);

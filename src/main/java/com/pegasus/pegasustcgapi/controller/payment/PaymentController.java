@@ -40,13 +40,13 @@ public class PaymentController {
     }
 
     @Operation(summary = "Poll my payment status")
-    @GetMapping("/{id}")
+    @GetMapping(value = "/{id}", produces = "application/json;charset=UTF-8")
     public ApiResult<View> get(@PathVariable long id, AuthPrincipal principal) {
         return ApiResult.success(payments.get(principal, id));
     }
 
     @Operation(summary = "Get payment info and PromptPay QR payload")
-    @GetMapping("/{id}/payment-info")
+    @GetMapping(value = "/{id}/payment-info", produces = "application/json;charset=UTF-8")
     public ApiResult<PaymentInfoResponse> getPaymentInfo(@PathVariable("id") long id, AuthPrincipal principal) {
         return ApiResult.success(payments.getPaymentInfoByPaymentId(principal, id));
     }

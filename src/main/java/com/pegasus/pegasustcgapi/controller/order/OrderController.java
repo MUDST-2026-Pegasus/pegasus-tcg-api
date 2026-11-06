@@ -74,7 +74,7 @@ public class OrderController {
             @ApiResponse(responseCode = "200", description = "Payment info retrieved"),
             @ApiResponse(responseCode = "404", description = "Order not found")
     })
-    @GetMapping("/{orderId}/payment-info")
+    @GetMapping(value = "/{orderId}/payment-info", produces = "application/json;charset=UTF-8")
     public ApiResult<PaymentInfoResponse> getPaymentInfo(
             @PathVariable("orderId") long orderId,
             AuthPrincipal principal) {

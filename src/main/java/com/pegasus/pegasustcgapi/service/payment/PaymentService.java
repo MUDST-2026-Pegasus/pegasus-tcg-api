@@ -222,8 +222,12 @@ public class PaymentService {
         OffsetDateTime expiresAt = paymentDeadline(order);
         String qrPayload = promptPayQrService.generatePayload(amount);
         String promptpayId = promptPayQrService.maskedPromptPayId();
-        String bankName = promptPayProperties.bank();
-        String accountName = promptPayProperties.name();
+        String bankName = (promptPayProperties != null && promptPayProperties.bank() != null && !promptPayProperties.bank().isBlank())
+                ? promptPayProperties.bank()
+                : "";
+        String accountName = (promptPayProperties != null && promptPayProperties.name() != null && !promptPayProperties.name().isBlank())
+                ? promptPayProperties.name()
+                : "PEGASUS TCG";
         return new PaymentInfoResponse(qrPayload, promptpayId, bankName, accountName, amount, expiresAt);
     }
 
@@ -242,8 +246,12 @@ public class PaymentService {
         OffsetDateTime expiresAt = paymentDeadline(order);
         String qrPayload = amount.signum() > 0 ? promptPayQrService.generatePayload(amount) : null;
         String promptpayId = promptPayQrService.maskedPromptPayId();
-        String bankName = promptPayProperties.bank();
-        String accountName = promptPayProperties.name();
+        String bankName = (promptPayProperties != null && promptPayProperties.bank() != null && !promptPayProperties.bank().isBlank())
+                ? promptPayProperties.bank()
+                : "";
+        String accountName = (promptPayProperties != null && promptPayProperties.name() != null && !promptPayProperties.name().isBlank())
+                ? promptPayProperties.name()
+                : "PEGASUS TCG";
         return new PaymentInfoResponse(qrPayload, promptpayId, bankName, accountName, amount, expiresAt);
     }
 
@@ -253,8 +261,12 @@ public class PaymentService {
                 : BigDecimal.ZERO;
         String qr = promptPayQrService != null && amount.signum() > 0 ? promptPayQrService.generatePayload(amount) : null;
         String promptPayId = promptPayQrService != null ? promptPayQrService.maskedPromptPayId() : "094-xxx-1119";
-        String bankName = promptPayProperties != null ? promptPayProperties.bank() : "ธนาคารไทยพาณิชย์ (SCB)";
-        String accountName = promptPayProperties != null ? promptPayProperties.name() : "PEGASUS TCG";
+        String bankName = (promptPayProperties != null && promptPayProperties.bank() != null && !promptPayProperties.bank().isBlank())
+                ? promptPayProperties.bank()
+                : "";
+        String accountName = (promptPayProperties != null && promptPayProperties.name() != null && !promptPayProperties.name().isBlank())
+                ? promptPayProperties.name()
+                : "PEGASUS TCG";
         return new View(payment.getId(), order.getId(), payment.getMethod(), payment.getStatus(),
                 payment.getAmount(), paymentDeadline(order),
                 settings.get(PlatformSettingService.PAYMENT_TRANSFER_ACCOUNT).value(),

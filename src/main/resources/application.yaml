@@ -3,8 +3,16 @@ app:
     promptpay:
       type: ${PROMPTPAY_TYPE:PHONE}
       target: ${PROMPTPAY_TARGET:0947761119}
-      bank: ${PROMPTPAY_BANK:ธนาคารไทยพาณิชย์ (SCB)}
+      bank: ${PROMPTPAY_BANK:}
       name: ${PROMPTPAY_NAME:PEGASUS TCG}
+
+server:
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+      force-response: true
+      enabled: true
 
 spring:
   application:
@@ -129,7 +137,7 @@ pegasus:
     promptpay:
       type: ${PROMPTPAY_TYPE:PHONE}
       target: ${PROMPTPAY_TARGET:0947761119}
-      bank: ${PROMPTPAY_BANK:ธนาคารไทยพาณิชย์ (SCB)}
+      bank: ${PROMPTPAY_BANK:}
       name: ${PROMPTPAY_NAME:PEGASUS TCG}
 
   pricing:

@@ -247,7 +247,7 @@ class PaymentServiceTest {
         PaymentInfoResponse info = service.getPaymentInfo(buyer, 11L);
         assertThat(info.qrPayload()).isEqualTo("00020101021229370016A0000006770101110113006694776111953037645406673.005802TH5911PEGASUS TCG6007Bangkok6304C2AF");
         assertThat(info.promptpayId()).isEqualTo("094-xxx-1119");
-        assertThat(info.bankName()).isEqualTo("ธนาคารไทยพาณิชย์ (SCB)");
+        assertThat(info.bankName()).isEmpty();
         assertThat(info.accountName()).isEqualTo("PEGASUS TCG");
         assertThat(info.amount()).isEqualByComparingTo("673.00");
         assertThat(info.expiresAt()).isEqualTo(placedAt.plusMinutes(60));

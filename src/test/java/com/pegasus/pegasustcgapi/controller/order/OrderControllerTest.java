@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -231,7 +232,7 @@ class OrderControllerTest {
         PaymentInfoResponse response = new PaymentInfoResponse(
                 "00020101021229370016A0000006770101110113006694776111953037645406673.005802TH5911PEGASUS TCG6007Bangkok6304C2AF",
                 "094-xxx-1119",
-                "ธนาคารไทยพาณิชย์ (SCB)",
+                "",
                 "PEGASUS TCG",
                 new BigDecimal("673.00"),
                 expiresAt
@@ -242,10 +243,11 @@ class OrderControllerTest {
 
         mockMvc.perform(get(ApiPaths.ORDERS + "/100/payment-info"))
                 .andExpect(status().isOk())
+                .andExpect(content().contentType("application/json;charset=UTF-8"))
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.qrPayload").value(response.qrPayload()))
                 .andExpect(jsonPath("$.data.promptpayId").value("094-xxx-1119"))
-                .andExpect(jsonPath("$.data.bankName").value("ธนาคารไทยพาณิชย์ (SCB)"))
+                .andExpect(jsonPath("$.data.bankName").value(""))
                 .andExpect(jsonPath("$.data.accountName").value("PEGASUS TCG"))
                 .andExpect(jsonPath("$.data.amount").value(673.00))
                 .andExpect(jsonPath("$.data.expiresAt").exists());
