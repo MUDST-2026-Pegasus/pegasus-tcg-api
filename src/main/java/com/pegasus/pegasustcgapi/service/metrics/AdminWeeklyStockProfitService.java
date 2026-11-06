@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.BreakdownTot
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.DailySales;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameBreakdown;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameDistributionItem;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameTypeBreakdownRow;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.Report;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.ReportMeta;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.StockThresholds;
@@ -17,6 +18,7 @@ import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitReposi
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameBreakdownStat;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameProfit;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameStock;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameTypeBreakdownStat;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.Totals;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.io.ByteArrayOutputStream;
@@ -48,6 +50,7 @@ public class AdminWeeklyStockProfitService {
     public static final ZoneId ZONE = ZoneId.of("Asia/Bangkok");
     public static final BigDecimal COMMISSION_RATE_PERCENT = new BigDecimal("3.0");
     public static final BigDecimal COMMISSION_RATE = new BigDecimal("0.03");
+    private static final List<String> PRODUCT_TYPE_ORDER = List.of("SINGLE_CARD", "SEALED", "OTHER");
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final BigDecimal ZERO_ONE_DECIMAL = new BigDecimal("0.0");
 
@@ -124,7 +127,7 @@ public class AdminWeeklyStockProfitService {
                     BigDecimal.ZERO, BigDecimal.ZERO,
                     BigDecimal.ZERO, 0, 0, 0, 0, ZERO_ONE_DECIMAL);
             return new Report(start, end, false, meta, emptySummary,
-                    List.copyOf(chart), List.of(), List.of(), List.of(), BreakdownTotals.zero());
+                    List.copyOf(chart), List.of(), List.of(), List.of(), List.of(), BreakdownTotals.zero());
         }
 
         BigDecimal wow = percentChange(totals.gmv(), previous.gmv());
@@ -151,6 +154,8 @@ public class AdminWeeklyStockProfitService {
         List<GameBreakdownStat> detailedRows = repository.gameBreakdownRows(from, to, game, type);
         StockThresholds thresholds = thresholds();
         List<BreakdownRow> breakdownTable = buildBreakdownTable(detailedRows, rawBreakdown, depleted, totals, thresholds);
+        List<GameTypeBreakdownRow> byGameAndType = buildGameTypeRows(
+                repository.gameTypeBreakdownRows(from, to, game, type), thresholds);
         BreakdownTotals tableTotals = buildBreakdownTotals(breakdownTable, stock, depleted, totals);
         List<GameDistributionItem> gameDistribution = buildGameDistribution(breakdownTable, tableTotals);
 
@@ -162,7 +167,7 @@ public class AdminWeeklyStockProfitService {
 
         return new Report(start, end, true, meta, summary,
                 List.copyOf(chart), List.copyOf(breakdown),
-                List.copyOf(gameDistribution), List.copyOf(breakdownTable), tableTotals);
+                List.copyOf(gameDistribution), List.copyOf(breakdownTable), byGameAndType, tableTotals);
     }
 
     private static List<BreakdownRow> buildBreakdownTable(
@@ -226,6 +231,35 @@ public class AdminWeeklyStockProfitService {
                 .thenComparing(Comparator.comparingLong(BreakdownRow::remainingStock).reversed())
                 .thenComparing(BreakdownRow::game, String.CASE_INSENSITIVE_ORDER));
         return rows;
+    }
+
+    /** Biggest game first, then singles, sealed and other within each game. */
+    private static List<GameTypeBreakdownRow> buildGameTypeRows(
+            List<GameTypeBreakdownStat> stats, StockThresholds thresholds) {
+        Map<String, BigDecimal> gmvByGame = new HashMap<>();
+        stats.forEach(stat -> gmvByGame.merge(stat.slug(), stat.gmv(), BigDecimal::add));
+        return stats.stream()
+                .sorted(Comparator
+                        .comparing((GameTypeBreakdownStat stat) -> gmvByGame.get(stat.slug()), Comparator.reverseOrder())
+                        .thenComparing(GameTypeBreakdownStat::name, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparingInt(stat -> PRODUCT_TYPE_ORDER.indexOf(stat.productType())))
+                .map(stat -> {
+                    long initial = calculateInitialStock(stat.remainingStock(), stat.soldCount());
+                    String status = classifyStockStatus(initial, stat.soldCount(), stat.remainingStock(),
+                            thresholds.lowStockThreshold(), thresholds.fastMovingPercent());
+                    return new GameTypeBreakdownRow(stat.name(), stat.slug(), stat.productType(),
+                            productTypeLabel(stat.productType()), initial, stat.soldCount(), stat.remainingStock(),
+                            stat.gmv(), stat.commission(), stat.profit(), status, statusLabel(status));
+                })
+                .toList();
+    }
+
+    private static String productTypeLabel(String productType) {
+        return switch (productType) {
+            case "SINGLE_CARD" -> "การ์ดเดี่ยว";
+            case "SEALED" -> "กล่อง/ซองสุ่ม";
+            default -> "อื่น ๆ";
+        };
     }
 
     private static BreakdownTotals buildBreakdownTotals(

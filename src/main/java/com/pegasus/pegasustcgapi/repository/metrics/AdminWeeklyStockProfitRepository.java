@@ -180,6 +180,47 @@ public class AdminWeeklyStockProfitRepository {
                         r.get("profit", BigDecimal.class)));
     }
 
+    /** One row per game and product group that has stock or sales. */
+    public List<GameTypeBreakdownStat> gameTypeBreakdownRows(
+            OffsetDateTime from, OffsetDateTime to, String game, String group) {
+        return dsl.fetch("WITH " + ACTIVE_STOCK + ", " + COMPLETED_LINES + """
+                , stock_rows AS (
+                    SELECT slug, name, product_group, COALESCE(SUM(quantity_available), 0) AS remaining_stock
+                      FROM active_stock
+                     WHERE """ + " " + FILTERS + """
+
+                     GROUP BY slug, name, product_group
+                ), sales_rows AS (
+                    SELECT slug, name, product_group, COALESCE(SUM(quantity), 0) AS sold_count,
+                """ + GMV_SUM + " AS gmv, " + COMMISSION_SUM + " AS commission, " + PROFIT_SUM + """
+                 AS profit
+                      FROM completed_lines
+                     WHERE """ + " " + FILTERS + """
+
+                     GROUP BY slug, name, product_group
+                )
+                SELECT COALESCE(st.slug, sa.slug) AS slug,
+                       COALESCE(st.name, sa.name) AS name,
+                       COALESCE(st.product_group, sa.product_group) AS product_group,
+                       COALESCE(st.remaining_stock, 0) AS remaining_stock,
+                       COALESCE(sa.sold_count, 0) AS sold_count,
+                       COALESCE(sa.gmv, 0) AS gmv,
+                       COALESCE(sa.commission, 0) AS commission,
+                       COALESCE(sa.profit, 0) AS profit
+                  FROM stock_rows st
+                  FULL OUTER JOIN sales_rows sa ON st.slug = sa.slug AND st.product_group = sa.product_group
+                """, to, from, to, game, game, group, group, game, game, group, group)
+                .map(r -> new GameTypeBreakdownStat(
+                        r.get("slug", String.class),
+                        r.get("name", String.class),
+                        r.get("product_group", String.class),
+                        r.get("remaining_stock", Long.class),
+                        r.get("sold_count", Long.class),
+                        r.get("gmv", BigDecimal.class),
+                        r.get("commission", BigDecimal.class),
+                        r.get("profit", BigDecimal.class)));
+    }
+
     public record Totals(BigDecimal gmv, BigDecimal commission, BigDecimal netProfit) {}
     public record DailyAmounts(LocalDate date, BigDecimal singles, BigDecimal sealed, BigDecimal other) {}
     public record GameProfit(String slug, String name, BigDecimal profit) {}
@@ -191,6 +232,15 @@ public class AdminWeeklyStockProfitRepository {
             long singleCards,
             long sealedBoxes,
             long otherItems,
+            long soldCount,
+            BigDecimal gmv,
+            BigDecimal commission,
+            BigDecimal profit) {}
+    public record GameTypeBreakdownStat(
+            String slug,
+            String name,
+            String productType,
+            long remainingStock,
             long soldCount,
             BigDecimal gmv,
             BigDecimal commission,

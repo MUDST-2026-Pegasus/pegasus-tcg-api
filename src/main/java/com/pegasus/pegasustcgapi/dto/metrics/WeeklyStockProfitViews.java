@@ -69,6 +69,21 @@ public final class WeeklyStockProfitViews {
             String status,
             String statusLabel) {}
 
+    /** @param productType SINGLE_CARD, SEALED or OTHER */
+    public record GameTypeBreakdownRow(
+            String game,
+            String gameSlug,
+            String productType,
+            String productTypeLabel,
+            long initialStock,
+            long soldCount,
+            long remainingStock,
+            BigDecimal gmv,
+            BigDecimal commission,
+            BigDecimal netProfit,
+            String status,
+            String statusLabel) {}
+
     public record BreakdownTotals(
             long initialStock,
             long soldCount,
@@ -113,6 +128,7 @@ public final class WeeklyStockProfitViews {
             List<GameBreakdown> breakdownByGame,
             List<GameDistributionItem> gameDistribution,
             List<BreakdownRow> breakdownTable,
+            List<GameTypeBreakdownRow> breakdownByGameAndType,
             BreakdownTotals totals) {
 
         public Report(LocalDate startDate, LocalDate endDate, Summary summary,
@@ -124,6 +140,7 @@ public final class WeeklyStockProfitViews {
                     summary,
                     chartData,
                     breakdownByGame,
+                    List.of(),
                     List.of(),
                     List.of(),
                     summary == null ? BreakdownTotals.zero() : new BreakdownTotals(
