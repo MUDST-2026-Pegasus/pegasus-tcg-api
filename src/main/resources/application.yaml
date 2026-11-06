@@ -71,11 +71,11 @@ management:
       export:
         otlp:
           # Spring Boot 4 uses this property path for OTLP trace export.
-          endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+          endpoint: ${OTLP_TRACING_ENDPOINT:http://100.86.180.113:4318/v1/traces}
   otlp:
     metrics:
       export:
-        url: ${OTLP_METRICS_ENDPOINT:http://localhost:4318/v1/metrics}
+        url: ${OTLP_METRICS_ENDPOINT:http://100.86.180.113:4318/v1/metrics}
         enabled: ${OTLP_METRICS_ENABLED:true}
   tracing:
     sampling:
