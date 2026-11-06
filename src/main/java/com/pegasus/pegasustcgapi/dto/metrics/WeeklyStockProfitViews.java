@@ -101,7 +101,8 @@ public final class WeeklyStockProfitViews {
         public Report(LocalDate startDate, LocalDate endDate, Summary summary,
                 List<DailySales> chartData, List<GameBreakdown> breakdownByGame) {
             this(startDate, endDate,
-                    summary != null && (summary.gmv().signum() > 0 || summary.stockDepleted() > 0),
+                    summary != null && (summary.gmv().signum() > 0 || summary.stockDepleted() > 0
+                            || summary.remainingStock() > 0),
                     new ReportMeta(startDate, endDate, "Asia/Bangkok", null, null, new BigDecimal("3.0")),
                     summary,
                     chartData,

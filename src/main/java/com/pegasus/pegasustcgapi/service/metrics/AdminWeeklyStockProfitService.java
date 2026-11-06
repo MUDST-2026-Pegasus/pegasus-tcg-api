@@ -20,6 +20,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -48,9 +49,11 @@ public class AdminWeeklyStockProfitService {
     private static final BigDecimal ZERO_ONE_DECIMAL = new BigDecimal("0.0");
 
     private final AdminWeeklyStockProfitRepository repository;
+    private final Clock clock;
 
-    public AdminWeeklyStockProfitService(AdminWeeklyStockProfitRepository repository) {
+    public AdminWeeklyStockProfitService(AdminWeeklyStockProfitRepository repository, Clock clock) {
         this.repository = repository;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -79,14 +82,17 @@ public class AdminWeeklyStockProfitService {
                     row == null ? BigDecimal.ZERO : row.other()));
         }
 
-        long rawStock = repository.activeStock(to, game, type);
+        // A week that has not started has no stock to report; the latest history row would
+        // otherwise present today's listings as that future week's closing stock.
+        LocalDate today = LocalDate.now(clock.withZone(ZONE));
+        long rawStock = start.isAfter(today) ? 0 : repository.activeStock(to, game, type);
         long depleted = repository.completedQuantity(from, to, game, type);
         Map<String, GameStock> stockByGame = new HashMap<>();
         repository.activeStockByGame(to, game, type).forEach(row -> stockByGame.put(row.slug(), row));
         Map<String, GameProfit> profitByGame = new HashMap<>();
         repository.profitByGame(from, to, game, type).forEach(row -> profitByGame.put(row.slug(), row));
 
-        boolean hasData = totals.gmv().signum() > 0 || depleted > 0;
+        boolean hasData = totals.gmv().signum() > 0 || depleted > 0 || rawStock > 0;
         ReportMeta meta = new ReportMeta(start, end, ZONE.getId(), game, type, COMMISSION_RATE_PERCENT);
 
         if (!hasData) {

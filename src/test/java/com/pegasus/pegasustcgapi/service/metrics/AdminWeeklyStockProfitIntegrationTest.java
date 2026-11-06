@@ -523,6 +523,26 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
         assertThat(onlyOther.summary().remainingStock()).isEqualTo(50);
     }
 
+    @Test
+    void aWeekWithStockAndNoSalesIsNotEmpty() {
+        Seller seller = data.seller();
+        String slug = "cr15-stock-" + data.tag().toLowerCase();
+        short gameId = ensureGame(dsl, slug.toUpperCase(), "CR15 Stock " + slug, slug);
+        long single = createVariant(dsl, data, gameId, "SINGLE_CARD");
+        createHistoricalListingStock(dsl, seller.profileId(), single, 30,
+                OffsetDateTime.parse("2024-04-02T10:00:00+07:00"),
+                OffsetDateTime.parse("2024-04-08T00:01:00+07:00"));
+
+        var withStock = reportService.report("2024-04-01", "2024-04-07", slug, null);
+        assertThat(withStock.hasData()).isTrue();
+        assertThat(withStock.summary().remainingStock()).isEqualTo(30);
+        assertThat(withStock.summary().gmv()).isZero();
+        assertThat(withStock.breakdownTable()).singleElement()
+                .satisfies(row -> assertThat(row.remainingStock()).isEqualTo(30));
+
+        assertThat(reportService.report("2024-04-08", "2024-04-14", slug, null).hasData()).isFalse();
+    }
+
     private static Map<String, String> unzipEntries(byte[] bytes) throws IOException {
         Map<String, String> files = new HashMap<>();
         try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(bytes))) {

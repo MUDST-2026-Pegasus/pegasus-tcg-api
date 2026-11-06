@@ -17,8 +17,11 @@ import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitReposi
 import com.pegasus.pegasustcgapi.service.metrics.AdminWeeklyStockProfitService.OrderSample;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,10 +31,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class AdminWeeklyStockProfitServiceTest {
 
+    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-11-07T05:00:00Z"), ZoneOffset.UTC);
+
     @Mock AdminWeeklyStockProfitRepository repository;
 
     private AdminWeeklyStockProfitService service() {
-        return new AdminWeeklyStockProfitService(repository);
+        return new AdminWeeklyStockProfitService(repository, CLOCK);
     }
 
     @Test
@@ -67,6 +72,42 @@ class AdminWeeklyStockProfitServiceTest {
             assertThat(game.game()).isEqualTo("Pokémon");
             assertThat(game.remainingStock()).isEqualTo(7);
         });
+    }
+
+    @Test
+    void aWeekWithStockButNoSalesStillHasData() {
+        OffsetDateTime to = OffsetDateTime.parse("2026-11-09T00:00:00+07:00");
+        when(repository.completedTotals(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq("pokemon"), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(new Totals(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(repository.activeStock(to, "pokemon", null)).thenReturn(703L);
+        when(repository.gameBreakdownRows(to.minusWeeks(1), to, "pokemon", null)).thenReturn(List.of(
+                new GameBreakdownStat("pokemon", "Pokemon", 703L, 703L, 0L, 0L, 0L,
+                        BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)));
+
+        var report = service().report("2026-11-02", "2026-11-08", "pokemon", null);
+
+        assertThat(report.hasData()).isTrue();
+        assertThat(report.summary().remainingStock()).isEqualTo(703);
+        assertThat(report.summary().initialStock()).isEqualTo(703);
+        assertThat(report.totals().remainingStock()).isEqualTo(703);
+        assertThat(report.breakdownTable()).singleElement()
+                .satisfies(row -> assertThat(row.remainingStock()).isEqualTo(703));
+    }
+
+    @Test
+    void aWeekThatHasNotStartedHasNoStock() {
+        when(repository.completedTotals(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(new Totals(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+
+        var report = service().report("2026-11-09", "2026-11-15", null, null);
+
+        assertThat(report.hasData()).isFalse();
+        assertThat(report.summary().remainingStock()).isZero();
+        verify(repository, org.mockito.Mockito.never()).activeStock(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test
