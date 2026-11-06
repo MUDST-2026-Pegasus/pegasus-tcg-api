@@ -83,6 +83,9 @@ class OrderLifecycleUnitTest {
     @Mock
     private CollectionPort collectionPort;
 
+    @Mock
+    private com.pegasus.pegasustcgapi.repository.auction.AuctionRepository auctionRepository;
+
     @InjectMocks
     private OrderLifecycleService service;
 
@@ -449,6 +452,36 @@ class OrderLifecycleUnitTest {
     @Nested
     @DisplayName("Seller Order State Matrix — Buyer Cancellation Transitions")
     class CancelStateMatrixTests {
+
+        @Test
+        void auctionSalesOrderCannotBeCancelledByBuyer() {
+            SalesOrderRecord parent = mockSalesOrder(1L, "PENDING_PAYMENT");
+            when(parent.getSource()).thenReturn("AUCTION");
+            when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId()))
+                    .thenReturn(Optional.of(parent));
+
+            assertThatThrownBy(() -> service.cancelBuyerOrder(buyerPrincipal, 1L, null))
+                    .isInstanceOf(ConflictException.class)
+                    .satisfies(ex -> assertThat(((ConflictException) ex).errorCode())
+                            .isEqualTo(ErrorCode.ORDER_STATUS_TRANSITION));
+            verify(inventoryPort, never()).release(anyCollection());
+        }
+
+        @Test
+        void auctionSellerOrderCannotBeCancelledByBuyer() {
+            SalesOrderRecord parent = mockSalesOrder(1L, "PENDING_PAYMENT");
+            when(parent.getSource()).thenReturn("AUCTION");
+            SellerOrderRecord child = mockSellerOrder(10L, 1L, "PENDING_PAYMENT");
+            when(orderRepository.findSellerOrderById(10L)).thenReturn(Optional.of(child));
+            when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId()))
+                    .thenReturn(Optional.of(parent));
+
+            assertThatThrownBy(() -> service.cancelBuyerOrder(buyerPrincipal, 10L, null))
+                    .isInstanceOf(ConflictException.class)
+                    .satisfies(ex -> assertThat(((ConflictException) ex).errorCode())
+                            .isEqualTo(ErrorCode.ORDER_STATUS_TRANSITION));
+            verify(inventoryPort, never()).release(anyCollection());
+        }
 
         @ParameterizedTest(name = "Valid cancellation from {0}")
         @ValueSource(strings = {"PENDING_PAYMENT", "PAID", "PREPARING"})

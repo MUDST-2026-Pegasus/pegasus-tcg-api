@@ -41,10 +41,6 @@ public class AuctionBuyNowService {
         this.settings = settings;
     }
 
-    public AuctionBuyNowService(AuctionRepository auctions, AuctionEligibilityValidator validator, Clock clock) {
-        this(auctions, validator, clock, null);
-    }
-
     /**
      * Executes buy-now for an active auction without prior bids.
      *
@@ -97,9 +93,7 @@ public class AuctionBuyNowService {
         validator.validateCanBid(auction, userId, now);
 
         // 7. Transition auction to AWAITING_PAYMENT
-        OffsetDateTime paymentDueAt = now.plus(settings == null
-                ? AuctionPolicy.DEFAULT_PAYMENT_WINDOW
-                : settings.getAuctionPaymentWindow());
+        OffsetDateTime paymentDueAt = now.plus(settings.getAuctionPaymentWindow());
         boolean updated = auctions.recordBuyNowWin(auctionId, userId, auction.buyNowPrice(), now, paymentDueAt);
         if (!updated) {
             throw new ConflictException(ErrorCode.BUY_NOW_UNAVAILABLE, "Auction could not be bought now");

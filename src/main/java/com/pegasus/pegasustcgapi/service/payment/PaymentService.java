@@ -57,21 +57,8 @@ public class PaymentService {
         this.storage = storage;
         this.clock = clock;
         this.auctions = auctions;
-        this.promptPayProperties = promptPayProperties != null ? promptPayProperties : new PromptPayProperties(null, null, null, null);
-        this.promptPayQrService = promptPayQrService != null ? promptPayQrService : new PromptPayQrService(this.promptPayProperties);
-    }
-
-    public PaymentService(PaymentRepository payments, EscrowRepository escrow,
-            WalletLedgerService ledger, OrderLifecycleService orders,
-            PlatformSettingService settings, StorageService storage, Clock clock,
-            AuctionRepository auctions) {
-        this(payments, escrow, ledger, orders, settings, storage, clock, auctions, null, null);
-    }
-
-    public PaymentService(PaymentRepository payments, EscrowRepository escrow,
-            WalletLedgerService ledger, OrderLifecycleService orders,
-            PlatformSettingService settings, StorageService storage, Clock clock) {
-        this(payments, escrow, ledger, orders, settings, storage, clock, null, null, null);
+        this.promptPayProperties = java.util.Objects.requireNonNull(promptPayProperties);
+        this.promptPayQrService = java.util.Objects.requireNonNull(promptPayQrService);
     }
 
     @Transactional
@@ -275,7 +262,7 @@ public class PaymentService {
     }
 
     private OffsetDateTime paymentDeadline(SalesOrderRecord order) {
-        if (order.getAuctionId() != null && auctions != null) {
+        if (order.getAuctionId() != null) {
             return auctions.findById(order.getAuctionId())
                     .map(a -> a.paymentDueAt())
                     .orElseThrow(() -> new NotFoundException(ErrorCode.AUCTION_NOT_FOUND));

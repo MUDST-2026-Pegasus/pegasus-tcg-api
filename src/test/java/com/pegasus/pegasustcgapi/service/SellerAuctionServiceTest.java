@@ -121,7 +121,11 @@ class SellerAuctionServiceTest {
                 games,
                 cardSets,
                 cards,
-                FIXED_CLOCK);
+                FIXED_CLOCK, settings);
+        org.mockito.Mockito.lenient().when(settings.getMinutes(PlatformSettingService.AUCTION_MIN_DURATION_MINUTES))
+                .thenReturn(Duration.ofHours(1));
+        org.mockito.Mockito.lenient().when(settings.getDays(PlatformSettingService.AUCTION_MAX_DURATION_DAYS))
+                .thenReturn(Duration.ofDays(30));
 
         verifiedSeller = new SellerProfile(
                 SELLER_ID,

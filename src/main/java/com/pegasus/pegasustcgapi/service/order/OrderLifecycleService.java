@@ -124,25 +124,6 @@ public class OrderLifecycleService {
         this.auctionRepository = auctionRepository;
     }
 
-    public OrderLifecycleService(OrderRepository orderRepository, SellerPort sellerPort,
-            PlatformSettingService platformSettingService, InventoryPort inventoryPort,
-            LedgerPort ledgerPort, CollectionPort collectionPort, Clock clock, StorageService storageService) {
-        this(orderRepository, sellerPort, platformSettingService, inventoryPort, ledgerPort,
-                collectionPort, clock, storageService, null);
-    }
-
-    public OrderLifecycleService(
-            OrderRepository orderRepository,
-            SellerPort sellerPort,
-            PlatformSettingService platformSettingService,
-            InventoryPort inventoryPort,
-            LedgerPort ledgerPort,
-            CollectionPort collectionPort,
-            Clock clock) {
-        this(orderRepository, sellerPort, platformSettingService,
-                inventoryPort, ledgerPort, collectionPort, clock, null);
-    }
-
     // ==========================================
     // Buyer Operations
     // ==========================================
@@ -277,6 +258,9 @@ public class OrderLifecycleService {
     }
 
     private OrderDetailsResponse cancelSalesOrder(AuthPrincipal principal, SalesOrderRecord salesOrder, CancelOrderRequest request) {
+        if ("AUCTION".equals(salesOrder.getSource())) {
+            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        }
         requireWithinCancelWindow(salesOrder);
         if (orderRepository.hasPaymentUnderReview(salesOrder.getId())) {
             throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
@@ -290,6 +274,9 @@ public class OrderLifecycleService {
         }
         salesOrder = orderRepository.findSalesOrderByIdForUpdate(salesOrder.getId())
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+        if ("AUCTION".equals(salesOrder.getSource())) {
+            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        }
         requireWithinCancelWindow(salesOrder);
         sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(salesOrder.getId());
         if (sellerOrders.stream().anyMatch(so -> List.of("SHIPPED", "DELIVERED", "COMPLETED")
@@ -327,6 +314,9 @@ public class OrderLifecycleService {
     }
 
     private OrderDetailsResponse cancelSingleSellerOrder(AuthPrincipal principal, SalesOrderRecord parentOrder, SellerOrderRecord sellerOrder, CancelOrderRequest request) {
+        if ("AUCTION".equals(parentOrder.getSource())) {
+            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        }
         requireWithinCancelWindow(parentOrder);
         if (orderRepository.hasPaymentUnderReview(parentOrder.getId())) {
             throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
@@ -337,6 +327,9 @@ public class OrderLifecycleService {
         }
         parentOrder = orderRepository.findSalesOrderByIdForUpdate(parentOrder.getId())
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+        if ("AUCTION".equals(parentOrder.getSource())) {
+            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
+        }
         requireWithinCancelWindow(parentOrder);
         sellerOrder = orderRepository.findSellerOrderById(sellerOrder.getId())
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
@@ -477,7 +470,7 @@ public class OrderLifecycleService {
         }
 
         rollupSalesOrderStatus(salesOrder.getId());
-        if (salesOrder.getAuctionId() != null && auctionRepository != null) {
+        if (salesOrder.getAuctionId() != null) {
             auctionRepository.markSoldForOrder(salesOrder.getAuctionId(), salesOrder.getId());
         }
     }

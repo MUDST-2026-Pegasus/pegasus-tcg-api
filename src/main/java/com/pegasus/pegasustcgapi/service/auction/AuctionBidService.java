@@ -43,10 +43,6 @@ public class AuctionBidService {
         this.settings = settings;
     }
 
-    public AuctionBidService(AuctionRepository auctions, AuctionEligibilityValidator validator, Clock clock) {
-        this(auctions, validator, clock, null);
-    }
-
     /**
      * Places a bid on an active auction under a pessimistic row lock.
      *
@@ -110,8 +106,7 @@ public class AuctionBidService {
         boolean isNewBidder = !auctions.hasBid(auctionId, userId);
 
         // 5. Read the current anti-sniping window on every bid.
-        Duration extension = settings == null ? Duration.ofSeconds(AuctionPolicy.ANTI_SNIPING_WINDOW_SECONDS)
-                : settings.getSeconds(PlatformSettingService.AUCTION_EXTENSION_SECONDS);
+        Duration extension = settings.getSeconds(PlatformSettingService.AUCTION_EXTENSION_SECONDS);
         Duration remaining = Duration.between(now, auction.endsAt());
         boolean extended = !remaining.isNegative() && remaining.compareTo(extension) < 0;
         OffsetDateTime newEndsAt = extended ? now.plus(extension) : auction.endsAt();

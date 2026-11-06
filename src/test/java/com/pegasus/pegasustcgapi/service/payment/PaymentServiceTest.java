@@ -49,17 +49,19 @@ class PaymentServiceTest {
     @Mock OrderLifecycleService orders;
     @Mock PlatformSettingService settings;
     @Mock StorageService storage;
+    @Mock AuctionRepository auctions;
+    private final com.pegasus.pegasustcgapi.config.PromptPayProperties promptPayProperties =
+            new com.pegasus.pegasustcgapi.config.PromptPayProperties(null, null, null, null);
     PaymentService service;
     AuthPrincipal buyer = new AuthPrincipal(7, null, null, Set.of());
 
     @BeforeEach void setUp() {
-        service = new PaymentService(payments, escrow, ledger, orders, settings, storage, Clock.systemUTC());
+        service = new PaymentService(payments, escrow, ledger, orders, settings, storage, Clock.systemUTC(),
+                auctions, promptPayProperties,
+                new com.pegasus.pegasustcgapi.service.payment.PromptPayQrService(promptPayProperties));
     }
 
     @Test void auctionPaymentShowsDeadlineFromAuctionClose() {
-        AuctionRepository auctions = mock(AuctionRepository.class);
-        service = new PaymentService(payments, escrow, ledger, orders, settings, storage,
-                Clock.systemUTC(), auctions);
         SalesOrderRecord order = new SalesOrderRecord();
         order.setId(11L);
         order.setBuyerId(7L);

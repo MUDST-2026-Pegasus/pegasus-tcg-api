@@ -59,12 +59,10 @@ public class AuctionPaymentTimeoutService {
         if (auction.salesOrderId() == null && !units.revertFromAuction(auction.listingUnitId())) {
             throw new IllegalStateException("Auction card was not ON_AUCTION: " + auction.listingUnitId());
         }
-        ListingUnit card = units.findOfSeller(auction.listingUnitId(), auction.sellerProfileId())
-                .orElseThrow(() -> new IllegalStateException("Auction card is missing: " + auction.listingUnitId()));
-        if (card.status() != ListingUnitStatus.IN_STOCK) {
-            throw new IllegalStateException("Auction card was not returned to stock: " + card.id());
-        }
-        inventory.recordAuctionUnsold(card, auctionId, null);
+        // A previously cancelled order may already have released and re-listed the card.
+        units.findOfSeller(auction.listingUnitId(), auction.sellerProfileId())
+                .filter(card -> card.status() == ListingUnitStatus.IN_STOCK)
+                .ifPresent(card -> inventory.recordAuctionUnsold(card, auctionId, null));
         return true;
     }
 }

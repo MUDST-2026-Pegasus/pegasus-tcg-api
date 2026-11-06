@@ -96,10 +96,16 @@ class AuctionBrowseServiceTest {
     @Mock
     private ListingCardRenderer cards;
 
+    @Mock
+    private com.pegasus.pegasustcgapi.service.setting.PlatformSettingService settings;
+
     private AuctionBrowseService service;
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.lenient().when(settings.getInt(
+                com.pegasus.pegasustcgapi.service.setting.PlatformSettingService.AUCTION_STRIKE_LIMIT))
+                .thenReturn(3);
         service = new AuctionBrowseService(
                 auctions,
                 addresses,
@@ -110,7 +116,8 @@ class AuctionBrowseServiceTest {
                 games,
                 cardSets,
                 cards,
-                FIXED_CLOCK);
+                FIXED_CLOCK,
+                settings);
     }
 
     private Auction sampleAuction(AuctionStatus status, BigDecimal currentPrice, int bidCount, BigDecimal buyNowPrice) {
