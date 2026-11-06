@@ -7,11 +7,15 @@ import com.pegasus.pegasustcgapi.support.ApiClient;
 import com.pegasus.pegasustcgapi.support.ApiClient.BinaryResponse;
 import com.pegasus.pegasustcgapi.support.ApiClient.Response;
 import com.pegasus.pegasustcgapi.support.TestData;
+import io.cucumber.java.After;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -29,8 +33,133 @@ public class AdminWeeklyStockProfitSteps {
     @Autowired
     private DSLContext dsl;
 
+    private static final String THRESHOLDS = "/api/v1/admin/reports/weekly-stock-profit/thresholds";
+
     private Response response;
     private BinaryResponse rawResponse;
+
+    private boolean thresholdsChanged;
+
+    /** Thresholds are shared platform settings, so a scenario that saves them must put them back. */
+    @After
+    public void restoreThresholds() {
+        if (thresholdsChanged) {
+            new ApiClient(port).put(THRESHOLDS, data.bearer(data.admin()),
+                    Map.of("lowStockThreshold", 500, "fastMovingPercent", 30));
+        }
+    }
+
+    @When("an unauthenticated caller requests the weekly report stock thresholds")
+    public void anonymousReadsThresholds() {
+        response = new ApiClient(port).get(THRESHOLDS, null);
+    }
+
+    @When("an unauthenticated caller saves the weekly report stock thresholds")
+    public void anonymousSavesThresholds() {
+        response = new ApiClient(port).put(THRESHOLDS, null, Map.of("lowStockThreshold", 1, "fastMovingPercent", 1));
+    }
+
+    @When("a buyer requests the weekly report stock thresholds")
+    public void buyerReadsThresholds() {
+        response = new ApiClient(port).get(THRESHOLDS, data.bearer(data.buyer()));
+    }
+
+    @When("a buyer saves the weekly report stock thresholds")
+    public void buyerSavesThresholds() {
+        response = new ApiClient(port).put(THRESHOLDS, data.bearer(data.buyer()),
+                Map.of("lowStockThreshold", 1, "fastMovingPercent", 1));
+    }
+
+    @When("a seller requests the weekly report stock thresholds")
+    public void sellerReadsThresholds() {
+        response = new ApiClient(port).get(THRESHOLDS, data.bearer(data.seller().principal()));
+    }
+
+    @When("a seller saves the weekly report stock thresholds")
+    public void sellerSavesThresholds() {
+        response = new ApiClient(port).put(THRESHOLDS, data.bearer(data.seller().principal()),
+                Map.of("lowStockThreshold", 1, "fastMovingPercent", 1));
+    }
+
+    @When("an admin requests the weekly report stock thresholds")
+    public void adminReadsThresholds() {
+        response = new ApiClient(port).get(THRESHOLDS, data.bearer(data.admin()));
+    }
+
+    @When("an admin saves the weekly report thresholds as {int} units and {int} percent")
+    public void adminSavesThresholds(int units, int percent) {
+        thresholdsChanged = true;
+        response = new ApiClient(port).put(THRESHOLDS, data.bearer(data.admin()),
+                Map.of("lowStockThreshold", units, "fastMovingPercent", percent));
+    }
+
+    @Then("the weekly report thresholds are {int} units and {int} percent")
+    public void verifyThresholds(int units, int percent) {
+        assertThat(response.data().path("lowStockThreshold").asInt()).isEqualTo(units);
+        assertThat(response.data().path("fastMovingPercent").asInt()).isEqualTo(percent);
+    }
+
+    @Then("the weekly report breakdownTable statuses are {string}")
+    public void verifyStatuses(String expected) {
+        List<String> statuses = new ArrayList<>();
+        response.data().path("breakdownTable").forEach(row -> statuses.add(row.path("status").asText()));
+        assertThat(String.join(", ", statuses)).isEqualTo(expected);
+    }
+
+    @Then("the weekly report breakdownByGameAndType has {int} rows that sum to the totals")
+    public void verifyGameTypeRows(int size) {
+        JsonNode rows = response.data().path("breakdownByGameAndType");
+        JsonNode totals = response.data().path("totals");
+        assertThat(rows.size()).isEqualTo(size);
+        long sold = 0;
+        long remaining = 0;
+        BigDecimal gmv = BigDecimal.ZERO;
+        for (JsonNode row : rows) {
+            assertThat(row.path("remainingStock").asLong())
+                    .isEqualTo(row.path("initialStock").asLong() - row.path("soldCount").asLong());
+            assertThat(row.path("productType").asText()).isIn("SINGLE_CARD", "SEALED");
+            sold += row.path("soldCount").asLong();
+            remaining += row.path("remainingStock").asLong();
+            gmv = gmv.add(new BigDecimal(row.path("gmv").asText()));
+        }
+        assertThat(sold).isEqualTo(totals.path("soldCount").asLong());
+        assertThat(remaining).isEqualTo(totals.path("remainingStock").asLong());
+        assertThat(gmv).isEqualByComparingTo(new BigDecimal(totals.path("gmv").asText()));
+    }
+
+    @Then("the weekly report kpiHistory has {int} days that sum to the summary")
+    public void verifyKpiHistory(int size) {
+        JsonNode days = response.data().path("kpiHistory");
+        JsonNode summary = response.data().path("summary");
+        assertThat(days.size()).isEqualTo(size);
+        BigDecimal profit = BigDecimal.ZERO;
+        BigDecimal commission = BigDecimal.ZERO;
+        for (JsonNode day : days) {
+            profit = profit.add(new BigDecimal(day.path("netProfit").asText()));
+            commission = commission.add(new BigDecimal(day.path("commission").asText()));
+        }
+        assertThat(profit).isEqualByComparingTo(new BigDecimal(summary.path("netProfit").asText()));
+        assertThat(commission).isEqualByComparingTo(new BigDecimal(summary.path("commission").asText()));
+        assertThat(days.get(size - 1).path("remainingStock").asLong())
+                .isEqualTo(summary.path("remainingStock").asLong());
+    }
+
+    @When("an admin exports the {string} datasets of the weekly report for {string} to {string}")
+    public void adminExportsDatasets(String datasets, String startDate, String endDate) {
+        rawResponse = new ApiClient(port).getBytes(
+                "/api/v1/admin/reports/weekly-stock-profit/export?startDate=" + startDate
+                        + "&endDate=" + endDate + "&datasets=" + datasets,
+                data.bearer(data.admin()),
+                "*/*");
+    }
+
+    @Then("the exported CSV has {int} lines, includes {string} and excludes {string}")
+    public void verifyExportedDatasets(int lines, String included, String excluded) {
+        assertThat(rawResponse.status()).isEqualTo(200);
+        String csv = new String(rawResponse.body(), StandardCharsets.UTF_8);
+        assertThat(csv.trim().split("\\r?\\n")).hasSize(lines);
+        assertThat(csv).contains("\"" + included + "\"").doesNotContain("\"" + excluded + "\"");
+    }
 
     @When("an unauthenticated caller requests the weekly stock and profit report")
     public void requestReport() {
