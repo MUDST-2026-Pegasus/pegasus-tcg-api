@@ -490,7 +490,7 @@ public class OrderLifecycleService {
         SellerOrderStatus current = SellerOrderStatus.of(order.getStatus());
         if (!current.canMoveTo(target)) throw new ConflictException(ErrorCode.RETURN_STATE);
         if (orderRepository.updateSellerOrderStatus(sellerOrderId, List.of(current.name()), target.name(),
-                null, null, null, null, null, null) != 1) {
+                null, null, null, target == SellerOrderStatus.COMPLETED ? now() : null, null, null) != 1) {
             throw new ConflictException(ErrorCode.RETURN_STATE);
         }
         orderRepository.insertStatusHistory(sellerOrderId, current.name(), target.name(), actorUserId, reason);
