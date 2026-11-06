@@ -78,6 +78,12 @@ docker exec pegasus-tcg-postgres pg_restore -U postgres -d pegasus_tcg --clean -
 
 ## 3. ผลลัพธ์ที่ถูกต้อง
 
+ข้อมูลประมูลสำหรับ demo มีตัวอย่างครบทั้ง LIVE, AWAITING_PAYMENT, SOLD, UNSOLD,
+SUSPENDED และ CANCELLED โดยรายการ SOLD ผูกกับคำสั่งซื้อและการชำระเงินจริง
+ส่วนรายการ AWAITING_PAYMENT มีคำสั่งซื้อที่ยังไม่จ่าย สถานะ LIVE และกำหนดชำระของ
+ตัวอย่างที่เปิดอยู่จะคงอยู่ 7 วันหลังโหลด seed; โหลด seed ใหม่ก่อน demo หากเกินช่วงนี้
+
+
 ```text
 ==> Uploading pictures to MinIO (the first run downloads about 60 MB)
 Seed documents uploaded to pegasus/
