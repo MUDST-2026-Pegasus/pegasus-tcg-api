@@ -1,3 +1,19 @@
+app:
+  payment:
+    promptpay:
+      type: ${PROMPTPAY_TYPE:PHONE}
+      target: ${PROMPTPAY_TARGET:}
+      bank: ${PROMPTPAY_BANK:}
+      name: ${PROMPTPAY_NAME:PEGASUS TCG}
+
+server:
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+      force-response: true
+      enabled: true
+
 spring:
   application:
     name: pegasus-api
@@ -118,6 +134,11 @@ pegasus:
     # only ever wanted on a developer machine or a sandbox. Off unless asked for:
     # on a live deployment it is a way to have cards posted for free.
     mock-enabled: ${PAYMENT_MOCK_ENABLED:false}
+    promptpay:
+      type: ${PROMPTPAY_TYPE:PHONE}
+      target: ${PROMPTPAY_TARGET:}
+      bank: ${PROMPTPAY_BANK:}
+      name: ${PROMPTPAY_NAME:PEGASUS TCG}
 
   pricing:
     # The nightly market run: the day's median per printing and condition, then

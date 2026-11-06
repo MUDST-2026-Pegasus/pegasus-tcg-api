@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -14,6 +16,7 @@ import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.order.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.order.OrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.order.ReorderItemsResponse;
+import com.pegasus.pegasustcgapi.dto.payment.PaymentInfoResponse;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -22,7 +25,9 @@ import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.security.AuthClaims;
 import com.pegasus.pegasustcgapi.security.AuthPrincipalArgumentResolver;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
+import com.pegasus.pegasustcgapi.service.order.pdf.OrderSummaryPdfRenderer.RenderedPdf;
 import com.pegasus.pegasustcgapi.service.order.pdf.OrderSummaryPdfService;
+import com.pegasus.pegasustcgapi.service.payment.PaymentService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -48,6 +53,9 @@ class OrderControllerTest {
 
     @Mock
     private OrderLifecycleService orderLifecycleService;
+
+    @Mock
+    private PaymentService paymentService;
 
     @Mock
     private OrderSummaryPdfService orderSummaryPdfs;
@@ -133,43 +141,60 @@ class OrderControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/orders/{id}/cancel returns 200 on successful cancellation")
-    void cancelOrder_Success() throws Exception {
-        given(orderLifecycleService.cancelBuyerOrder(any(), eq(1L), any()))
-                .willReturn(mockOrderDetails(1L, "CANCELLED"));
+    @DisplayName("GET /api/v1/orders/{orderId}/payment-info returns 200 with QR payload and transfer details")
+    void getPaymentInfo_Success() throws Exception {
+        OffsetDateTime expiresAt = OffsetDateTime.parse("2026-11-06T12:00:00Z");
+        PaymentInfoResponse response = new PaymentInfoResponse(
+                "00020101021229370016A0000006770101110113006694776111953037645406673.005802TH5911PEGASUS TCG6007Bangkok6304C2AF",
+                "094-xxx-1119",
+                "ธนาคารไทยพาณิชย์ (SCB)",
+                "PEGASUS TCG",
+                new BigDecimal("673.00"),
+                expiresAt
+        );
 
-        mockMvc.perform(post(ApiPaths.ORDERS + "/1/cancel")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"Changed mind\"}"))
+        given(paymentService.getPaymentInfo(any(), eq(100L)))
+                .willReturn(response);
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/100/payment-info"))
                 .andExpect(status().isOk())
+                .andExpect(content().contentType("application/json;charset=UTF-8"))
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+                .andExpect(jsonPath("$.data.qrPayload").value(response.qrPayload()))
+                .andExpect(jsonPath("$.data.promptpayId").value("094-xxx-1119"))
+                .andExpect(jsonPath("$.data.bankName").value("ธนาคารไทยพาณิชย์ (SCB)"))
+                .andExpect(jsonPath("$.data.accountName").value("PEGASUS TCG"))
+                .andExpect(jsonPath("$.data.amount").value(673.00))
+                .andExpect(jsonPath("$.data.expiresAt").exists());
     }
 
     @Test
-    @DisplayName("POST /api/v1/orders/{id}/cancel returns 409 if cancel window closed")
-    void cancelOrder_WindowClosed() throws Exception {
-        given(orderLifecycleService.cancelBuyerOrder(any(), eq(1L), any()))
-                .willThrow(new ConflictException(ErrorCode.CANCEL_WINDOW_CLOSED));
+    @DisplayName("GET /api/v1/orders/{orderId}/payment-info returns 404 when order not found")
+    void getPaymentInfo_NotFound() throws Exception {
+        given(paymentService.getPaymentInfo(any(), eq(999L)))
+                .willThrow(new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
 
-        mockMvc.perform(post(ApiPaths.ORDERS + "/1/cancel")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"Late cancellation\"}"))
-                .andExpect(status().isConflict())
+        mockMvc.perform(get(ApiPaths.ORDERS + "/999/payment-info"))
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.data.code").value("CANCEL_WINDOW_CLOSED"));
+                .andExpect(jsonPath("$.data.code").value("ORDER_NOT_FOUND"));
     }
 
     @Test
-    @DisplayName("POST /api/v1/orders/{id}/confirm-received returns 200 on success")
-    void confirmReceived_Success() throws Exception {
-        given(orderLifecycleService.confirmBuyerOrderReceived(any(), eq(1L)))
-                .willReturn(mockOrderDetails(1L, "COMPLETED"));
+    @DisplayName("GET /api/v1/orders/{id}/summary.pdf returns 200 with PDF content")
+    void downloadSummary_Success() throws Exception {
+        RenderedPdf doc = new RenderedPdf(
+                "order-summary-ORD-1.pdf",
+                new byte[]{1, 2, 3}
+        );
+        given(orderSummaryPdfs.buyer(any(), eq(1L)))
+                .willReturn(doc);
 
-        mockMvc.perform(post(ApiPaths.ORDERS + "/1/confirm-received"))
+        mockMvc.perform(get(ApiPaths.ORDERS + "/1/summary.pdf"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("COMPLETED"));
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF_VALUE))
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("order-summary-ORD-1.pdf")))
+                .andExpect(content().bytes(new byte[]{1, 2, 3}));
     }
 
     @Test
@@ -221,5 +246,45 @@ class OrderControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/orders/{id}/cancel returns 200 on successful cancellation")
+    void cancelOrder_Success() throws Exception {
+        given(orderLifecycleService.cancelBuyerOrder(any(), eq(1L), any()))
+                .willReturn(mockOrderDetails(1L, "CANCELLED"));
+
+        mockMvc.perform(post(ApiPaths.ORDERS + "/1/cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Changed mind\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/orders/{id}/cancel returns 409 if cancel window closed")
+    void cancelOrder_WindowClosed() throws Exception {
+        given(orderLifecycleService.cancelBuyerOrder(any(), eq(1L), any()))
+                .willThrow(new ConflictException(ErrorCode.CANCEL_WINDOW_CLOSED));
+
+        mockMvc.perform(post(ApiPaths.ORDERS + "/1/cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Late cancellation\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value("CANCEL_WINDOW_CLOSED"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/orders/{id}/confirm-received returns 200 on success")
+    void confirmReceived_Success() throws Exception {
+        given(orderLifecycleService.confirmBuyerOrderReceived(any(), eq(1L)))
+                .willReturn(mockOrderDetails(1L, "COMPLETED"));
+
+        mockMvc.perform(post(ApiPaths.ORDERS + "/1/confirm-received"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"));
     }
 }

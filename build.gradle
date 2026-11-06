@@ -148,12 +148,21 @@ tasks.named('jooqCodegen') {
     dependsOn tasks.named('flywayMigrate')
 }
 
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(ProcessResources).configureEach {
+    filteringCharset = 'UTF-8'
+}
+
 tasks.named('compileJava') {
     dependsOn tasks.named('jooqCodegen')
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+    systemProperty 'file.encoding', 'UTF-8'
     finalizedBy tasks.named('jacocoTestReport')
 }
 

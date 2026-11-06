@@ -15,6 +15,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.pegasus.pegasustcgapi.exception.ConflictException;
+import com.pegasus.pegasustcgapi.dto.payment.PaymentInfoResponse;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -226,5 +227,41 @@ class PaymentServiceTest {
                 .isInstanceOf(BadRequestException.class);
         verifyNoInteractions(escrow, ledger, orders);
         verify(payments, never()).reject(eq(21L), eq(9L), any(), any());
+    }
+
+    @Test
+    void getPaymentInfoReturnsPromptPayQrAndDetails() {
+        SalesOrderRecord order = new SalesOrderRecord();
+        order.setId(11L);
+        order.setBuyerId(7L);
+        OffsetDateTime placedAt = OffsetDateTime.parse("2026-11-06T10:00:00Z");
+        order.setPlacedAt(placedAt);
+        order.setGrandTotal(new BigDecimal("673.00"));
+
+        when(payments.findOrder(11L)).thenReturn(Optional.of(order));
+        when(payments.activeForOrder(11L)).thenReturn(Optional.empty());
+        when(payments.unpaidTotal(11L)).thenReturn(new BigDecimal("673.00"));
+        when(settings.getMinutes(PlatformSettingService.ORDER_PAYMENT_TIMEOUT_MINUTES))
+                .thenReturn(java.time.Duration.ofMinutes(60));
+
+        PaymentInfoResponse info = service.getPaymentInfo(buyer, 11L);
+        assertThat(info.qrPayload()).isEqualTo("00020101021229370016A0000006770101110113006694776111953037645406673.005802TH5911PEGASUS TCG6007Bangkok6304C2AF");
+        assertThat(info.promptpayId()).isEqualTo("094-xxx-1119");
+        assertThat(info.bankName()).isEmpty();
+        assertThat(info.accountName()).isEqualTo("PEGASUS TCG");
+        assertThat(info.amount()).isEqualByComparingTo("673.00");
+        assertThat(info.expiresAt()).isEqualTo(placedAt.plusMinutes(60));
+    }
+
+    @Test
+    void getPaymentInfoThrowsNotFoundForNonOwner() {
+        SalesOrderRecord order = new SalesOrderRecord();
+        order.setId(11L);
+        order.setBuyerId(99L);
+
+        when(payments.findOrder(11L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> service.getPaymentInfo(buyer, 11L))
+                .isInstanceOf(NotFoundException.class);
     }
 }
