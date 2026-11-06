@@ -9,10 +9,10 @@ import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.shipping.ShippingOptionRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -27,13 +27,15 @@ public class MyAuctionsService {
     private final AuctionRepository auctions;
     private final AuctionItemMapper itemMapper;
     private final BidderStrikeService strikes;
+    private final ShippingOptionRepository shippingOptions;
     private final Clock clock;
 
     public MyAuctionsService(AuctionRepository auctions, AuctionItemMapper itemMapper,
-            BidderStrikeService strikes, Clock clock) {
+            BidderStrikeService strikes, ShippingOptionRepository shippingOptions, Clock clock) {
         this.auctions = auctions;
         this.itemMapper = itemMapper;
         this.strikes = strikes;
+        this.shippingOptions = shippingOptions;
         this.clock = clock;
     }
 
@@ -41,10 +43,7 @@ public class MyAuctionsService {
     public MyAuctionPage list(long userId, MyTab tab, int page, int size) {
         OffsetDateTime now = OffsetDateTime.now(clock);
         Paging paging = Paging.of(page, size);
-        Map<MyTab, Long> counts = new EnumMap<>(MyTab.class);
-        for (MyTab candidate : MyTab.values()) {
-            counts.put(candidate, auctions.countMyAuctions(userId, candidate));
-        }
+        Map<MyTab, Long> counts = auctions.countMyAuctionTabs(userId);
 
         List<Auction> rows = auctions.findMyAuctions(userId, tab, paging.size(), paging.offset());
         Set<Long> ids = rows.stream().map(Auction::id).collect(Collectors.toSet());
@@ -53,13 +52,16 @@ public class MyAuctionsService {
         var items = itemMapper.buildAuctionItems(
                 rows.stream().map(Auction::catalogVariantId).collect(Collectors.toSet()),
                 rows.stream().map(Auction::sellerProfileId).collect(Collectors.toSet()));
+        var defaultShipping = shippingOptions.findDefaultActiveBySellerIds(
+                rows.stream().map(Auction::sellerProfileId).collect(Collectors.toSet()));
 
         List<MyAuction> result = rows.stream().map(a -> {
             AuctionViewerState state = stateOf(a, userId, leadingIds.contains(a.id()));
             boolean live = a.status() == AuctionStatus.LIVE;
             BigDecimal price = !live && a.winningAmount() != null ? a.winningAmount() : a.currentPrice();
-            BigDecimal shipping = AuctionPolicy.DEFAULT_SHIPPING;
-            BigDecimal totalDue = state == AuctionViewerState.WON_AWAITING_PAYMENT
+            var option = defaultShipping.get(a.sellerProfileId());
+            BigDecimal shipping = option == null ? null : option.feeFor(1, price);
+            BigDecimal totalDue = state == AuctionViewerState.WON_AWAITING_PAYMENT && shipping != null
                     ? price.add(shipping) : null;
             return new MyAuction(a.id(), a.auctionNumber(),
                     items.buildAuctionItem(a.catalogVariantId(), a.condition()),

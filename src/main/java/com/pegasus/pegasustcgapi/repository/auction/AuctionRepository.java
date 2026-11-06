@@ -711,12 +711,19 @@ public class AuctionRepository {
     // ---------- buyer's auctions ----------
 
     private Condition myAuctionCondition(long userId, MyTab tab) {
-        Condition participated = AUCTION.WINNER_ID.eq(userId).or(DSL.exists(
+        return myAuctionParticipation(userId).and(myAuctionTabCondition(userId, tab));
+    }
+
+    private Condition myAuctionParticipation(long userId) {
+        return AUCTION.WINNER_ID.eq(userId).or(DSL.exists(
                 DSL.selectOne().from(AUCTION_BID)
                         .where(AUCTION_BID.AUCTION_ID.eq(AUCTION.ID))
                         .and(AUCTION_BID.BIDDER_ID.eq(userId))));
+    }
+
+    private Condition myAuctionTabCondition(long userId, MyTab tab) {
         Condition winner = AUCTION.WINNER_ID.eq(userId);
-        Condition tabCondition = switch (tab) {
+        return switch (tab) {
             case ALL -> DSL.trueCondition();
             case BIDDING -> AUCTION.STATUS.eq(AuctionStatus.LIVE.name());
             case TO_PAY -> AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name()).and(winner);
@@ -726,7 +733,6 @@ public class AuctionRepository {
                     .or(AUCTION.STATUS.in(AuctionStatus.AWAITING_PAYMENT.name(), AuctionStatus.SOLD.name())
                             .and(AUCTION.WINNER_ID.ne(userId).or(AUCTION.WINNER_ID.isNull())));
         };
-        return participated.and(tabCondition);
     }
 
     public List<Auction> findMyAuctions(long userId, MyTab tab, int limit, int offset) {
@@ -739,6 +745,23 @@ public class AuctionRepository {
 
     public long countMyAuctions(long userId, MyTab tab) {
         return dsl.fetchCount(AUCTION, myAuctionCondition(userId, tab));
+    }
+
+    /** Counts every tab in one scan of the buyer's auctions. */
+    public Map<MyTab, Long> countMyAuctionTabs(long userId) {
+        var bidding = DSL.count().filterWhere(myAuctionTabCondition(userId, MyTab.BIDDING));
+        var toPay = DSL.count().filterWhere(myAuctionTabCondition(userId, MyTab.TO_PAY));
+        var won = DSL.count().filterWhere(myAuctionTabCondition(userId, MyTab.WON));
+        var lost = DSL.count().filterWhere(myAuctionTabCondition(userId, MyTab.LOST));
+        var counts = dsl.select(DSL.count(), bidding, toPay, won, lost)
+                .from(AUCTION).where(myAuctionParticipation(userId)).fetchSingle();
+        Map<MyTab, Long> result = new EnumMap<>(MyTab.class);
+        result.put(MyTab.ALL, counts.value1().longValue());
+        result.put(MyTab.BIDDING, counts.value2().longValue());
+        result.put(MyTab.TO_PAY, counts.value3().longValue());
+        result.put(MyTab.WON, counts.value4().longValue());
+        result.put(MyTab.LOST, counts.value5().longValue());
+        return result;
     }
 
     public Map<Long, BigDecimal> findMyHighestBids(long userId, Collection<Long> auctionIds) {

@@ -11,6 +11,8 @@ import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.shipping.ShippingOptionRepository;
+import com.pegasus.pegasustcgapi.model.shipping.ShippingOption;
 import com.pegasus.pegasustcgapi.service.auction.AuctionItemMapper;
 import com.pegasus.pegasustcgapi.service.auction.BidderStrikeService;
 import com.pegasus.pegasustcgapi.service.auction.MyAuctionsService;
@@ -38,12 +40,19 @@ class MyAuctionsServiceTest {
     @Mock AuctionRepository auctions;
     @Mock AuctionItemMapper itemMapper;
     @Mock BidderStrikeService strikes;
+    @Mock ShippingOptionRepository shippingOptions;
     private MyAuctionsService service;
 
     @BeforeEach
     void setUp() {
-        service = new MyAuctionsService(auctions, itemMapper, strikes,
+        service = new MyAuctionsService(auctions, itemMapper, strikes, shippingOptions,
                 Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC));
+        org.mockito.Mockito.lenient().when(auctions.countMyAuctionTabs(BUYER)).thenReturn(Map.of(
+                MyTab.ALL, 12L, MyTab.BIDDING, 3L, MyTab.TO_PAY, 2L,
+                MyTab.WON, 4L, MyTab.LOST, 3L));
+        org.mockito.Mockito.lenient().when(shippingOptions.findDefaultActiveBySellerIds(Set.of(10L)))
+                .thenReturn(Map.of(10L, new ShippingOption(1L, 10L, "Standard", "POST",
+                        new BigDecimal("75.00"), BigDecimal.ZERO, null, null, null, true, (short) 0)));
     }
 
     @Test
@@ -68,7 +77,8 @@ class MyAuctionsServiceTest {
         assertThat(result.page().items()).extracting(a -> a.state()).containsExactly(
                 AuctionViewerState.LEADING, AuctionViewerState.OUTBID,
                 AuctionViewerState.WON_AWAITING_PAYMENT, AuctionViewerState.WON, AuctionViewerState.LOST);
-        assertThat(result.page().items().get(2).totalDue()).isEqualByComparingTo("1050.00");
+        assertThat(result.page().items().get(2).totalDue()).isEqualByComparingTo("1075.00");
+        assertThat(result.page().items().get(2).shippingFee()).isEqualByComparingTo("75.00");
         assertThat(result.page().items().get(2).deadline()).isEqualTo(NOW.plusHours(24));
         assertThat(result.page().items().get(0).minNextBid()).isNotNull();
         assertThat(result.page().items().get(4).minNextBid()).isNull();
@@ -81,11 +91,6 @@ class MyAuctionsServiceTest {
     @Test
     void passesBuyerAndTabToRepositoryAndReturnsAllTabCounts() {
         when(auctions.findMyAuctions(BUYER, MyTab.TO_PAY, 10, 10)).thenReturn(List.of());
-        when(auctions.countMyAuctions(BUYER, MyTab.ALL)).thenReturn(12L);
-        when(auctions.countMyAuctions(BUYER, MyTab.BIDDING)).thenReturn(3L);
-        when(auctions.countMyAuctions(BUYER, MyTab.TO_PAY)).thenReturn(2L);
-        when(auctions.countMyAuctions(BUYER, MyTab.WON)).thenReturn(4L);
-        when(auctions.countMyAuctions(BUYER, MyTab.LOST)).thenReturn(3L);
         when(strikes.status(BUYER, NOW)).thenReturn(new BidderStrikeService.PenaltyStatus(0, 3, null));
 
         var result = service.list(BUYER, MyTab.TO_PAY, 1, 10);
