@@ -100,4 +100,20 @@ class AuctionPaymentTimeoutServiceTest {
         assertThat(service.expire(1, now)).isFalse();
         verifyNoInteractions(strikes, units, inventory);
     }
+
+    @Test
+    void previouslyReleasedCardDoesNotBlockAuctionExpiry() {
+        Auction a = auction(AuctionStatus.AWAITING_PAYMENT, 10L, now.minusMinutes(1));
+        ListingUnit card = mock(ListingUnit.class);
+        when(card.status()).thenReturn(ListingUnitStatus.LISTED);
+        when(auctions.findById(1)).thenReturn(Optional.of(a));
+        when(auctions.lock(1)).thenReturn(Optional.of(a));
+        when(lifecycle.expireUnpaidAuctionOrder(10L, 1)).thenReturn(true);
+        when(auctions.recordUnpaidAuction(1, now)).thenReturn(true);
+        when(units.findOfSeller(8, 9)).thenReturn(Optional.of(card));
+
+        assertThat(service.expire(1, now)).isTrue();
+        verify(strikes).recordUnpaidWin(7, 1, 10L, now);
+        verifyNoInteractions(inventory);
+    }
 }
