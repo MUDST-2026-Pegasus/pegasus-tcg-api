@@ -54,8 +54,18 @@ public class ApiClient {
         }
     }
 
-    /** Binary / non-JSON response for file exports (CSV, XLSX, PDF). */
-    public record RawResponse(int status, byte[] bytes, Map<String, String> headers) {
+    /** A response whose body is not JSON, such as a generated PDF. */
+    public record BinaryResponse(int status, byte[] body, Map<String, String> headers) {
+
+        public BinaryResponse {
+            body = body.clone();
+            headers = Map.copyOf(headers);
+        }
+
+        @Override
+        public byte[] body() {
+            return body.clone();
+        }
 
         public Optional<String> header(String name) {
             return Optional.ofNullable(headers.get(name.toLowerCase()));
@@ -66,17 +76,13 @@ public class ApiClient {
         return send(request(path, bearer, Map.of()).GET());
     }
 
-    public RawResponse getBytes(String path, String bearer) {
+    public BinaryResponse getBytes(String path, String bearer, String accept) {
+        HttpRequest request = request(path, bearer, Map.of(), accept).GET().build();
         try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
-                    .timeout(Duration.ofSeconds(30));
-            if (bearer != null) {
-                builder.header("Authorization", bearer);
-            }
-            HttpResponse<byte[]> response = http.send(builder.GET().build(), BodyHandlers.ofByteArray());
+            HttpResponse<byte[]> response = http.send(request, BodyHandlers.ofByteArray());
             Map<String, String> headers = new LinkedHashMap<>();
             response.headers().map().forEach((name, values) -> headers.put(name.toLowerCase(), values.getFirst()));
-            return new RawResponse(response.statusCode(), response.body(), headers);
+            return new BinaryResponse(response.statusCode(), response.body(), headers);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InterruptedException e) {
@@ -123,9 +129,13 @@ public class ApiClient {
     }
 
     private HttpRequest.Builder request(String path, String bearer, Map<String, String> headers) {
+        return request(path, bearer, headers, "application/json");
+    }
+
+    private HttpRequest.Builder request(String path, String bearer, Map<String, String> headers, String accept) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .timeout(Duration.ofSeconds(30))
-                .header("Accept", "application/json");
+                .header("Accept", accept);
         if (bearer != null) {
             builder.header("Authorization", bearer);
         }

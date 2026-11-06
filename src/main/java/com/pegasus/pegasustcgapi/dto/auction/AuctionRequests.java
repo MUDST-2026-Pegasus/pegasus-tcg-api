@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.Map;
 import java.util.UUID;
 
 /** Every request body the auction endpoints accept [TCG-613]. Money is THB. */
@@ -45,7 +46,13 @@ public final class AuctionRequests {
             @Schema(example = "ฝากใส่ซองกันน้ำด้วยครับ")
             @Size(max = MAX_NOTE) String buyerNote,
             @Schema(example = "8500")
-            BigDecimal expectedGrandTotal) {
+            BigDecimal expectedGrandTotal,
+            @Schema(hidden = true) String platformCode,
+            @Schema(hidden = true) Map<Long, String> sellerCodes) {
+        public AuctionCheckout(Long shippingAddressId, Long shippingOptionId, String buyerNote,
+                BigDecimal expectedGrandTotal) {
+            this(shippingAddressId, shippingOptionId, buyerNote, expectedGrandTotal, null, null);
+        }
     }
 
     /**

@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pegasus.pegasustcgapi.service.metrics.AdminWeeklyStockProfitIntegrationTest;
 import com.pegasus.pegasustcgapi.support.ApiClient;
-import com.pegasus.pegasustcgapi.support.ApiClient.RawResponse;
+import com.pegasus.pegasustcgapi.support.ApiClient.BinaryResponse;
 import com.pegasus.pegasustcgapi.support.ApiClient.Response;
 import com.pegasus.pegasustcgapi.support.TestData;
 import io.cucumber.java.en.Given;
@@ -30,7 +30,7 @@ public class AdminWeeklyStockProfitSteps {
     private DSLContext dsl;
 
     private Response response;
-    private RawResponse rawResponse;
+    private BinaryResponse rawResponse;
 
     @When("an unauthenticated caller requests the weekly stock and profit report")
     public void requestReport() {
@@ -75,7 +75,8 @@ public class AdminWeeklyStockProfitSteps {
         rawResponse = new ApiClient(port).getBytes(
                 "/api/v1/admin/reports/weekly-stock-profit/export?startDate=" + startDate
                         + "&endDate=" + endDate + "&format=" + format,
-                data.bearer(data.admin()));
+                data.bearer(data.admin()),
+                "*/*");
     }
 
     @Then("the weekly report response is {int}")
@@ -181,7 +182,7 @@ public class AdminWeeklyStockProfitSteps {
 
     @Then("the exported CSV content matches the main report figures")
     public void verifyExportedCsvContent() {
-        String csv = new String(rawResponse.bytes(), StandardCharsets.UTF_8);
+        String csv = new String(rawResponse.body(), StandardCharsets.UTF_8);
         assertThat(csv.trim().split("\\r?\\n")).hasSize(12);
         assertThat(csv).contains("\"summary\",\"\",\"\",\"\",\"\",\"428500.00\",\"12855.00\",\"12855.00\",\"6184\",\"1470\",\"18.2\"");
     }

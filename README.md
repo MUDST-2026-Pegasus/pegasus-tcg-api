@@ -376,6 +376,12 @@ DELETE /admin/catalog/products/{productId}/images/{imageId}       ADMIN
 
 `GET /catalog/products` and its admin counterpart support `gameId`, `categoryId`, `cardSetId`, `productType`, `q`, `sort`, `page`, `size`, plus dynamic attribute filters such as `attr.hp=200`. Supported sort values are `name`, `newest`, and `cardnumber`.
 
+#### Tolerant public search (TCG-690)
+
+`GET /api/v1/catalog/products?q=pokamon&sort=relevance` keeps the existing page shape (`items`, `page`, `size`, `totalItems`, `totalPages`). When no literal match exists and a nearby English term is found, it adds `correctedQuery`, for example `"Pokemon"`. The request's `q` remains the original text and is the source of the UI's “You searched …” message. `correctedQuery` is absent for literal matches, empty queries, and queries without a safe correction. Other paged endpoints are unchanged.
+
+The public search checks product English/local names and card number, game English/local names, category name, and card set English/local names. Literal matches are preferred. A correction is limited to one or two edits, including adjacent transpositions, and only applied when the corrected query produces results under the selected filters. `sort=relevance` orders closest matches first with a stable product ID tie break; the existing explicit price, name, date, and popularity sorts remain available. All existing filters and pagination apply to the corrected results. The first version corrects Latin-script queries; Thai names remain literally searchable.
+
 `GET /catalog/products/{idOrSlug}/market` is public and returns an array for each active variant and condition with a market statistic. Each entry has `catalogVariantId`, `condition`, the latest `medianPrice` and `statDate`, `change30dPercent`, `lastSold` (`price` and order-item `soldAt`), and `lowSample` (`sampleSize < 3`). The percentage compares against the nearest statistic **on or before** the Bangkok calendar date 30 days ago; it is `null` when there is no such row or the earlier median is zero. `lastSold` is `null` when there is no shipped, delivered, or completed sale. This separate route keeps the existing product-detail response unchanged for current callers.
 
 ### Collections and uploads (8)

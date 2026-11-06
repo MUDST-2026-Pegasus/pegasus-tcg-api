@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.service.order;
 
 import com.pegasus.pegasustcgapi.service.payment.PaymentService;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.service.promotion.CheckoutPromotionService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 
@@ -99,6 +100,7 @@ public class OrderLifecycleService {
     private final Clock clock;
     private final StorageService storageService;
     private CheckoutPromotionService checkoutPromotions;
+    private final AuctionRepository auctionRepository;
 
     @Autowired
     public OrderLifecycleService(
@@ -109,7 +111,8 @@ public class OrderLifecycleService {
             LedgerPort ledgerPort,
             CollectionPort collectionPort,
             Clock clock,
-            @Autowired(required = false) StorageService storageService) {
+            @Autowired(required = false) StorageService storageService,
+            AuctionRepository auctionRepository) {
         this.orderRepository = orderRepository;
         this.sellerPort = sellerPort;
         this.platformSettingService = platformSettingService;
@@ -118,6 +121,14 @@ public class OrderLifecycleService {
         this.collectionPort = collectionPort;
         this.clock = clock != null ? clock : Clock.systemUTC();
         this.storageService = storageService;
+        this.auctionRepository = auctionRepository;
+    }
+
+    public OrderLifecycleService(OrderRepository orderRepository, SellerPort sellerPort,
+            PlatformSettingService platformSettingService, InventoryPort inventoryPort,
+            LedgerPort ledgerPort, CollectionPort collectionPort, Clock clock, StorageService storageService) {
+        this(orderRepository, sellerPort, platformSettingService, inventoryPort, ledgerPort,
+                collectionPort, clock, storageService, null);
     }
 
     public OrderLifecycleService(
@@ -466,6 +477,9 @@ public class OrderLifecycleService {
         }
 
         rollupSalesOrderStatus(salesOrder.getId());
+        if (salesOrder.getAuctionId() != null && auctionRepository != null) {
+            auctionRepository.markSoldForOrder(salesOrder.getAuctionId(), salesOrder.getId());
+        }
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -476,7 +490,7 @@ public class OrderLifecycleService {
         SellerOrderStatus current = SellerOrderStatus.of(order.getStatus());
         if (!current.canMoveTo(target)) throw new ConflictException(ErrorCode.RETURN_STATE);
         if (orderRepository.updateSellerOrderStatus(sellerOrderId, List.of(current.name()), target.name(),
-                null, null, null, null, null, null) != 1) {
+                null, null, null, target == SellerOrderStatus.COMPLETED ? now() : null, null, null) != 1) {
             throw new ConflictException(ErrorCode.RETURN_STATE);
         }
         orderRepository.insertStatusHistory(sellerOrderId, current.name(), target.name(), actorUserId, reason);
@@ -737,6 +751,34 @@ public class OrderLifecycleService {
         ledgerPort.refundOnCancel(sellerOrderId, reason, null);
 
         rollupSalesOrderStatus(so.getSalesOrderId());
+    }
+
+    /** Called inside the auction timeout transaction after the parent order row is locked. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean expireUnpaidAuctionOrder(long salesOrderId, long auctionId) {
+        SalesOrderRecord sale = orderRepository.findSalesOrderByIdForUpdate(salesOrderId).orElse(null);
+        if (sale == null || !"AUCTION".equals(sale.getSource())
+                || !java.util.Objects.equals(sale.getAuctionId(), auctionId)
+                || orderRepository.hasPaymentUnderReview(salesOrderId)) return false;
+
+        // A buyer may have cancelled an unpaid checkout already. Its card was released then.
+        if ("CANCELLED".equals(sale.getStatus())) return true;
+        if (!"PENDING_PAYMENT".equals(sale.getStatus())) return false;
+
+        List<SellerOrderRecord> children = orderRepository.findSellerOrdersBySalesOrderId(salesOrderId);
+        if (children.size() != 1 || !"PENDING_PAYMENT".equals(children.getFirst().getStatus())) return false;
+
+        SellerOrderRecord child = children.getFirst();
+        String reason = "Cancelled automatically: auction payment was not received in time";
+        int updated = orderRepository.updateSellerOrderStatus(child.getId(),
+                List.of("PENDING_PAYMENT"), "CANCELLED", null, null, null, null, now(), reason);
+        if (updated != 1) return false;
+        orderRepository.insertStatusHistory(child.getId(), "PENDING_PAYMENT", "CANCELLED", null, reason);
+        List<Long> unitIds = orderRepository.findUnitIdsBySellerOrderId(child.getId());
+        if (!unitIds.isEmpty()) inventoryPort.release(unitIds);
+        ledgerPort.refundOnCancel(child.getId(), reason, null);
+        rollupSalesOrderStatus(salesOrderId);
+        return true;
     }
 
     // ==========================================

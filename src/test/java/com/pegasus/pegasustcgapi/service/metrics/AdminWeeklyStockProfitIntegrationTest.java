@@ -7,7 +7,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.Game.GAME;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pegasus.pegasustcgapi.support.ApiClient;
-import com.pegasus.pegasustcgapi.support.ApiClient.RawResponse;
+import com.pegasus.pegasustcgapi.support.ApiClient.BinaryResponse;
 import com.pegasus.pegasustcgapi.support.ApiClient.Response;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import com.pegasus.pegasustcgapi.support.TestData;
@@ -450,15 +450,15 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
         String adminToken = data.bearer(data.admin());
 
         // 1. CSV Export
-        RawResponse csvResp = client.getBytes(
+        BinaryResponse csvResp = client.getBytes(
                 "/api/v1/admin/reports/weekly-stock-profit/export?startDate=2026-08-03&endDate=2026-08-09&format=csv",
-                adminToken);
+                adminToken, "text/csv");
         assertThat(csvResp.status()).isEqualTo(200);
         assertThat(csvResp.header("content-type").orElse("")).contains("text/csv");
         assertThat(csvResp.header("content-disposition").orElse(""))
                 .contains("pegasus_weekly_report_2026_32.csv");
 
-        String csvContent = new String(csvResp.bytes(), StandardCharsets.UTF_8);
+        String csvContent = new String(csvResp.body(), StandardCharsets.UTF_8);
         String[] lines = csvContent.trim().split("\\r?\\n");
         // 1 header + 7 daily rows + 1 summary row + 3 game rows = 12 rows
         assertThat(lines).hasSize(12);
@@ -468,16 +468,16 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
         assertThat(csvContent).contains("\"game\",\"\",\"Other TCG\"");
 
         // 2. XLSX Export
-        RawResponse xlsxResp = client.getBytes(
+        BinaryResponse xlsxResp = client.getBytes(
                 "/api/v1/admin/reports/weekly-stock-profit/export?startDate=2026-08-03&endDate=2026-08-09&format=xlsx",
-                adminToken);
+                adminToken, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         assertThat(xlsxResp.status()).isEqualTo(200);
         assertThat(xlsxResp.header("content-type").orElse(""))
                 .contains("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         assertThat(xlsxResp.header("content-disposition").orElse(""))
                 .contains("pegasus_weekly_report_2026_32.xlsx");
 
-        Map<String, String> entries = unzipEntries(xlsxResp.bytes());
+        Map<String, String> entries = unzipEntries(xlsxResp.body());
         assertThat(entries).containsKey("xl/worksheets/sheet1.xml");
         String sheetXml = entries.get("xl/worksheets/sheet1.xml");
         assertThat(sheetXml).contains("<row r=\"1\">").contains("<row r=\"12\">");

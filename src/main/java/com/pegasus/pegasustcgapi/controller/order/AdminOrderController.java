@@ -7,7 +7,11 @@ import com.pegasus.pegasustcgapi.dto.order.AdminOrderViews.Board;
 import com.pegasus.pegasustcgapi.dto.order.AdminOrderViews.Detail;
 import com.pegasus.pegasustcgapi.dto.order.AdminOrderViews.Summary;
 import com.pegasus.pegasustcgapi.service.order.AdminOrderService;
+import com.pegasus.pegasustcgapi.service.order.pdf.OrderSummaryPdfService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -15,6 +19,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,9 +40,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminOrderController {
 
     private final AdminOrderService orders;
+    private final OrderSummaryPdfService orderSummaryPdfs;
 
-    public AdminOrderController(AdminOrderService orders) {
+    public AdminOrderController(AdminOrderService orders, OrderSummaryPdfService orderSummaryPdfs) {
         this.orders = orders;
+        this.orderSummaryPdfs = orderSummaryPdfs;
     }
 
     @Operation(summary = "Order board",
@@ -86,5 +94,23 @@ public class AdminOrderController {
     @GetMapping("/{sellerOrderId}")
     public ApiResult<Detail> detail(@PathVariable long sellerOrderId) {
         return ApiResult.success(orders.detail(sellerOrderId));
+    }
+
+    @Operation(summary = "Download admin order summary PDF",
+            description = "Downloads the full administrative summary for a seller sub-order.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "PDF downloaded",
+                    content = @Content(mediaType = MediaType.APPLICATION_PDF_VALUE,
+                            schema = @Schema(type = "string", format = "binary")),
+                    headers = @Header(name = "Content-Disposition",
+                            description = "Attachment filename order-summary-{orderNumber}.pdf",
+                            schema = @Schema(type = "string"))),
+            @ApiResponse(responseCode = "401", description = "Unauthenticated"),
+            @ApiResponse(responseCode = "403", description = "Authenticated user is not an admin"),
+            @ApiResponse(responseCode = "404", description = "Order not found")
+    })
+    @GetMapping(value = "/{sellerOrderId}/summary.pdf", produces = MediaType.APPLICATION_PDF_VALUE)
+    public ResponseEntity<byte[]> downloadSummary(@PathVariable long sellerOrderId) {
+        return OrderSummaryPdfHttpResponse.from(orderSummaryPdfs.admin(sellerOrderId));
     }
 }
