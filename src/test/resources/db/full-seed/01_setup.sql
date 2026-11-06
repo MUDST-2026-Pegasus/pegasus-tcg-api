@@ -92,7 +92,9 @@ INSERT INTO platform_setting (setting_key, setting_value, description, updated_a
     ('payment.slip_auto_approve',     'false',  'Bank-transfer slip approval is manual; this legacy switch cannot be enabled.', pg_temp.ago(400)),
     ('payment.transfer_account',
      '{"bankName":"TEST BANK","accountName":"PEGASUS TCG","accountNumber":"000-0-00000-0","promptPayId":"0000000000"}',
-     'Bank account shown to buyers for bank transfers; replace before use.', pg_temp.ago(400))
+     'Bank account shown to buyers for bank transfers; replace before use.', pg_temp.ago(400)),
+    ('report.low_stock_threshold',   '500',    'Weekly report: remaining units below this read as low stock.', pg_temp.ago(400)),
+    ('report.fast_moving_percent',   '30',     'Weekly report: percent of the week''s stock sold, above which a row reads as fast moving.', pg_temp.ago(400))
 ON CONFLICT (setting_key) DO UPDATE
    SET setting_value = EXCLUDED.setting_value,
        description   = EXCLUDED.description,
