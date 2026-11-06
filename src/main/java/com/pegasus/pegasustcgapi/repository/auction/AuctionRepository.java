@@ -914,7 +914,7 @@ public class AuctionRepository {
 
     // ---------- mapping ----------
 
-    static Auction toAuction(AuctionRecord r) {
+    public static Auction toAuction(AuctionRecord r) {
         return new Auction(
                 r.getId(),
                 r.getAuctionNumber(),

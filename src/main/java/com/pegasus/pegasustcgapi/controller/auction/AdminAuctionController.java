@@ -13,6 +13,8 @@ import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.LiftBiddingBan;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.SuspendAuction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.service.auction.AdminAuctionService;
+import com.pegasus.pegasustcgapi.service.auction.AdminAuctionReadService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -34,7 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Every auction on the platform, and the users barred from bidding [TCG-613].
  *
- * <p>Contract only: every endpoint returns {@link AuctionSamples} until BE-11 adds the logic.
+ * Reads auction administration data and performs moderation actions.
  */
 @Tag(name = "Auctions (Admin)", description = "Watch auctions, suspend rule-breakers and manage bidding bans")
 @SecurityRequirement(name = "BearerAuth")
@@ -43,14 +45,12 @@ import org.springframework.web.bind.annotation.RestController;
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminAuctionController {
 
-    private final Clock clock;
+    private final AdminAuctionService actions;
+    private final AdminAuctionReadService reads;
 
-    public AdminAuctionController(Clock clock) {
-        this.clock = clock;
-    }
-
-    private OffsetDateTime now() {
-        return OffsetDateTime.now(clock);
+    public AdminAuctionController(AdminAuctionService actions, AdminAuctionReadService reads) {
+        this.actions = actions;
+        this.reads = reads;
     }
 
     @Operation(summary = "List every auction",
@@ -61,7 +61,7 @@ public class AdminAuctionController {
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ApiResult.success(AuctionSamples.adminAuctions(now(), page, size));
+        return ApiResult.success(reads.list(tab, q, page, size));
     }
 
     @Operation(summary = "Get one auction with full bidder names and signals")
@@ -71,7 +71,7 @@ public class AdminAuctionController {
     })
     @GetMapping("/{id}")
     public ApiResult<AdminAuctionDetail> get(@PathVariable long id) {
-        return ApiResult.success(AuctionSamples.adminDetail(id, now(), List.of(), AuctionStatus.LIVE));
+        return ApiResult.success(reads.detail(id));
     }
 
     @Operation(summary = "Suspend an auction",
@@ -86,8 +86,8 @@ public class AdminAuctionController {
     @PostMapping("/{id}/suspend")
     public ApiResult<AdminAuctionDetail> suspend(@PathVariable long id, @Valid @RequestBody SuspendAuction request,
             AuthPrincipal principal) {
-        List<AdminAction> actions = List.of(new AdminAction("SUSPEND", principal.username(), request.reason(), now()));
-        return ApiResult.success(AuctionSamples.adminDetail(id, now(), actions, AuctionStatus.SUSPENDED));
+        actions.suspend(id, principal.userId(), request.reason());
+        return ApiResult.success(reads.detail(id));
     }
 
     @Operation(summary = "Users with unpaid-win strikes",
@@ -98,7 +98,7 @@ public class AdminAuctionController {
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ApiResult.success(AuctionSamples.bannedBidders(now(), page, size));
+        return ApiResult.success(reads.bannedBidders(tab, q, page, size));
     }
 
     @Operation(summary = "Lift a bidding ban",
@@ -111,8 +111,8 @@ public class AdminAuctionController {
     @PostMapping("/banned-bidders/{userId}/lift")
     public ApiResult<BannedBidder> liftBan(@PathVariable long userId,
             @Valid @RequestBody(required = false) LiftBiddingBan request, AuthPrincipal principal) {
-        BannedBidder b = AuctionSamples.bannedBidder(now());
-        return ApiResult.success(new BannedBidder(userId, b.username(), b.maskedEmail(), b.memberSince(), 0,
-                b.strikeLimit(), null, now(), b.strikes()));
+        actions.liftBan(userId, principal.userId(), request == null || request.reason() == null
+                || request.reason().isBlank() ? "Admin lifted bidding ban" : request.reason());
+        return ApiResult.success(reads.bannedBidder(userId));
     }
 }
