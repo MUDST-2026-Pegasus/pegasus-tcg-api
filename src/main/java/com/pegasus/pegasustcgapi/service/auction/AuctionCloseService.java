@@ -94,7 +94,7 @@ public class AuctionCloseService {
 
         OffsetDateTime paymentDueAt = now.plus(settings == null
                 ? AuctionPolicy.DEFAULT_PAYMENT_WINDOW
-                : settings.getHours(PlatformSettingService.AUCTION_PAYMENT_WINDOW_HOURS));
+                : settings.getAuctionPaymentWindow());
         boolean updated = auctions.recordAuctionWon(auction.id(), winnerId, auction.currentPrice(), now, paymentDueAt);
         if (updated) {
             log.info("Auction #{} closed: winner #{}, amount {}, payment due at {}",

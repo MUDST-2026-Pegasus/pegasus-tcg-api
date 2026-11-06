@@ -40,6 +40,7 @@ import com.pegasus.pegasustcgapi.repository.catalog.GameRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.service.inventory.InventoryService;
 import com.pegasus.pegasustcgapi.service.listing.ListingCardRenderer;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -68,6 +69,7 @@ public class SellerAuctionService {
     private final LedgerPort ledgerPort;
     private final AuctionItemMapper auctionItemMapper;
     private final Clock clock;
+    private final PlatformSettingService settings;
 
     @Autowired
     public SellerAuctionService(
@@ -77,7 +79,8 @@ public class SellerAuctionService {
             SellerPort sellers,
             LedgerPort ledgerPort,
             AuctionItemMapper auctionItemMapper,
-            Clock clock) {
+            Clock clock,
+            PlatformSettingService settings) {
         this.auctions = auctions;
         this.units = units;
         this.inventoryService = inventoryService;
@@ -85,6 +88,13 @@ public class SellerAuctionService {
         this.ledgerPort = ledgerPort;
         this.auctionItemMapper = auctionItemMapper;
         this.clock = clock;
+        this.settings = settings;
+    }
+
+    public SellerAuctionService(AuctionRepository auctions, ListingUnitRepository units,
+            InventoryService inventoryService, SellerPort sellers, LedgerPort ledgerPort,
+            AuctionItemMapper auctionItemMapper, Clock clock) {
+        this(auctions, units, inventoryService, sellers, ledgerPort, auctionItemMapper, clock, null);
     }
 
     public SellerAuctionService(
@@ -101,7 +111,7 @@ public class SellerAuctionService {
             Clock clock) {
         this(auctions, units, inventoryService, sellers, ledgerPort,
                 new AuctionItemMapper(cards, variants, products, games, cardSets, auctions),
-                clock);
+                clock, null);
     }
 
     // ---------- Rule 1: Seller Verification ----------
@@ -220,12 +230,15 @@ public class SellerAuctionService {
         }
         Instant endsAt = request.endsAt().toInstant();
 
-        // Duration validation: between 1 hour and 30 days
-        if (endsAt.isBefore(now.plus(AuctionPolicy.MIN_AUCTION_DURATION))) {
-            throw new BadRequestException(ErrorCode.AUCTION_END_TOO_SOON, "The closing time must be at least 1 hour from now");
+        var minimum = settings == null ? AuctionPolicy.MIN_AUCTION_DURATION
+                : settings.getMinutes(PlatformSettingService.AUCTION_MIN_DURATION_MINUTES);
+        var maximum = settings == null ? AuctionPolicy.MAX_AUCTION_DURATION
+                : settings.getDays(PlatformSettingService.AUCTION_MAX_DURATION_DAYS);
+        if (endsAt.isBefore(now.plus(minimum))) {
+            throw new BadRequestException(ErrorCode.AUCTION_END_TOO_SOON, "The closing time must be at least " + minimum.toMinutes() + " minutes from now");
         }
-        if (endsAt.isAfter(now.plus(AuctionPolicy.MAX_AUCTION_DURATION))) {
-            throw new BadRequestException(ErrorCode.AUCTION_END_TOO_FAR, "The closing time must be within 30 days from now");
+        if (endsAt.isAfter(now.plus(maximum))) {
+            throw new BadRequestException(ErrorCode.AUCTION_END_TOO_FAR, "The closing time must be within " + maximum.toDays() + " days from now");
         }
 
         // Bid increment validation: strictly > 0

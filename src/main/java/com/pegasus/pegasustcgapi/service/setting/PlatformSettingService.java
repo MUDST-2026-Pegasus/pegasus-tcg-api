@@ -28,7 +28,10 @@ public class PlatformSettingService {
     public static final String ORDER_CANCEL_WINDOW_HOURS = "order.cancel_window_hours";
     /** How long an unpaid order may hold its reserved cards before it is cancelled. */
     public static final String ORDER_PAYMENT_TIMEOUT_MINUTES = "order.payment_timeout_minutes";
-    public static final String AUCTION_PAYMENT_WINDOW_HOURS = "auction.payment_window_hours";
+    public static final String AUCTION_PAYMENT_HOURS = "auction.payment_hours";
+    public static final String AUCTION_EXTENSION_SECONDS = "auction.extension_seconds";
+    public static final String AUCTION_MIN_DURATION_MINUTES = "auction.min_duration_minutes";
+    public static final String AUCTION_MAX_DURATION_DAYS = "auction.max_duration_days";
     public static final String AUCTION_STRIKE_LIMIT = "auction.strike_limit";
     public static final String AUCTION_BAN_DAYS = "auction.ban_days";
     public static final String RETURN_REQUEST_WINDOW_DAYS = "return.request_window_days";
@@ -87,6 +90,16 @@ public class PlatformSettingService {
         return Duration.ofMinutes(getInt(key));
     }
 
+    public Duration getSeconds(String key) {
+        return Duration.ofSeconds(getInt(key));
+    }
+
+    /** Fractional hours let QA exercise payment expiry without waiting an hour. */
+    public Duration getAuctionPaymentWindow() {
+        return Duration.ofMillis(getDecimal(AUCTION_PAYMENT_HOURS)
+                .multiply(BigDecimal.valueOf(3_600_000)).longValueExact());
+    }
+
     /**
      * Replaces a setting's value.
      *
@@ -121,6 +134,27 @@ public class PlatformSettingService {
             if (!"true".equals(trimmed) && !"false".equals(trimmed)) {
                 throw new ApiException(ErrorCode.VALIDATION_FAILED,
                         "Setting " + key + " must be a boolean: true or false");
+            }
+        }
+        if (AUCTION_PAYMENT_HOURS.equals(key)) {
+            try {
+                if (!rawJson.matches("(0|[1-9][0-9]*)(\\.[0-9]+)?")
+                        || new BigDecimal(rawJson).signum() <= 0) throw new NumberFormatException();
+                new BigDecimal(rawJson).multiply(BigDecimal.valueOf(3_600_000)).longValueExact();
+            } catch (RuntimeException e) {
+                throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                        "Setting " + key + " must be positive hours in whole milliseconds");
+            }
+        }
+        if (List.of(AUCTION_EXTENSION_SECONDS,
+                AUCTION_STRIKE_LIMIT, AUCTION_BAN_DAYS, AUCTION_MIN_DURATION_MINUTES,
+                AUCTION_MAX_DURATION_DAYS).contains(key)) {
+            try {
+                if (!rawJson.matches("[1-9][0-9]*")) throw new NumberFormatException();
+                Integer.parseInt(rawJson);
+            } catch (NumberFormatException e) {
+                throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                        "Setting " + key + " must be a positive whole number");
             }
         }
         settings.update(key, rawJson, adminId);

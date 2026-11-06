@@ -203,9 +203,11 @@ All 328 pictures are in MinIO.
 | ล็อกอินแล้วข้อมูลแปลก ๆ | ออกจากระบบหรือล้างข้อมูลเว็บไซต์ แล้วล็อกอินใหม่ |
 
 
-## TCG-565 and auction seed checks
+## Auction demo data (TCG-626)
 
-The full seed also loads 09_auctions.sql so every TCG-614 auction table has fixture data. An auctioned unit remains part of seller stock; 99_verify.sql counts ON_AUCTION alongside other on-hand unit states. After loading the seed, run the standalone financial reconciliation with:
+The full seed loads `09_auctions.sql` with live auctions (with and without bids, one ending soon, and one with Buy Now), awaiting payment, sold, unsold (including an unpaid winner), and suspended auctions. The accounts `demo_buyer`, `deckbuilder_ton`, and `ploy_collects` have one, two, and three active unpaid-win strikes respectively; `ploy_collects` also has an active bidding ban. `99_verify.sql` checks that every demo status and penalty step exists. Open auctions keep their cards in `ON_AUCTION`; closed unsold and suspended auctions return them to stock.
+
+After loading the seed, run the standalone financial reconciliation with:
 
 ```sh
 psql -X -v ON_ERROR_STOP=1 -f scripts/db/verify-financial-ledger.sql

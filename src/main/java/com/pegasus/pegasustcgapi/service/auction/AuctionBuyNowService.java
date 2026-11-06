@@ -99,7 +99,7 @@ public class AuctionBuyNowService {
         // 7. Transition auction to AWAITING_PAYMENT
         OffsetDateTime paymentDueAt = now.plus(settings == null
                 ? AuctionPolicy.DEFAULT_PAYMENT_WINDOW
-                : settings.getHours(PlatformSettingService.AUCTION_PAYMENT_WINDOW_HOURS));
+                : settings.getAuctionPaymentWindow());
         boolean updated = auctions.recordBuyNowWin(auctionId, userId, auction.buyNowPrice(), now, paymentDueAt);
         if (!updated) {
             throw new ConflictException(ErrorCode.BUY_NOW_UNAVAILABLE, "Auction could not be bought now");
