@@ -497,7 +497,7 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             pdf.addPage(page);
             content = new PDPageContentStream(pdf, page);
             content.drawImage(brandIcon, MARGIN, PAGE_HEIGHT - 46f, 29f, 29f);
-            text("PEGASUS", MARGIN + 37f, PAGE_HEIGHT - 37f, 25f, fonts.bold, PRIMARY);
+            text("PEGASUS", MARGIN + 37f, PAGE_HEIGHT - 40f, 25f, fonts.bold, PRIMARY);
             String roleTitle = document.role().name() + " ORDER SUMMARY";
             right(roleTitle, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 29f, 13f, fonts.bold, INK);
             right(roleCopy(document), PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 44f, 8.5f, fonts.regular, MUTED);
