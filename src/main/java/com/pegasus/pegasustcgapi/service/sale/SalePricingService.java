@@ -38,6 +38,11 @@ public class SalePricingService {
         return out;
     }
 
+    public Integer totalQuota(long listingId, SalePricing pricing) {
+        return pricing.sale() == null || pricing.sale().quotaLeft() == null ? null
+                : prices.totalQuota(pricing.sale().id(), listingId);
+    }
+
     public SalePricing pricing(long listingId, BigDecimal listPrice) {
         return pricing(Map.of(listingId, listPrice)).get(listingId);
     }

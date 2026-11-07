@@ -5,6 +5,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIA
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.ListingSalePrice.LISTING_SALE_PRICE;
 import static com.pegasus.pegasustcgapi.jooq.tables.PriceSale.PRICE_SALE;
+import static com.pegasus.pegasustcgapi.jooq.tables.PriceSaleListing.PRICE_SALE_LISTING;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.ListingSalePriceRecord;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
@@ -33,6 +34,16 @@ public class ListingSalePriceRepository {
 
     public ListingSalePriceRepository(DSLContext dsl) {
         this.dsl = dsl;
+    }
+
+    /** Total quota for the displayed sale, with a listing override taking precedence. */
+    public Integer totalQuota(long saleId, long listingId) {
+        return dsl.select(DSL.coalesce(PRICE_SALE_LISTING.QUOTA, PRICE_SALE.PER_LISTING_QUOTA))
+                .from(PRICE_SALE)
+                .leftJoin(PRICE_SALE_LISTING).on(PRICE_SALE_LISTING.SALE_ID.eq(PRICE_SALE.ID)
+                        .and(PRICE_SALE_LISTING.LISTING_ID.eq(listingId)))
+                .where(PRICE_SALE.ID.eq(saleId))
+                .fetchOne(0, Integer.class);
     }
 
     /** Game, category and set come from the catalogue; deleted listings are left out. */

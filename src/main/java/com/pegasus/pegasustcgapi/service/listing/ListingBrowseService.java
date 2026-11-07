@@ -19,6 +19,7 @@ import com.pegasus.pegasustcgapi.model.pricing.MarketKey;
 import com.pegasus.pegasustcgapi.model.user.UserStatus;
 import com.pegasus.pegasustcgapi.repository.listing.ListingImageRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
+import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.PublicListing;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.PublicListingQuery;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
@@ -46,6 +47,7 @@ public class ListingBrowseService {
 
     private final ListingRepository listings;
     private final ListingImageRepository images;
+    private final ListingUnitRepository units;
     private final VariantMarketStatRepository stats;
     private final UserRepository users;
     private final ListingCardRenderer cards;
@@ -55,6 +57,7 @@ public class ListingBrowseService {
     public ListingBrowseService(
             ListingRepository listings,
             ListingImageRepository images,
+            ListingUnitRepository units,
             VariantMarketStatRepository stats,
             UserRepository users,
             ListingCardRenderer cards,
@@ -63,6 +66,7 @@ public class ListingBrowseService {
 
         this.listings = listings;
         this.images = images;
+        this.units = units;
         this.stats = stats;
         this.users = users;
         this.cards = cards;
@@ -146,11 +150,15 @@ public class ListingBrowseService {
                 photoUrls.isEmpty() ? null : photoUrls.getFirst(), cards.signed(row.sellerAvatarUrl()),
                 salePricing.pricing(listing.id(), listing.price()));
 
-        MarketStatResponse market = stats.latest(new MarketKey(listing.catalogVariantId(), listing.condition()))
+        MarketStatResponse market = listing.gradingCompany() != null ? null
+                : stats.latest(new MarketKey(listing.catalogVariantId(), listing.condition()))
                 .map(MarketStatResponse::of)
                 .orElse(null);
 
-        return new PublicListingDetailResponse(shown, photoUrls, market);
+        String cert = listing.gradingCompany() == null ? null : units.publicCertNumber(listing.id());
+        Integer quota = salePricing.totalQuota(listing.id(), shown.pricing());
+        return new PublicListingDetailResponse(new PublicListingDetailResponse.DetailListing(shown, quota),
+                photoUrls, market, cert);
     }
 
     /** The listings of a page, priced, cards and photos in one read each. Shared with the sale pages. */

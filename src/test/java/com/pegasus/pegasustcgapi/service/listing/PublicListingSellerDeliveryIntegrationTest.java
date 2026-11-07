@@ -60,7 +60,7 @@ class PublicListingSellerDeliveryIntegrationTest extends PostgresIntegrationTest
         sale(seller, "RETURNED");
 
         PublicListingResponse page = find(card.productId(), listing.id());
-        PublicListingResponse detail = browse.get(listing.id()).listing();
+        PublicListingResponse detail = browse.get(listing.id()).listing().listing();
         assertThat(page.seller().ratingAvg()).isEqualByComparingTo("4.50");
         assertThat(page.seller().ratingCount()).isEqualTo(2);
         assertThat(page.seller().salesCount()).isEqualTo(1);
