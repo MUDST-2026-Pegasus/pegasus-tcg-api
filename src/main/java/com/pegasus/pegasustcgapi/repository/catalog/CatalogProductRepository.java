@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.repository.catalog;
 
+import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogCategory.CATALOG_CATEGORY;
@@ -12,11 +13,15 @@ import static com.pegasus.pegasustcgapi.jooq.tables.InventoryMovement.INVENTORY_
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.ListingUnit.LISTING_UNIT;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerVariantCost.SELLER_VARIANT_COST;
+import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.CatalogProductRecord;
+import com.pegasus.pegasustcgapi.model.catalog.AdminSaleStatus;
 import com.pegasus.pegasustcgapi.model.catalog.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.catalog.ProductType;
+import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
 import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
@@ -27,6 +32,7 @@ import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.OrderField;
+import org.jooq.Select;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -210,7 +216,31 @@ public class CatalogProductRepository {
         if (query.maxPrice() != null) {
             condition = condition.and(offers.lowestPrice.le(query.maxPrice()));
         }
+        if (query.saleStatus() != null) {
+            condition = condition.and(saleStatusMatches(query.saleStatus()));
+        }
         return condition;
+    }
+
+    /** "Has a seller" means a buyer could take one now, the same as the numbers the admin's tile shows. */
+    private static Condition saleStatusMatches(AdminSaleStatus status) {
+        return switch (status) {
+            case ALL -> DSL.noCondition();
+            case HAS_SELLER -> DSL.exists(listingsOfThisProduct(ListingRepository.purchasableNow()));
+            case NO_SELLER -> DSL.notExists(listingsOfThisProduct(ListingRepository.purchasableNow()));
+            case HAS_BLOCKED -> DSL.exists(listingsOfThisProduct(LISTING.STATUS.eq(ListingStatus.BLOCKED.name())));
+        };
+    }
+
+    private static Select<?> listingsOfThisProduct(Condition condition) {
+        return DSL.selectOne()
+                .from(LISTING)
+                .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
+                .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
+                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
+                .where(CATALOG_VARIANT.CATALOG_PRODUCT_ID.eq(CATALOG_PRODUCT.ID))
+                .and(LISTING.DELETED_AT.isNull())
+                .and(condition);
     }
 
     /**

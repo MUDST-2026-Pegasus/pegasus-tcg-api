@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.repository.catalog;
 
+import com.pegasus.pegasustcgapi.model.catalog.AdminSaleStatus;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.catalog.ProductType;
 import java.math.BigDecimal;
@@ -23,6 +24,7 @@ import java.util.Set;
  * @param minPrice    against the cheapest matching listing on sale; null for no floor
  * @param maxPrice    same, for the ceiling
  * @param now         which sale prices still run; prices are what a buyer pays now
+ * @param saleStatus  an admin's filter on who sells it; null for no filter
  */
 public record ProductSearchQuery(
         Set<Short> gameIds,
@@ -39,7 +41,28 @@ public record ProductSearchQuery(
         Sort sort,
         int limit,
         int offset,
-        OffsetDateTime now) {
+        OffsetDateTime now,
+        AdminSaleStatus saleStatus) {
+
+    public ProductSearchQuery(
+            Set<Short> gameIds,
+            Integer categoryId,
+            Integer cardSetId,
+            ProductType productType,
+            String nameQuery,
+            Map<String, Object> attributes,
+            boolean activeOnly,
+            boolean inStockOnly,
+            Set<CardCondition> conditions,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            Sort sort,
+            int limit,
+            int offset,
+            OffsetDateTime now) {
+        this(gameIds, categoryId, cardSetId, productType, nameQuery, attributes, activeOnly, inStockOnly,
+                conditions, minPrice, maxPrice, sort, limit, offset, now, null);
+    }
 
     public ProductSearchQuery {
         gameIds = gameIds == null ? Set.of() : Set.copyOf(gameIds);

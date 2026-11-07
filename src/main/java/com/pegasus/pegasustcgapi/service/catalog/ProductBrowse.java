@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import com.pegasus.pegasustcgapi.model.catalog.AdminSaleStatus;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.catalog.ProductType;
 import java.math.BigDecimal;
@@ -17,6 +18,7 @@ import java.util.Set;
  * @param conditions    only cards on sale in one of these; empty for any
  * @param minPrice      THB, against the cheapest matching listing; null for no floor
  * @param maxPrice      same, for the ceiling
+ * @param saleStatus    an admin's filter on who sells it; null for no filter
  */
 public record ProductBrowse(
         Set<Short> gameIds,
@@ -32,7 +34,27 @@ public record ProductBrowse(
         BigDecimal minPrice,
         BigDecimal maxPrice,
         int page,
-        int size) {
+        int size,
+        AdminSaleStatus saleStatus) {
+
+    public ProductBrowse(
+            Set<Short> gameIds,
+            Integer categoryId,
+            Integer cardSetId,
+            ProductType productType,
+            String nameQuery,
+            Map<String, String> rawParameters,
+            String sort,
+            boolean activeOnly,
+            boolean inStockOnly,
+            Set<CardCondition> conditions,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            int page,
+            int size) {
+        this(gameIds, categoryId, cardSetId, productType, nameQuery, rawParameters, sort, activeOnly, inStockOnly,
+                conditions, minPrice, maxPrice, page, size, null);
+    }
 
     public ProductBrowse {
         gameIds = gameIds == null ? Set.of() : Set.copyOf(gameIds);

@@ -126,7 +126,8 @@ public class CatalogSearchService {
                         ? "relevance" : browse.sort()),
                 paging.size(),
                 paging.offset(),
-                OffsetDateTime.now(clock));
+                OffsetDateTime.now(clock),
+                browse.saleStatus());
 
         List<CatalogProduct> found = products.search(query);
         return PageResponse.of(summarise(found, browse.conditions()), paging.page(), paging.size(),
