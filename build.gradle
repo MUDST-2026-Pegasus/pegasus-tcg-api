@@ -42,7 +42,11 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // Spring Boot 4 renamed the AOP starter to AspectJ.
+    implementation 'org.springframework.boot:spring-boot-starter-aspectj'
     implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+    implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
     implementation 'io.micrometer:micrometer-registry-prometheus'
     // Spring Boot 4 auto-instruments JDBC with Micrometer observations and spans.
     implementation 'net.ttddyy.observation:datasource-micrometer-spring-boot:2.3.0'

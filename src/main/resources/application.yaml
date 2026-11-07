@@ -58,27 +58,33 @@ logging:
         env: ${APP_ENV:local}
 
 management:
+  observations:
+    key-values:
+      env: ${APP_ENV:local}
   metrics:
     tags:
-      service_name: api
+      service_name: ${OTEL_SERVICE_NAME:api}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
   endpoints:
     web:
       exposure:
         include: health,info,prometheus,metrics
   opentelemetry:
     resource-attributes:
-      service.name: api
+      service.name: ${OTEL_SERVICE_NAME:api}
       deployment.environment: ${APP_ENV:local}
       service.version: ${APP_VERSION:dev}
     tracing:
       export:
         otlp:
           # Spring Boot 4 uses this property path for OTLP trace export.
-          endpoint: ${OTLP_TRACING_ENDPOINT:http://100.86.180.113:4318/v1/traces}
+          endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
   otlp:
     metrics:
       export:
-        url: ${OTLP_METRICS_ENDPOINT:http://100.86.180.113:4318/v1/metrics}
+        url: ${MANAGEMENT_OTLP_METRICS_EXPORT_URL:http://localhost:4318/v1/metrics}
         enabled: ${OTLP_METRICS_ENABLED:true}
   tracing:
     sampling:
