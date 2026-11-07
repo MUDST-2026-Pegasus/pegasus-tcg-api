@@ -10,10 +10,11 @@ import com.pegasus.pegasustcgapi.dto.catalog.CatalogImageRequest;
 import com.pegasus.pegasustcgapi.dto.catalog.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductDetailResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductRequest;
-import com.pegasus.pegasustcgapi.dto.catalog.ProductSummaryResponse;
+import com.pegasus.pegasustcgapi.dto.catalog.AdminProductSummaryResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.VariantRequest;
 import com.pegasus.pegasustcgapi.model.catalog.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.catalog.CatalogVariant;
+import com.pegasus.pegasustcgapi.model.catalog.AdminSaleStatus;
 import com.pegasus.pegasustcgapi.model.catalog.ProductType;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogCardEffectService;
@@ -21,6 +22,7 @@ import com.pegasus.pegasustcgapi.service.catalog.CatalogImageService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogProductService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogSearchService;
 import com.pegasus.pegasustcgapi.service.catalog.ProductBrowse;
+import com.pegasus.pegasustcgapi.service.listing.AdminCardListingService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogVariantService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -59,16 +61,19 @@ public class AdminCatalogProductController {
     private final CatalogImageService images;
     private final CatalogSearchService search;
     private final CatalogCardEffectService effects;
+    private final AdminCardListingService listings;
 
     public AdminCatalogProductController(CatalogProductService products,
             CatalogVariantService variants, CatalogImageService images,
-            CatalogSearchService search, CatalogCardEffectService effects) {
+            CatalogSearchService search, CatalogCardEffectService effects,
+            AdminCardListingService listings) {
 
         this.products = products;
         this.variants = variants;
         this.images = images;
         this.search = search;
         this.effects = effects;
+        this.listings = listings;
     }
 
     // ---------- products ----------
@@ -79,21 +84,22 @@ public class AdminCatalogProductController {
      * someone who already knows its id.
      */
     @GetMapping("/products")
-    public ApiResult<PageResponse<ProductSummaryResponse>> browse(
+    public ApiResult<PageResponse<AdminProductSummaryResponse>> browse(
             @RequestParam(required = false) Short gameId,
             @RequestParam(required = false) Integer categoryId,
             @RequestParam(required = false) Integer cardSetId,
             @RequestParam(required = false) ProductType productType,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String sort,
+            @RequestParam(required = false) AdminSaleStatus saleStatus,
             @RequestParam(defaultValue = "false") boolean activeOnly,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam Map<String, String> allParameters) {
 
-        return ApiResult.success(search.search(new ProductBrowse(
+        return ApiResult.success(listings.withStock(search.search(new ProductBrowse(
                 gameId == null ? null : Set.of(gameId), categoryId, cardSetId, productType, q,
-                allParameters, sort, activeOnly, false, null, null, null, page, size)));
+                allParameters, sort, activeOnly, false, null, null, null, page, size, saleStatus))));
     }
 
     /**

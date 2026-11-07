@@ -16,6 +16,7 @@ import com.pegasus.pegasustcgapi.service.catalog.CatalogImageService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogProductService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogSearchService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogVariantService;
+import com.pegasus.pegasustcgapi.service.listing.AdminCardListingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,13 +36,14 @@ class AdminCatalogProductControllerTest {
     @Mock CatalogImageService images;
     @Mock CatalogSearchService search;
     @Mock CatalogCardEffectService effects;
+    @Mock AdminCardListingService listings;
 
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.standaloneSetup(
-                        new AdminCatalogProductController(products, variants, images, search, effects))
+                        new AdminCatalogProductController(products, variants, images, search, effects, listings))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

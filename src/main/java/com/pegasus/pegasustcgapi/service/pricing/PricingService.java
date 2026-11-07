@@ -1,8 +1,6 @@
 package com.pegasus.pegasustcgapi.service.pricing;
 
 import com.pegasus.pegasustcgapi.model.listing.Listing;
-import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
-import com.pegasus.pegasustcgapi.model.seller.SellerStatus;
 import com.pegasus.pegasustcgapi.port.pricing.PricingPort;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.Offer;
@@ -52,11 +50,7 @@ public class PricingService implements PricingPort {
     /** Purchasable means exactly what the reservation query will accept, plus at least one card. */
     static ListingOffer toOffer(Offer offer) {
         Listing l = offer.listing();
-        boolean purchasable = l.status() == ListingStatus.ACTIVE
-                && l.quantityAvailable() > 0
-                && offer.sellerStatus() == SellerStatus.VERIFIED
-                && !offer.sellerOnVacation()
-                && offer.sellerAccountActive();
+        boolean purchasable = offer.purchasable();
 
         String sellerName = offer.sellerDisplayName() == null || offer.sellerDisplayName().isBlank()
                 ? offer.sellerUsername()
