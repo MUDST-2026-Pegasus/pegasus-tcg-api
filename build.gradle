@@ -43,6 +43,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
     // Spring Boot 4 auto-instruments JDBC with Micrometer observations and spans.
     implementation 'net.ttddyy.observation:datasource-micrometer-spring-boot:2.3.0'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.86'
