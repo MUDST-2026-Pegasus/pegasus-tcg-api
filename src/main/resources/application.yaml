@@ -58,13 +58,16 @@ logging:
         env: ${APP_ENV:local}
 
 management:
+  metrics:
+    tags:
+      service_name: api
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,metrics
   opentelemetry:
     resource-attributes:
-      service.name: pegasus-api
+      service.name: api
       deployment.environment: ${APP_ENV:local}
       service.version: ${APP_VERSION:dev}
     tracing:
