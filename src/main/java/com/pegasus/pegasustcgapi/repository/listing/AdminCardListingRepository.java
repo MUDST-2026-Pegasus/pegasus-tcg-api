@@ -257,7 +257,14 @@ public class AdminCardListingRepository {
         Condition match = DSL.condition("{0} ILIKE {1} ESCAPE '\\'", USER_ACCOUNT.USERNAME, DSL.val(pattern))
                 .or(DSL.condition("{0} ILIKE {1} ESCAPE '\\'", USER_ACCOUNT.DISPLAY_NAME, DSL.val(pattern)));
         String number = text.startsWith("#") ? text.substring(1) : text;
-        return number.matches("\\d{1,18}") ? match.or(LISTING.ID.eq(Long.parseLong(number))) : match;
+        if (!number.matches("\\d{1,18}")) {
+            return match;
+        }
+        try {
+            return match.or(LISTING.ID.eq(Long.parseLong(number)));
+        } catch (NumberFormatException e) {
+            return match;
+        }
     }
 
     private static Row toRow(Record r) {
