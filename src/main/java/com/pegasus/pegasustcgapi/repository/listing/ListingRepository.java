@@ -411,11 +411,18 @@ public class ListingRepository {
      * still active. Vacation hides every listing at once without touching their
      * statuses. {@link ProductMarketRepository} prices the catalogue by the same rule.
      */
-    static Condition sellerProfileOpenForBusiness() {
+    public static Condition sellerProfileOpenForBusiness() {
         return SELLER_PROFILE.STATUS.eq(SellerStatus.VERIFIED.name())
                 .and(SELLER_PROFILE.VACATION_MODE.isFalse())
                 .and(USER_ACCOUNT.STATUS.eq(UserStatus.ACTIVE))
                 .and(USER_ACCOUNT.DELETED_AT.isNull());
+    }
+
+    /** The SQL side of {@link Offer#purchasable()}, for counting what could be bought now. */
+    public static Condition purchasableNow() {
+        return LISTING.STATUS.eq(ListingStatus.ACTIVE.name())
+                .and(LISTING.QUANTITY_AVAILABLE.gt(0))
+                .and(sellerOpenForBusiness());
     }
 
     public static Condition sellerOpenForBusiness() {
@@ -581,7 +588,7 @@ public class ListingRepository {
                 0, new Delivery(null, null, false, 0));
     }
 
-    static Listing toListing(ListingRecord r) {
+    public static Listing toListing(ListingRecord r) {
         return new Listing(
                 r.getId(),
                 r.getSellerProfileId(),
@@ -605,7 +612,12 @@ public class ListingRepository {
                 r.getVersion(),
                 r.getPublishedAt(),
                 r.getCreatedAt(),
-                r.getUpdatedAt());
+                r.getUpdatedAt(),
+                r.getBlockedAt() == null ? null : new Listing.Block(
+                        r.getBlockedReason(),
+                        r.getBlockedBy(),
+                        r.getBlockedAt(),
+                        r.getBlockedFromStatus() == null ? null : ListingStatus.valueOf(r.getBlockedFromStatus())));
     }
 
     // ---------- shapes ----------
@@ -726,5 +738,14 @@ public class ListingRepository {
             boolean sellerAccountActive,
             String sellerDisplayName,
             String sellerUsername) {
+
+        /** Whether a buyer can take it now: exactly what the reservation query accepts, plus at least one card. */
+        public boolean purchasable() {
+            return listing.status() == ListingStatus.ACTIVE
+                    && listing.quantityAvailable() > 0
+                    && sellerStatus == SellerStatus.VERIFIED
+                    && !sellerOnVacation
+                    && sellerAccountActive;
+        }
     }
 }
