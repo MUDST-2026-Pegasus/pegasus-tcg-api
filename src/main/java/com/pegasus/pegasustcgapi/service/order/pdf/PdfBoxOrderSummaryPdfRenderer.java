@@ -21,6 +21,7 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream.AppendMode;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType0Font;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.springframework.stereotype.Service;
 
 /**
@@ -60,8 +61,10 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             drawBuyer(canvas, document);
             drawSellerSections(canvas, document);
             drawTotals(canvas, document);
-            drawRoleOverview(canvas, document);
-            drawFullDocumentNote(canvas);
+            if (document.role() != OrderSummaryPdfRole.BUYER) {
+                drawRoleOverview(canvas, document);
+                drawFullDocumentNote(canvas);
+            }
 
             canvas.close();
             drawFooters(pdf, fonts, document);
@@ -224,13 +227,7 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         String firstLine;
         String secondLine;
         OrderSummaryPdfDocument.Shipping shipping = document.shipping();
-        if (document.role() == OrderSummaryPdfRole.BUYER) {
-            heading = "DELIVERY OVERVIEW";
-            firstLine = "Carrier: " + valueOrUnavailable(shipping == null ? null : shipping.carrierName())
-                    + " · Tracking: " + valueOrUnavailable(shipping == null ? null : shipping.trackingNumber());
-            secondLine = "Estimated delivery: " + valueOrUnavailable(shipping == null ? null : shipping.estimatedDelivery())
-                    + " · Deliver to the buyer address above";
-        } else if (document.role() == OrderSummaryPdfRole.SELLER) {
+        if (document.role() == OrderSummaryPdfRole.SELLER) {
             heading = "FULFILLMENT & PAYOUT";
             String paymentStatus = document.payment() == null ? document.status() : valueOrUnavailable(document.payment().status());
             firstLine = "Payment " + paymentStatus.toLowerCase(Locale.ROOT) + " · Prepare this order for dispatch";
@@ -256,11 +253,9 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         canvas.panel(54f);
         float y = canvas.y() - 16f;
         canvas.text("DOCUMENT NOTE", MARGIN + 12f, y, 9f, canvas.fonts.bold, INK);
-        String note = switch (canvas.document.role()) {
-            case BUYER -> "This order summary is generated from the latest Pegasus TCG order data. It is a purchase record and is not a tax invoice.";
-            case SELLER -> "Operational copy. Buyer delivery information must only be used to fulfill this order and must not be shared.";
-            case ADMIN -> "Internal administrative record. Includes account, commission, dispute, and audit information. Do not distribute externally.";
-        };
+        String note = canvas.document.role() == OrderSummaryPdfRole.SELLER
+                ? "Operational copy. Buyer delivery information must only be used to fulfill this order and must not be shared."
+                : "Internal administrative record. Includes account, commission, dispute, and audit information. Do not distribute externally.";
         canvas.text(note, MARGIN + 12f, y - 15f, 8.1f, canvas.fonts.regular, MUTED);
         canvas.move(66f);
     }
@@ -479,13 +474,21 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         private final PDDocument pdf;
         private final Fonts fonts;
         private final OrderSummaryPdfDocument document;
+        private final PDImageXObject brandIcon;
         private PDPageContentStream content;
         private float y;
 
-        private Canvas(PDDocument pdf, Fonts fonts, OrderSummaryPdfDocument document) {
+        private Canvas(PDDocument pdf, Fonts fonts, OrderSummaryPdfDocument document) throws IOException {
             this.pdf = pdf;
             this.fonts = fonts;
             this.document = document;
+            try (InputStream icon = PdfBoxOrderSummaryPdfRenderer.class
+                    .getResourceAsStream("/images/pegasus-icon.jpg")) {
+                if (icon == null) {
+                    throw new IllegalStateException("Required PDF brand icon is unavailable");
+                }
+                brandIcon = PDImageXObject.createFromByteArray(pdf, icon.readAllBytes(), "Pegasus brand icon");
+            }
         }
 
         private void openPage() throws IOException {
@@ -493,7 +496,8 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             PDPage page = new PDPage(PAGE_SIZE);
             pdf.addPage(page);
             content = new PDPageContentStream(pdf, page);
-            text("PEGASUS", MARGIN, PAGE_HEIGHT - 37f, 25f, fonts.bold, PRIMARY);
+            content.drawImage(brandIcon, MARGIN, PAGE_HEIGHT - 46f, 29f, 29f);
+            text("PEGASUS", MARGIN + 37f, PAGE_HEIGHT - 37f, 25f, fonts.bold, PRIMARY);
             String roleTitle = document.role().name() + " ORDER SUMMARY";
             right(roleTitle, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 29f, 13f, fonts.bold, INK);
             right(roleCopy(document), PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 44f, 8.5f, fonts.regular, MUTED);
