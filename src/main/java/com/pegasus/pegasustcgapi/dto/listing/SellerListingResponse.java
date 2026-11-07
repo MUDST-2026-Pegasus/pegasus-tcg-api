@@ -17,6 +17,9 @@ import java.util.List;
  *                        condition; see {@link #message(String)}
  * @param costBasis       what the seller's cards of this printing in this condition
  *                        cost on average — the figure a sale freezes as its cost
+ * @param blockReason     why an admin suspended it, for the seller to read; null unless
+ *                        BLOCKED. Which admin did is not the seller's to know
+ * @param blockedAt       when; null unless BLOCKED
  */
 public record SellerListingResponse(
         long id,
@@ -43,7 +46,9 @@ public record SellerListingResponse(
         OffsetDateTime updatedAt,
         List<ListingPhotoResponse> photos,
         List<SimilarListingResponse> similarListings,
-        CostBasis costBasis) {
+        CostBasis costBasis,
+        String blockReason,
+        OffsetDateTime blockedAt) {
 
     /**
      * The seller's moving average cost for this card in this condition [RQ-7]. It is
@@ -70,7 +75,9 @@ public record SellerListingResponse(
                 l.price(), l.currency(), l.pricingMode(), l.autoPriceOffsetPercent(), l.autoPriceFloor(),
                 l.autoPriceCeiling(), l.lastAutoPricedAt(), l.quantityTotal(), l.quantityReserved(),
                 l.quantityAvailable(), l.status(), l.lotLabel(), l.publicNote(), l.version(), l.publishedAt(),
-                l.createdAt(), l.updatedAt(), photos, similarListings, CostBasis.of(cost));
+                l.createdAt(), l.updatedAt(), photos, similarListings, CostBasis.of(cost),
+                l.block() == null ? null : l.block().reason(),
+                l.block() == null ? null : l.block().at());
     }
 
     /**
