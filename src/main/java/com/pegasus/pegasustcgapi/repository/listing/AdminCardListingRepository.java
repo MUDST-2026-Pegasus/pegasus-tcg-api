@@ -7,7 +7,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerRatingSummary.SELLER_RATING_SUMMARY;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
-import com.pegasus.pegasustcgapi.dto.listing.AdminCardListingResponse.Summary;
+import com.pegasus.pegasustcgapi.dto.listing.AdminCardListingResponse.AdminCardListingSummary;
 import com.pegasus.pegasustcgapi.jooq.tables.UserAccount;
 import com.pegasus.pegasustcgapi.model.listing.Listing;
 import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
@@ -112,7 +112,7 @@ public class AdminCardListingRepository {
                 .fetchOptional(AdminCardListingRepository::toRow);
     }
 
-    public Summary summary(long productId) {
+    public AdminCardListingSummary summary(long productId) {
         Condition purchasable = ListingRepository.purchasableNow();
         Field<Integer> listingCount = DSL.count().as("listing_count");
         Field<Integer> shopCount = DSL.countDistinct(LISTING.SELLER_PROFILE_ID).as("shop_count");
@@ -135,7 +135,7 @@ public class AdminCardListingRepository {
                 .where(CATALOG_VARIANT.CATALOG_PRODUCT_ID.eq(productId))
                 .and(IN_SCOPE)
                 .fetchSingle();
-        return new Summary(r.get(shopCount), r.get(listingCount), r.get(available), r.get(availableShops),
+        return new AdminCardListingSummary(r.get(shopCount), r.get(listingCount), r.get(available), r.get(availableShops),
                 r.get(reserved), r.get(paused), r.get(blocked), r.get(blockedListings), r.get(closedShop));
     }
 

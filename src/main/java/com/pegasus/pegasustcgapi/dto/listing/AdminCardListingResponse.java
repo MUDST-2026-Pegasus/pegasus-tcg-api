@@ -15,6 +15,9 @@ import java.time.OffsetDateTime;
  * @param purchasable whether a buyer could take one now; a listing can be ACTIVE
  *                    and still not, when its shop is closed
  * @param block       null unless an admin has suspended it
+ *
+ * <p>The nested records carry the full name on purpose: OpenAPI schemas go by simple
+ * name, so a plain {@code Seller} would overwrite the one on the public listing.
  */
 public record AdminCardListingResponse(
         long id,
@@ -35,11 +38,11 @@ public record AdminCardListingResponse(
         OffsetDateTime publishedAt,
         OffsetDateTime updatedAt,
         boolean purchasable,
-        Seller seller,
-        Block block) {
+        AdminListingSeller seller,
+        AdminListingBlock block) {
 
     /** @param ratingAvg null until the shop has a rating */
-    public record Seller(
+    public record AdminListingSeller(
             long sellerProfileId,
             long userId,
             String username,
@@ -53,7 +56,7 @@ public record AdminCardListingResponse(
     }
 
     /** @param fromStatus null only for a listing blocked before reasons were recorded */
-    public record Block(String reason, String blockedByUsername, OffsetDateTime blockedAt, ListingStatus fromStatus) {
+    public record AdminListingBlock(String reason, String blockedByUsername, OffsetDateTime blockedAt, ListingStatus fromStatus) {
     }
 
     /**
@@ -64,7 +67,7 @@ public record AdminCardListingResponse(
      * @param availableShops    shops those cards are at
      * @param closedShopQuantity on an ACTIVE listing, but the shop is not open for business
      */
-    public record Summary(
+    public record AdminCardListingSummary(
             int shopCount,
             int listingCount,
             int availableQuantity,
@@ -76,6 +79,7 @@ public record AdminCardListingResponse(
             int closedShopQuantity) {
     }
 
-    public record Page(PageResponse<AdminCardListingResponse> listings, Summary summary) {
+    public record AdminCardListingPage(PageResponse<AdminCardListingResponse> listings,
+            AdminCardListingSummary summary) {
     }
 }

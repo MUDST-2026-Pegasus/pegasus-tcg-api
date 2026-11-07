@@ -58,7 +58,7 @@ public class AdminCardListingService {
     }
 
     /** The summary describes the whole card, so it does not move with the list's filters. */
-    public AdminCardListingResponse.Page ofProduct(long productId, String search, Long variantId,
+    public AdminCardListingResponse.AdminCardListingPage ofProduct(long productId, String search, Long variantId,
             ListingStatus status, int page, int size) {
         if (products.findById(productId).isEmpty()) {
             throw new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND);
@@ -67,7 +67,7 @@ public class AdminCardListingService {
         Query query = new Query(productId, search, variantId, status, paging.size(), paging.offset(),
                 OffsetDateTime.now(clock));
         List<AdminCardListingResponse> items = listings.find(query).stream().map(this::toResponse).toList();
-        return new AdminCardListingResponse.Page(
+        return new AdminCardListingResponse.AdminCardListingPage(
                 PageResponse.of(items, paging.page(), paging.size(), listings.count(query)),
                 listings.summary(productId));
     }
@@ -149,12 +149,12 @@ public class AdminCardListingService {
                 row.salePrice(), row.saleEndsAt(), l.pricingMode(), l.quantityAvailable(), l.quantityReserved(),
                 l.quantityTotal(), l.status(), l.lotLabel(), l.publicNote(), l.publishedAt(), l.updatedAt(),
                 row.offer().purchasable(),
-                new AdminCardListingResponse.Seller(
+                new AdminCardListingResponse.AdminListingSeller(
                         l.sellerProfileId(), row.sellerUserId(), row.offer().sellerUsername(),
                         row.offer().sellerDisplayName(), cards.signed(row.avatarKey()),
                         row.offer().sellerStatus(), row.offer().sellerOnVacation(), row.offer().sellerAccountActive(),
                         row.ratingAvg(), row.ratingCount()),
-                l.block() == null ? null : new AdminCardListingResponse.Block(
+                l.block() == null ? null : new AdminCardListingResponse.AdminListingBlock(
                         l.block().reason(), row.blockedByUsername(), l.block().at(), l.block().fromStatus()));
     }
 }

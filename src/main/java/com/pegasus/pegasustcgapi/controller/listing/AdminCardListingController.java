@@ -39,7 +39,7 @@ public class AdminCardListingController {
                     + "listings are left out. The summary covers the whole card, whatever the filters.")
     @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")
     @GetMapping(ApiPaths.ADMIN + "/catalog/products/{productId}/listings")
-    public ApiResult<AdminCardListingResponse.Page> ofProduct(
+    public ApiResult<AdminCardListingResponse.AdminCardListingPage> ofProduct(
             @PathVariable long productId,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Long variantId,
