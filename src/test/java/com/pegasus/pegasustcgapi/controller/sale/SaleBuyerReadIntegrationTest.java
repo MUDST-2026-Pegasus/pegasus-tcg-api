@@ -1,6 +1,9 @@
 package com.pegasus.pegasustcgapi.controller.sale;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.PriceSale.PRICE_SALE;
+import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
+import static com.pegasus.pegasustcgapi.jooq.tables.ListingUnit.LISTING_UNIT;
+import static com.pegasus.pegasustcgapi.jooq.tables.VariantMarketStat.VARIANT_MARKET_STAT;
 import static com.pegasus.pegasustcgapi.jooq.tables.PriceSaleListing.PRICE_SALE_LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -214,6 +217,65 @@ class SaleBuyerReadIntegrationTest extends PostgresIntegrationTest {
         assertThat(after.path("currentPrice").decimalValue()).isEqualByComparingTo("1000");
         assertPricing(after.path("pricing"), "1000", "1000", 0);
         assertThat(after.path("pricing").path("sale").isNull()).isTrue();
+    }
+
+    @Test
+    void detailCertAndRawMarketAreSeparated() {
+        Listing a = data.onSale(seller, card, CardCondition.NM, 2, "1000");
+        dsl.insertInto(VARIANT_MARKET_STAT)
+                .set(VARIANT_MARKET_STAT.CATALOG_VARIANT_ID, card.variantId())
+                .set(VARIANT_MARKET_STAT.CONDITION_CODE, "NM")
+                .set(VARIANT_MARKET_STAT.STAT_DATE, java.time.LocalDate.now())
+                .set(VARIANT_MARKET_STAT.MEDIAN_PRICE, new java.math.BigDecimal("300"))
+                .execute();
+        dsl.update(LISTING_UNIT).set(LISTING_UNIT.CERT_NUMBER, "CERT-A")
+                .where(LISTING_UNIT.PUBLIC_UID.eq(a.units().get(0).publicUid())).execute();
+        JsonNode raw = api.get("/api/v1/listings/" + a.id(), null).data();
+        assertThat(raw.path("certNumber").isNull()).isTrue();
+        assertThat(raw.path("market").isObject()).isTrue();
+        assertThat(raw.path("listing").path("saleQuota").isNull()).isTrue();
+
+        dsl.update(LISTING).set(LISTING.GRADING_COMPANY, "PSA")
+                .set(LISTING.GRADE_VALUE, new java.math.BigDecimal("10"))
+                .where(LISTING.ID.eq(a.id())).execute();
+        // A second sellable card without a certificate must not expose the first one's number.
+        assertThat(api.get("/api/v1/listings/" + a.id(), null).data().path("certNumber").isNull()).isTrue();
+        dsl.update(LISTING_UNIT).set(LISTING_UNIT.CERT_NUMBER, "CERT-B")
+                .where(LISTING_UNIT.PUBLIC_UID.eq(a.units().get(1).publicUid())).execute();
+        JsonNode different = api.get("/api/v1/listings/" + a.id(), null).data();
+        assertThat(different.path("certNumber").isNull()).isTrue();
+        assertThat(different.path("market").isNull()).isTrue();
+        dsl.update(LISTING_UNIT).set(LISTING_UNIT.STATUS, "RESERVED")
+                .where(LISTING_UNIT.PUBLIC_UID.eq(a.units().get(1).publicUid())).execute();
+        assertThat(api.get("/api/v1/listings/" + a.id(), null).data().path("certNumber").asString())
+                .isEqualTo("CERT-A");
+        assertThat(only(api.get("/api/v1/listings?productId=" + card.productId(), null)).has("saleQuota")).isFalse();
+        String username = dsl.select(USER_ACCOUNT.USERNAME).from(USER_ACCOUNT)
+                .where(USER_ACCOUNT.ID.eq(seller.userId())).fetchSingle(USER_ACCOUNT.USERNAME);
+        assertThat(only(api.get("/api/v1/u/" + username + "/listings", null)).has("saleQuota")).isFalse();
+    }
+
+    @Test
+    void detailQuotaUsesListingOverrideThenCampaignQuota() {
+        Listing a = data.onSale(seller, card, CardCondition.NM, 5, "1000");
+        Map<String, Object> flash = campaign("quota-" + data.tag(), 30);
+        flash.put("saleType", "FLASH_SALE");
+        flash.put("perListingQuota", 5);
+        long saleId = create(flash);
+        JsonNode detail = api.get("/api/v1/listings/" + a.id(), null).data().path("listing");
+        assertThat(detail.path("saleQuota").asInt()).isEqualTo(5);
+        assertThat(detail.path("pricing").path("sale").path("quotaLeft").asInt()).isEqualTo(5);
+        dsl.insertInto(PRICE_SALE_LISTING).set(PRICE_SALE_LISTING.SALE_ID, saleId)
+                .set(PRICE_SALE_LISTING.LISTING_ID, a.id()).set(PRICE_SALE_LISTING.QUOTA, 3)
+                .set(PRICE_SALE_LISTING.SOLD_COUNT, 1).onConflict(PRICE_SALE_LISTING.SALE_ID, PRICE_SALE_LISTING.LISTING_ID)
+                .doUpdate().set(PRICE_SALE_LISTING.QUOTA, 3).set(PRICE_SALE_LISTING.SOLD_COUNT, 1).execute();
+        refresher.refreshAll();
+        detail = api.get("/api/v1/listings/" + a.id(), null).data().path("listing");
+        assertThat(detail.path("saleQuota").asInt()).isEqualTo(3);
+        assertThat(detail.path("pricing").path("sale").path("quotaLeft").asInt()).isEqualTo(2);
+        api.post(ADMIN_SALES + "/" + saleId + "/end", admin, null);
+        create(campaign("unlimited-" + data.tag(), 10));
+        assertThat(api.get("/api/v1/listings/" + a.id(), null).data().path("listing").path("saleQuota").isNull()).isTrue();
     }
 
     // ---------- helpers ----------

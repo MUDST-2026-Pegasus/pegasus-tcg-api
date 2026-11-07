@@ -147,7 +147,7 @@ class ListingBrowseServiceIntegrationTest extends PostgresIntegrationTest {
     void soldOutListingStillHasAPage() {
         Listing soldOut = seeded.listingByRow().get("P2");
 
-        assertThat(browse.get(soldOut.id()).listing().status()).isEqualTo(ListingStatus.SOLD_OUT);
+        assertThat(browse.get(soldOut.id()).listing().listing().status()).isEqualTo(ListingStatus.SOLD_OUT);
     }
 
     @Test

@@ -128,6 +128,22 @@ public class ListingUnitRepository {
         return dsl.fetchCount(LISTING_UNIT, conditions(query));
     }
 
+    /** Certificate of the next card if all sellable cards have the same certificate. */
+    public String publicCertNumber(long listingId) {
+        List<String> certs = dsl.select(LISTING_UNIT.CERT_NUMBER)
+                .from(LISTING_UNIT)
+                .where(LISTING_UNIT.LISTING_ID.eq(listingId))
+                .and(LISTING_UNIT.STATUS.eq(ListingUnitStatus.LISTED.name()))
+                .and(LISTING_UNIT.DELETED_AT.isNull())
+                .orderBy(LISTING_UNIT.ACQUIRED_AT.asc().nullsLast(), LISTING_UNIT.ID.asc())
+                .fetch(LISTING_UNIT.CERT_NUMBER);
+        if (certs.isEmpty() || certs.getFirst() == null || certs.getFirst().isBlank()) {
+            return null;
+        }
+        String first = certs.getFirst();
+        return certs.stream().allMatch(first::equals) ? first : null;
+    }
+
     // ---------- the seller's moves ----------
 
     /** One row per card, each with its own UUID. On a listing they arrive LISTED, otherwise IN_STOCK. */
