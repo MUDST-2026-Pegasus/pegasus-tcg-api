@@ -1,5 +1,9 @@
 package com.pegasus.pegasustcgapi.dto.metrics;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -37,7 +41,11 @@ public final class WeeklyStockProfitViews {
         }
     }
 
-    public record DailySales(LocalDate date, BigDecimal singles, BigDecimal sealed) {}
+    public record DailySales(LocalDate date, BigDecimal singles, BigDecimal sealed, BigDecimal other) {}
+
+    /** @param remainingStock stock at the end of the day; null for a day that has not happened yet */
+    public record DailyKpi(LocalDate date, BigDecimal gmv, BigDecimal netProfit, BigDecimal commission,
+            Long remainingStock) {}
 
     public record GameBreakdown(String game, long remainingStock, BigDecimal stockPercent,
             BigDecimal profit, BigDecimal profitPercent) {}
@@ -58,6 +66,22 @@ public final class WeeklyStockProfitViews {
             long remainingStock,
             long singleCards,
             long sealedBoxes,
+            long otherItems,
+            BigDecimal gmv,
+            BigDecimal commission,
+            BigDecimal netProfit,
+            String status,
+            String statusLabel) {}
+
+    /** @param productType SINGLE_CARD, SEALED or OTHER */
+    public record GameTypeBreakdownRow(
+            String game,
+            String gameSlug,
+            String productType,
+            String productTypeLabel,
+            long initialStock,
+            long soldCount,
+            long remainingStock,
             BigDecimal gmv,
             BigDecimal commission,
             BigDecimal netProfit,
@@ -70,6 +94,7 @@ public final class WeeklyStockProfitViews {
             long remainingStock,
             long singleCards,
             long sealedBoxes,
+            long otherItems,
             BigDecimal gmv,
             BigDecimal weeklyGmv,
             BigDecimal commission,
@@ -77,12 +102,25 @@ public final class WeeklyStockProfitViews {
             BigDecimal netProfit) {
 
         public static BreakdownTotals zero() {
-            return new BreakdownTotals(0, 0, 0, 0, 0,
+            return new BreakdownTotals(0, 0, 0, 0, 0, 0,
                     BigDecimal.ZERO, BigDecimal.ZERO,
                     BigDecimal.ZERO, BigDecimal.ZERO,
                     BigDecimal.ZERO);
         }
     }
+
+    /**
+     * @param standardCommissionRatePercent read-only here: {@code commission.default_rate},
+     *        owned by the commission settings
+     */
+    public record StockThresholds(
+            int lowStockThreshold,
+            int fastMovingPercent,
+            BigDecimal standardCommissionRatePercent) {}
+
+    public record StockThresholdsUpdate(
+            @NotNull @DecimalMin("0") @Digits(integer = 9, fraction = 0) BigDecimal lowStockThreshold,
+            @NotNull @DecimalMin("1") @DecimalMax("100") @Digits(integer = 3, fraction = 0) BigDecimal fastMovingPercent) {}
 
     public record Report(
             LocalDate startDate,
@@ -91,24 +129,29 @@ public final class WeeklyStockProfitViews {
             ReportMeta meta,
             Summary summary,
             List<DailySales> chartData,
+            List<DailyKpi> kpiHistory,
             List<GameBreakdown> breakdownByGame,
             List<GameDistributionItem> gameDistribution,
             List<BreakdownRow> breakdownTable,
+            List<GameTypeBreakdownRow> breakdownByGameAndType,
             BreakdownTotals totals) {
 
         public Report(LocalDate startDate, LocalDate endDate, Summary summary,
                 List<DailySales> chartData, List<GameBreakdown> breakdownByGame) {
             this(startDate, endDate,
-                    summary != null && (summary.gmv().signum() > 0 || summary.stockDepleted() > 0),
+                    summary != null && (summary.gmv().signum() > 0 || summary.stockDepleted() > 0
+                            || summary.remainingStock() > 0),
                     new ReportMeta(startDate, endDate, "Asia/Bangkok", null, null, new BigDecimal("3.0")),
                     summary,
                     chartData,
+                    List.of(),
                     breakdownByGame,
+                    List.of(),
                     List.of(),
                     List.of(),
                     summary == null ? BreakdownTotals.zero() : new BreakdownTotals(
                             summary.initialStock(), summary.soldCount(), summary.remainingStock(),
-                            summary.remainingStock(), 0,
+                            summary.remainingStock(), 0, 0,
                             summary.gmv(), summary.weeklyGmv(),
                             summary.commission(), summary.commissionCollected(),
                             summary.netProfit()));

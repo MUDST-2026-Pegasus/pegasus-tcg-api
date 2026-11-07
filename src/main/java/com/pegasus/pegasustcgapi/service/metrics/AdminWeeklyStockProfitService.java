@@ -2,24 +2,33 @@ package com.pegasus.pegasustcgapi.service.metrics;
 
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.BreakdownRow;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.BreakdownTotals;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.DailyKpi;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.DailySales;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameBreakdown;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameDistributionItem;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameTypeBreakdownRow;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.Report;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.ReportMeta;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.StockThresholds;
+import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.StockThresholdsUpdate;
 import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.Summary;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.DailyAmounts;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.DailyMoney;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.DailyStock;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameBreakdownStat;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameProfit;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameStock;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameTypeBreakdownStat;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.Totals;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -28,10 +37,12 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.WeekFields;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.springframework.stereotype.Service;
@@ -44,13 +55,36 @@ public class AdminWeeklyStockProfitService {
     public static final ZoneId ZONE = ZoneId.of("Asia/Bangkok");
     public static final BigDecimal COMMISSION_RATE_PERCENT = new BigDecimal("3.0");
     public static final BigDecimal COMMISSION_RATE = new BigDecimal("0.03");
+    private static final List<String> PRODUCT_TYPE_ORDER = List.of("SINGLE_CARD", "SEALED", "OTHER");
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final BigDecimal ZERO_ONE_DECIMAL = new BigDecimal("0.0");
 
     private final AdminWeeklyStockProfitRepository repository;
+    private final PlatformSettingService settings;
+    private final Clock clock;
 
-    public AdminWeeklyStockProfitService(AdminWeeklyStockProfitRepository repository) {
+    public AdminWeeklyStockProfitService(AdminWeeklyStockProfitRepository repository,
+            PlatformSettingService settings, Clock clock) {
         this.repository = repository;
+        this.settings = settings;
+        this.clock = clock;
+    }
+
+    @Transactional(readOnly = true)
+    public StockThresholds thresholds() {
+        return new StockThresholds(
+                settings.getInt(PlatformSettingService.REPORT_LOW_STOCK_THRESHOLD),
+                settings.getInt(PlatformSettingService.REPORT_FAST_MOVING_PERCENT),
+                settings.getDecimal(PlatformSettingService.COMMISSION_DEFAULT_RATE));
+    }
+
+    @Transactional
+    public StockThresholds updateThresholds(StockThresholdsUpdate update, long adminId) {
+        settings.update(PlatformSettingService.REPORT_LOW_STOCK_THRESHOLD,
+                Integer.toString(update.lowStockThreshold().intValueExact()), adminId);
+        settings.update(PlatformSettingService.REPORT_FAST_MOVING_PERCENT,
+                Integer.toString(update.fastMovingPercent().intValueExact()), adminId);
+        return thresholds();
     }
 
     @Transactional(readOnly = true)
@@ -75,17 +109,24 @@ public class AdminWeeklyStockProfitService {
             DailyAmounts row = days.get(date);
             chart.add(new DailySales(date,
                     row == null ? BigDecimal.ZERO : row.singles(),
-                    row == null ? BigDecimal.ZERO : row.sealed()));
+                    row == null ? BigDecimal.ZERO : row.sealed(),
+                    row == null ? BigDecimal.ZERO : row.other()));
         }
 
-        long rawStock = repository.activeStock(to, game, type);
+        // A week that has not started has no stock to report; the latest history row would
+        // otherwise present today's listings as that future week's closing stock.
+        LocalDate today = LocalDate.now(clock.withZone(ZONE));
+        long rawStock = start.isAfter(today) ? 0 : repository.activeStock(to, game, type);
         long depleted = repository.completedQuantity(from, to, game, type);
         Map<String, GameStock> stockByGame = new HashMap<>();
         repository.activeStockByGame(to, game, type).forEach(row -> stockByGame.put(row.slug(), row));
         Map<String, GameProfit> profitByGame = new HashMap<>();
         repository.profitByGame(from, to, game, type).forEach(row -> profitByGame.put(row.slug(), row));
 
-        boolean hasData = totals.gmv().signum() > 0 || depleted > 0;
+        List<DailyKpi> kpiHistory = buildKpiHistory(start, end, today,
+                repository.dailyMoney(from, to, game, type), repository.dailyStock(start, end, game, type));
+
+        boolean hasData = totals.gmv().signum() > 0 || depleted > 0 || rawStock > 0;
         ReportMeta meta = new ReportMeta(start, end, ZONE.getId(), game, type, COMMISSION_RATE_PERCENT);
 
         if (!hasData) {
@@ -94,7 +135,7 @@ public class AdminWeeklyStockProfitService {
                     BigDecimal.ZERO, BigDecimal.ZERO,
                     BigDecimal.ZERO, 0, 0, 0, 0, ZERO_ONE_DECIMAL);
             return new Report(start, end, false, meta, emptySummary,
-                    List.copyOf(chart), List.of(), List.of(), List.of(), BreakdownTotals.zero());
+                    List.copyOf(chart), kpiHistory, List.of(), List.of(), List.of(), List.of(), BreakdownTotals.zero());
         }
 
         BigDecimal wow = percentChange(totals.gmv(), previous.gmv());
@@ -119,7 +160,10 @@ public class AdminWeeklyStockProfitService {
         breakdown.sort((a, b) -> a.game().compareToIgnoreCase(b.game()));
 
         List<GameBreakdownStat> detailedRows = repository.gameBreakdownRows(from, to, game, type);
-        List<BreakdownRow> breakdownTable = buildBreakdownTable(detailedRows, rawBreakdown, depleted, totals);
+        StockThresholds thresholds = thresholds();
+        List<BreakdownRow> breakdownTable = buildBreakdownTable(detailedRows, rawBreakdown, depleted, totals, thresholds);
+        List<GameTypeBreakdownRow> byGameAndType = buildGameTypeRows(
+                repository.gameTypeBreakdownRows(from, to, game, type), thresholds);
         BreakdownTotals tableTotals = buildBreakdownTotals(breakdownTable, stock, depleted, totals);
         List<GameDistributionItem> gameDistribution = buildGameDistribution(breakdownTable, tableTotals);
 
@@ -130,22 +174,43 @@ public class AdminWeeklyStockProfitService {
                 stock + depleted, depleted, stock, depleted, wow);
 
         return new Report(start, end, true, meta, summary,
-                List.copyOf(chart), List.copyOf(breakdown),
-                List.copyOf(gameDistribution), List.copyOf(breakdownTable), tableTotals);
+                List.copyOf(chart), kpiHistory, List.copyOf(breakdown),
+                List.copyOf(gameDistribution), List.copyOf(breakdownTable), byGameAndType, tableTotals);
+    }
+
+    /** Seven days for the KPI sparklines. Stock of a day still to come is unknown, not zero. */
+    private static List<DailyKpi> buildKpiHistory(LocalDate start, LocalDate end, LocalDate today,
+            List<DailyMoney> money, List<DailyStock> stock) {
+        Map<LocalDate, DailyMoney> moneyByDay = new HashMap<>();
+        money.forEach(row -> moneyByDay.put(row.date(), row));
+        Map<LocalDate, Long> stockByDay = new HashMap<>();
+        stock.forEach(row -> stockByDay.put(row.date(), row.stock()));
+        List<DailyKpi> days = new ArrayList<>(7);
+        for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+            DailyMoney row = moneyByDay.get(date);
+            days.add(new DailyKpi(date,
+                    row == null ? BigDecimal.ZERO : row.gmv(),
+                    row == null ? BigDecimal.ZERO : row.netProfit(),
+                    row == null ? BigDecimal.ZERO : row.commission(),
+                    date.isAfter(today) ? null : stockByDay.getOrDefault(date, 0L)));
+        }
+        return List.copyOf(days);
     }
 
     private static List<BreakdownRow> buildBreakdownTable(
             List<GameBreakdownStat> detailedRows,
             Map<String, GameBreakdown> fallbackBreakdown,
             long totalDepleted,
-            Totals totals) {
+            Totals totals,
+            StockThresholds thresholds) {
         List<BreakdownRow> rows = new ArrayList<>();
         if (detailedRows != null && !detailedRows.isEmpty()) {
             for (GameBreakdownStat stat : detailedRows) {
                 long remaining = stat.remainingStock();
                 long sold = stat.soldCount();
                 long initial = calculateInitialStock(remaining, sold);
-                String status = classifyStockStatus(initial, sold, remaining);
+                String status = classifyStockStatus(initial, sold, remaining,
+                        thresholds.lowStockThreshold(), thresholds.fastMovingPercent());
                 rows.add(new BreakdownRow(
                         stat.name(),
                         stat.slug(),
@@ -154,6 +219,7 @@ public class AdminWeeklyStockProfitService {
                         remaining,
                         stat.singleCards(),
                         stat.sealedBoxes(),
+                        stat.otherItems(),
                         stat.gmv(),
                         stat.commission(),
                         stat.profit(),
@@ -170,7 +236,8 @@ public class AdminWeeklyStockProfitService {
                 BigDecimal rowGmv = count == 1 ? totals.gmv() : gb.profit();
                 BigDecimal rowCommission = count == 1 ? totals.commission() : calculateCommission(rowGmv);
                 BigDecimal rowProfit = gb.profit();
-                String status = classifyStockStatus(initial, sold, remaining);
+                String status = classifyStockStatus(initial, sold, remaining,
+                        thresholds.lowStockThreshold(), thresholds.fastMovingPercent());
                 rows.add(new BreakdownRow(
                         gb.game(),
                         entry.getKey(),
@@ -178,6 +245,7 @@ public class AdminWeeklyStockProfitService {
                         sold,
                         remaining,
                         remaining,
+                        0,
                         0,
                         rowGmv,
                         rowCommission,
@@ -192,6 +260,35 @@ public class AdminWeeklyStockProfitService {
         return rows;
     }
 
+    /** Biggest game first, then singles, sealed and other within each game. */
+    private static List<GameTypeBreakdownRow> buildGameTypeRows(
+            List<GameTypeBreakdownStat> stats, StockThresholds thresholds) {
+        Map<String, BigDecimal> gmvByGame = new HashMap<>();
+        stats.forEach(stat -> gmvByGame.merge(stat.slug(), stat.gmv(), BigDecimal::add));
+        return stats.stream()
+                .sorted(Comparator
+                        .comparing((GameTypeBreakdownStat stat) -> gmvByGame.get(stat.slug()), Comparator.reverseOrder())
+                        .thenComparing(GameTypeBreakdownStat::name, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparingInt(stat -> PRODUCT_TYPE_ORDER.indexOf(stat.productType())))
+                .map(stat -> {
+                    long initial = calculateInitialStock(stat.remainingStock(), stat.soldCount());
+                    String status = classifyStockStatus(initial, stat.soldCount(), stat.remainingStock(),
+                            thresholds.lowStockThreshold(), thresholds.fastMovingPercent());
+                    return new GameTypeBreakdownRow(stat.name(), stat.slug(), stat.productType(),
+                            productTypeLabel(stat.productType()), initial, stat.soldCount(), stat.remainingStock(),
+                            stat.gmv(), stat.commission(), stat.profit(), status, statusLabel(status));
+                })
+                .toList();
+    }
+
+    private static String productTypeLabel(String productType) {
+        return switch (productType) {
+            case "SINGLE_CARD" -> "การ์ดเดี่ยว";
+            case "SEALED" -> "กล่อง/ซองสุ่ม";
+            default -> "อื่น ๆ";
+        };
+    }
+
     private static BreakdownTotals buildBreakdownTotals(
             List<BreakdownRow> rows, long fallbackStock, long fallbackDepleted, Totals fallbackTotals) {
         if (rows.isEmpty()) {
@@ -200,6 +297,7 @@ public class AdminWeeklyStockProfitService {
                     fallbackDepleted,
                     fallbackStock,
                     fallbackStock,
+                    0,
                     0,
                     fallbackTotals.gmv(),
                     fallbackTotals.gmv(),
@@ -212,6 +310,7 @@ public class AdminWeeklyStockProfitService {
         long remainingStock = 0;
         long singleCards = 0;
         long sealedBoxes = 0;
+        long otherItems = 0;
         BigDecimal gmv = BigDecimal.ZERO;
         BigDecimal commission = BigDecimal.ZERO;
         BigDecimal netProfit = BigDecimal.ZERO;
@@ -221,12 +320,13 @@ public class AdminWeeklyStockProfitService {
             remainingStock += row.remainingStock();
             singleCards += row.singleCards();
             sealedBoxes += row.sealedBoxes();
+            otherItems += row.otherItems();
             gmv = gmv.add(row.gmv());
             commission = commission.add(row.commission());
             netProfit = netProfit.add(row.netProfit());
         }
         return new BreakdownTotals(
-                initialStock, soldCount, remainingStock, singleCards, sealedBoxes,
+                initialStock, soldCount, remainingStock, singleCards, sealedBoxes, otherItems,
                 gmv, gmv, commission, commission, netProfit);
     }
 
@@ -277,12 +377,12 @@ public class AdminWeeklyStockProfitService {
         return remainingStock + soldCount;
     }
 
-    public static String classifyStockStatus(long initialStock, long soldCount, long remainingStock) {
-        if (remainingStock <= 0 || (remainingStock < 1300)
-                || (initialStock > 0 && (double) remainingStock / initialStock <= 0.15)) {
+    public static String classifyStockStatus(long initialStock, long soldCount, long remainingStock,
+            int lowStockThreshold, int fastMovingPercent) {
+        if (remainingStock <= 0 || remainingStock < lowStockThreshold) {
             return "LOW_STOCK";
         }
-        if (initialStock > 0 && (double) soldCount / initialStock >= 0.20) {
+        if (soldCount * 100 > fastMovingPercent * initialStock) {
             return "FAST_MOVING";
         }
         return "NORMAL";
@@ -370,39 +470,108 @@ public class AdminWeeklyStockProfitService {
         return switch (type.trim().toLowerCase(Locale.ROOT)) {
             case "single_card" -> "SINGLE_CARD";
             case "sealed_box" -> "SEALED";
+            case "other" -> "OTHER";
             default -> throw new BadRequestException(ErrorCode.VALIDATION_FAILED,
-                    "productType must be single_card or sealed_box");
+                    "productType must be single_card, sealed_box or other");
         };
     }
 
-    /** CSV is UTF-8 with a BOM for Excel; XLSX is a small standards-compliant workbook. */
+    /** Which parts of the report an export carries. */
+    public enum ExportDataset { KPI, BREAKDOWN }
+
+    /** @param raw comma-separated {@code kpi} and {@code breakdown}; absent means both */
+    public static Set<ExportDataset> parseExportDatasets(String raw) {
+        if (raw == null) return EnumSet.allOf(ExportDataset.class);
+        Set<ExportDataset> datasets = EnumSet.noneOf(ExportDataset.class);
+        for (String part : raw.split(",", -1)) {
+            switch (part.trim().toLowerCase(Locale.ROOT)) {
+                case "kpi" -> datasets.add(ExportDataset.KPI);
+                case "breakdown" -> datasets.add(ExportDataset.BREAKDOWN);
+                default -> throw new BadRequestException(ErrorCode.VALIDATION_FAILED,
+                        "datasets must be kpi, breakdown or both, comma-separated");
+            }
+        }
+        return datasets;
+    }
+
     public ExportFile export(Report report, String format) {
+        return export(report, format, EnumSet.allOf(ExportDataset.class));
+    }
+
+    /** CSV is UTF-8 with a BOM for Excel; XLSX is a small standards-compliant workbook. */
+    public ExportFile export(Report report, String format, Set<ExportDataset> datasets) {
         String normalized = format == null ? "csv" : format.trim().toLowerCase(Locale.ROOT);
         int week = report.startDate().get(WeekFields.ISO.weekOfWeekBasedYear());
         int year = report.startDate().get(WeekFields.ISO.weekBasedYear());
         String base = "pegasus_weekly_report_%04d_%02d".formatted(year, week);
         if (normalized.equals("csv")) {
-            StringBuilder csv = new StringBuilder("\uFEFFsection,date,game,singles,sealed,gmv,commission,netProfit,remainingStock,stockDepleted,wowChangePercent\r\n");
-            for (DailySales d : report.chartData()) {
-                csvRow(csv, "daily", d.date().toString(), "", d.singles().toPlainString(),
-                        d.sealed().toPlainString(), "", "", "", "", "", "");
-            }
-            Summary s = report.summary();
-            csvRow(csv, "summary", "", "", "", "", s.gmv().toPlainString(),
-                    s.commission().toPlainString(), s.netProfit().toPlainString(),
-                    Long.toString(s.remainingStock()), Long.toString(s.stockDepleted()),
-                    s.wowChangePercent() == null ? "" : s.wowChangePercent().toPlainString());
-            for (GameBreakdown game : report.breakdownByGame()) {
-                csvRow(csv, "game", "", game.game(), "", "", "", "",
-                        game.profit().toPlainString(), Long.toString(game.remainingStock()), "", "");
+            StringBuilder csv = new StringBuilder("\uFEFF");
+            csv.append(String.join(",", EXPORT_COLUMNS)).append("\r\n");
+            for (List<Object> row : exportRows(report, datasets)) {
+                String[] values = new String[EXPORT_COLUMNS.size()];
+                for (int i = 0; i < values.length; i++) values[i] = csvValue(row.get(i));
+                csvRow(csv, values);
             }
             return new ExportFile(base + ".csv", "text/csv; charset=UTF-8", csv.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
         if (normalized.equals("xlsx")) {
             return new ExportFile(base + ".xlsx",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", workbook(report));
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", workbook(report, datasets));
         }
         throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "format must be csv or xlsx");
+    }
+
+    private static final List<String> EXPORT_COLUMNS = List.of(
+            "section", "date", "game", "singles", "sealed", "gmv", "commission", "netProfit",
+            "remainingStock", "stockDepleted", "wowChangePercent", "other", "productType",
+            "initialStock", "soldCount", "status");
+
+    /**
+     * Rows in {@link #EXPORT_COLUMNS} order. In the daily section singles, sealed and other
+     * are baht; in the breakdown sections they are units in stock.
+     */
+    private static List<List<Object>> exportRows(Report report, Set<ExportDataset> datasets) {
+        List<List<Object>> rows = new ArrayList<>();
+        if (datasets.contains(ExportDataset.KPI)) {
+            Summary s = report.summary();
+            rows.add(exportRow("summary", null, null, null, null, s.gmv(), s.commission(), s.netProfit(),
+                    s.remainingStock(), s.stockDepleted(), s.wowChangePercent(), null, null,
+                    s.initialStock(), s.soldCount(), null));
+            for (DailySales d : report.chartData()) {
+                rows.add(exportRow("daily", d.date().toString(), null, d.singles(), d.sealed(), null, null, null,
+                        null, null, null, d.other(), null, null, null, null));
+            }
+        }
+        if (datasets.contains(ExportDataset.BREAKDOWN)) {
+            for (GameBreakdown g : report.breakdownByGame()) {
+                rows.add(exportRow("game", null, g.game(), null, null, null, null, g.profit(),
+                        g.remainingStock(), null, null, null, null, null, null, null));
+            }
+            for (BreakdownRow r : report.breakdownTable()) {
+                rows.add(exportRow("breakdown", null, r.game(), r.singleCards(), r.sealedBoxes(), r.gmv(),
+                        r.commission(), r.netProfit(), r.remainingStock(), null, null, r.otherItems(), null,
+                        r.initialStock(), r.soldCount(), r.status()));
+            }
+            for (GameTypeBreakdownRow r : report.breakdownByGameAndType()) {
+                rows.add(exportRow("breakdown_type", null, r.game(), null, null, r.gmv(), r.commission(),
+                        r.netProfit(), r.remainingStock(), null, null, null, r.productType(),
+                        r.initialStock(), r.soldCount(), r.status()));
+            }
+            BreakdownTotals t = report.totals();
+            rows.add(exportRow("breakdown_total", null, null, t.singleCards(), t.sealedBoxes(), t.gmv(),
+                    t.commission(), t.netProfit(), t.remainingStock(), null, null, t.otherItems(), null,
+                    t.initialStock(), t.soldCount(), null));
+        }
+        return rows;
+    }
+
+    private static List<Object> exportRow(Object... values) {
+        return java.util.Arrays.asList(values);
+    }
+
+    private static String csvValue(Object value) {
+        if (value == null) return "";
+        return value instanceof BigDecimal decimal ? decimal.toPlainString() : value.toString();
     }
 
     private static String escapeCsv(String text) {
@@ -417,19 +586,19 @@ public class AdminWeeklyStockProfitService {
         csv.append("\r\n");
     }
 
-    private static byte[] workbook(Report report) {
+    private static byte[] workbook(Report report, Set<ExportDataset> datasets) {
         try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); ZipOutputStream zip = new ZipOutputStream(bytes)) {
             put(zip, "[Content_Types].xml", "<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>");
             put(zip, "_rels/.rels", "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>");
             put(zip, "xl/workbook.xml", "<?xml version=\"1.0\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Weekly Report\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
             put(zip, "xl/_rels/workbook.xml.rels", "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>");
             StringBuilder sheet = new StringBuilder("<?xml version=\"1.0\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
-            int row = 1;
-            row = textRow(sheet, row, "Section", "Date", "Game", "Singles", "Sealed", "GMV", "Commission", "Net profit", "Remaining stock", "Stock depleted", "WoW change %");
-            Summary s = report.summary();
-            row = numberRow(sheet, row, "summary", "", "", "", "", s.gmv(), s.commission(), s.netProfit(), s.remainingStock(), s.stockDepleted(), s.wowChangePercent());
-            for (DailySales d : report.chartData()) row = numberRow(sheet, row, "daily", d.date().toString(), "", d.singles(), d.sealed(), null, null, null, null, null);
-            for (GameBreakdown g : report.breakdownByGame()) row = textThenNumbers(sheet, row, g.game(), g.remainingStock(), g.profit());
+            int row = textRow(sheet, 1, "Section", "Date", "Game", "Singles", "Sealed", "GMV", "Commission", "Net profit",
+                    "Remaining stock", "Stock depleted", "WoW change %", "Other", "Product type",
+                    "Initial stock", "Sold", "Status");
+            for (List<Object> values : exportRows(report, datasets)) {
+                row = numberRow(sheet, row, values.toArray());
+            }
             sheet.append("</sheetData></worksheet>");
             put(zip, "xl/worksheets/sheet1.xml", sheet.toString());
             zip.finish();
@@ -456,14 +625,6 @@ public class AdminWeeklyStockProfitService {
             } else inlineCell(xml, col, row, v.toString());
         }
         xml.append("</row>");
-        return row + 1;
-    }
-
-    private static int textThenNumbers(StringBuilder xml, int row, String game, long stock, BigDecimal profit) {
-        xml.append("<row r=\"").append(row).append("\">");
-        inlineCell(xml, 0, row, "game"); inlineCell(xml, 2, row, game);
-        xml.append("<c r=\"I").append(row).append("\"><v>").append(stock).append("</v></c>");
-        xml.append("<c r=\"H").append(row).append("\"><v>").append(profit).append("</v></c></row>");
         return row + 1;
     }
 

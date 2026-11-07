@@ -47,6 +47,21 @@ class JdbcTracingCorsIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void browsersCanReadTheExportFilename() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + ApiPaths.CART))
+                .header("Origin", WEB_ORIGIN)
+                .GET()
+                .build();
+
+        HttpResponse<Void> response = HttpClient.newHttpClient().send(
+                request, HttpResponse.BodyHandlers.discarding());
+
+        assertThat(response.headers().firstValue("Access-Control-Expose-Headers").orElse(""))
+                .contains("Content-Disposition");
+    }
+
+    @Test
     void dataSourceIsInstrumentedAndSqlBindValuesAreDisabled() {
         assertThat(AopUtils.isAopProxy(dataSource)).isTrue();
         assertThat(environment.getProperty(

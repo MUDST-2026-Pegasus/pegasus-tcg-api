@@ -2,6 +2,7 @@ package com.pegasus.pegasustcgapi.service.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -10,15 +11,20 @@ import com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.GameDistribu
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.DailyAmounts;
+import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.DailyStock;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameBreakdownStat;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameProfit;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.GameStock;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminWeeklyStockProfitRepository.Totals;
 import com.pegasus.pegasustcgapi.service.metrics.AdminWeeklyStockProfitService.OrderSample;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,10 +34,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class AdminWeeklyStockProfitServiceTest {
 
+    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-11-07T05:00:00Z"), ZoneOffset.UTC);
+
     @Mock AdminWeeklyStockProfitRepository repository;
+    @Mock PlatformSettingService settings;
 
     private AdminWeeklyStockProfitService service() {
-        return new AdminWeeklyStockProfitService(repository);
+        lenient().when(settings.getInt(PlatformSettingService.REPORT_LOW_STOCK_THRESHOLD)).thenReturn(500);
+        lenient().when(settings.getInt(PlatformSettingService.REPORT_FAST_MOVING_PERCENT)).thenReturn(30);
+        return new AdminWeeklyStockProfitService(repository, settings, CLOCK);
     }
 
     @Test
@@ -43,7 +54,7 @@ class AdminWeeklyStockProfitServiceTest {
         when(repository.completedTotals(from.minusWeeks(1), from, "pokemon", null))
                 .thenReturn(new Totals(new BigDecimal("500"), new BigDecimal("50"), new BigDecimal("100")));
         when(repository.dailyAmounts(from, to, "pokemon", null)).thenReturn(List.of(
-                new DailyAmounts(LocalDate.parse("2026-10-26"), new BigDecimal("100"), BigDecimal.ZERO)));
+                new DailyAmounts(LocalDate.parse("2026-10-26"), new BigDecimal("100"), BigDecimal.ZERO, BigDecimal.ZERO)));
         when(repository.activeStock(to, "pokemon", null)).thenReturn(7L);
         when(repository.completedQuantity(from, to, "pokemon", null)).thenReturn(2L);
         when(repository.activeStockByGame(to, "pokemon", null)).thenReturn(List.of(
@@ -67,6 +78,74 @@ class AdminWeeklyStockProfitServiceTest {
             assertThat(game.game()).isEqualTo("Pokémon");
             assertThat(game.remainingStock()).isEqualTo(7);
         });
+    }
+
+    @Test
+    void kpiHistoryHasNoStockForDaysThatHaveNotHappened() {
+        when(repository.completedTotals(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(new Totals(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(repository.dailyStock(LocalDate.parse("2026-11-02"), LocalDate.parse("2026-11-08"), null, null))
+                .thenReturn(List.of(new DailyStock(LocalDate.parse("2026-11-07"), 40L)));
+
+        var history = service().report("2026-11-02", "2026-11-08", null, null).kpiHistory();
+
+        assertThat(history).hasSize(7);
+        assertThat(history.get(0).remainingStock()).isZero();
+        assertThat(history.get(5).date()).isEqualTo(LocalDate.parse("2026-11-07"));
+        assertThat(history.get(5).remainingStock()).isEqualTo(40L);
+        assertThat(history.get(6).remainingStock()).isNull();
+    }
+
+    @Test
+    void stockStatusFollowsTheConfiguredThresholds() {
+        // The rows of the CR15 design at 500 units / 30%.
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(2350, 610, 1740, 500, 30)).isEqualTo("NORMAL");
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(1149, 420, 729, 500, 30)).isEqualTo("FAST_MOVING");
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(540, 145, 395, 500, 30)).isEqualTo("LOW_STOCK");
+
+        // Both limits are exclusive.
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(1000, 300, 700, 700, 30)).isEqualTo("NORMAL");
+        // Selling most of the stock is fast moving, not low stock, while units remain above the limit.
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(10000, 9000, 1000, 500, 30)).isEqualTo("FAST_MOVING");
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(10, 10, 0, 0, 30)).isEqualTo("LOW_STOCK");
+        assertThat(AdminWeeklyStockProfitService.classifyStockStatus(0, 0, 0, 0, 30)).isEqualTo("LOW_STOCK");
+    }
+
+    @Test
+    void aWeekWithStockButNoSalesStillHasData() {
+        OffsetDateTime to = OffsetDateTime.parse("2026-11-09T00:00:00+07:00");
+        when(repository.completedTotals(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq("pokemon"), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(new Totals(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(repository.activeStock(to, "pokemon", null)).thenReturn(703L);
+        when(repository.gameBreakdownRows(to.minusWeeks(1), to, "pokemon", null)).thenReturn(List.of(
+                new GameBreakdownStat("pokemon", "Pokemon", 703L, 703L, 0L, 0L, 0L,
+                        BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)));
+
+        var report = service().report("2026-11-02", "2026-11-08", "pokemon", null);
+
+        assertThat(report.hasData()).isTrue();
+        assertThat(report.summary().remainingStock()).isEqualTo(703);
+        assertThat(report.summary().initialStock()).isEqualTo(703);
+        assertThat(report.totals().remainingStock()).isEqualTo(703);
+        assertThat(report.breakdownTable()).singleElement()
+                .satisfies(row -> assertThat(row.remainingStock()).isEqualTo(703));
+    }
+
+    @Test
+    void aWeekThatHasNotStartedHasNoStock() {
+        when(repository.completedTotals(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(new Totals(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+
+        var report = service().report("2026-11-09", "2026-11-15", null, null);
+
+        assertThat(report.hasData()).isFalse();
+        assertThat(report.summary().remainingStock()).isZero();
+        verify(repository, org.mockito.Mockito.never()).activeStock(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -105,8 +184,8 @@ class AdminWeeklyStockProfitServiceTest {
         when(repository.completedTotals(from.minusWeeks(1), from, null, null))
                 .thenReturn(new Totals(new BigDecimal("362500.00"), new BigDecimal("10875.00"), new BigDecimal("10875.00")));
         when(repository.dailyAmounts(from, to, null, null)).thenReturn(List.of(
-                new DailyAmounts(LocalDate.parse("2026-08-03"), new BigDecimal("40000.00"), new BigDecimal("20000.00")),
-                new DailyAmounts(LocalDate.parse("2026-08-09"), new BigDecimal("250000.00"), new BigDecimal("118500.00"))));
+                new DailyAmounts(LocalDate.parse("2026-08-03"), new BigDecimal("40000.00"), new BigDecimal("20000.00"), BigDecimal.ZERO),
+                new DailyAmounts(LocalDate.parse("2026-08-09"), new BigDecimal("250000.00"), new BigDecimal("118500.00"), BigDecimal.ZERO)));
         when(repository.activeStock(to, null, null)).thenReturn(6184L);
         when(repository.completedQuantity(from, to, null, null)).thenReturn(1470L);
         when(repository.activeStockByGame(to, null, null)).thenReturn(List.of(
@@ -118,11 +197,11 @@ class AdminWeeklyStockProfitServiceTest {
                 new GameProfit("one-piece", "One Piece", new BigDecimal("3085.20")),
                 new GameProfit("other-tcg", "Other TCG", new BigDecimal("2571.00"))));
         when(repository.gameBreakdownRows(from, to, null, null)).thenReturn(List.of(
-                new GameBreakdownStat("pokemon", "Pokémon", 3464L, 2464L, 1000L, 790L,
+                new GameBreakdownStat("pokemon", "Pokémon", 3464L, 2464L, 1000L, 0L, 790L,
                         new BigDecimal("239960.00"), new BigDecimal("7198.80"), new BigDecimal("7198.80")),
-                new GameBreakdownStat("one-piece", "One Piece", 1484L, 984L, 500L, 416L,
+                new GameBreakdownStat("one-piece", "One Piece", 1484L, 984L, 500L, 0L, 416L,
                         new BigDecimal("102840.00"), new BigDecimal("3085.20"), new BigDecimal("3085.20")),
-                new GameBreakdownStat("other-tcg", "Other TCG", 1236L, 836L, 400L, 264L,
+                new GameBreakdownStat("other-tcg", "Other TCG", 1236L, 836L, 400L, 0L, 264L,
                         new BigDecimal("85700.00"), new BigDecimal("2571.00"), new BigDecimal("2571.00"))));
 
         var report = service().report("2026-08-03", "2026-08-09", null, null);
@@ -139,7 +218,7 @@ class AdminWeeklyStockProfitServiceTest {
         assertThat(report.breakdownTable()).extracting(BreakdownRow::game)
                 .containsExactly("Pokémon", "One Piece", "Other TCG");
         assertThat(report.breakdownTable()).extracting(BreakdownRow::status)
-                .containsExactly("NORMAL", "FAST_MOVING", "LOW_STOCK");
+                .containsExactly("NORMAL", "NORMAL", "NORMAL");
 
         assertThat(report.totals().initialStock()).isEqualTo(7654L);
         assertThat(report.totals().soldCount()).isEqualTo(1470L);

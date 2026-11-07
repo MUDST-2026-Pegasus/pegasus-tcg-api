@@ -48,3 +48,50 @@ Feature: CR15 Admin weekly stock and profit report
     And the exported CSV content matches the main report figures
     When an admin exports the weekly stock and profit report for "2026-08-03" to "2026-08-09" as "xlsx"
     Then the exported weekly report status is 200 with content type "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" and filename "pegasus_weekly_report_2026_32.xlsx"
+
+  Scenario: Only an admin can read or save the stock thresholds
+    When an unauthenticated caller requests the weekly report stock thresholds
+    Then the weekly report response is 401
+    When an unauthenticated caller saves the weekly report stock thresholds
+    Then the weekly report response is 401
+    When a buyer requests the weekly report stock thresholds
+    Then the weekly report response is 403
+    When a buyer saves the weekly report stock thresholds
+    Then the weekly report response is 403
+    When a seller requests the weekly report stock thresholds
+    Then the weekly report response is 403
+    When a seller saves the weekly report stock thresholds
+    Then the weekly report response is 403
+
+  Scenario: An admin changes the stock thresholds and the report follows them
+    Given the standard CR15 weekly dataset for August 2026 is seeded
+    When an admin requests the weekly report stock thresholds
+    Then the weekly report response is 200
+    And the weekly report thresholds are 500 units and 30 percent
+    When an admin requests the weekly stock and profit report for "2026-08-03" to "2026-08-09"
+    Then the weekly report breakdownTable statuses are "NORMAL, NORMAL, NORMAL"
+    When an admin saves the weekly report thresholds as 1300 units and 20 percent
+    Then the weekly report response is 200
+    And the weekly report thresholds are 1300 units and 20 percent
+    When an admin requests the weekly stock and profit report for "2026-08-03" to "2026-08-09"
+    Then the weekly report breakdownTable statuses are "NORMAL, FAST_MOVING, LOW_STOCK"
+
+  Scenario: An admin cannot save a stock threshold outside its range
+    When an admin saves the weekly report thresholds as -1 units and 30 percent
+    Then the weekly report response is 400
+    When an admin saves the weekly report thresholds as 500 units and 101 percent
+    Then the weekly report response is 400
+
+  Scenario: The report splits games by product type and carries the daily KPI history
+    Given the standard CR15 weekly dataset for August 2026 is seeded
+    When an admin requests the weekly stock and profit report for "2026-08-03" to "2026-08-09"
+    Then the weekly report response is 200
+    And the weekly report breakdownByGameAndType has 6 rows that sum to the totals
+    And the weekly report kpiHistory has 7 days that sum to the summary
+
+  Scenario: An admin exports only the chosen datasets
+    Given the standard CR15 weekly dataset for August 2026 is seeded
+    When an admin exports the "kpi" datasets of the weekly report for "2026-08-03" to "2026-08-09"
+    Then the exported CSV has 9 lines, includes "summary" and excludes "breakdown_type"
+    When an admin exports the "breakdown" datasets of the weekly report for "2026-08-03" to "2026-08-09"
+    Then the exported CSV has 14 lines, includes "breakdown_type" and excludes "summary"

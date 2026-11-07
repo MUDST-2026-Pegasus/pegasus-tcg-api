@@ -460,8 +460,8 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
 
         String csvContent = new String(csvResp.body(), StandardCharsets.UTF_8);
         String[] lines = csvContent.trim().split("\\r?\\n");
-        // 1 header + 7 daily rows + 1 summary row + 3 game rows = 12 rows
-        assertThat(lines).hasSize(12);
+        // 1 header + 1 summary + 7 daily + 3 game + 3 breakdown + 6 breakdown_type + 1 breakdown_total
+        assertThat(lines).hasSize(22);
         assertThat(csvContent).contains("\"summary\",\"\",\"\",\"\",\"\",\"428500.00\",\"12855.00\",\"12855.00\",\"6184\",\"1470\",\"18.2\"");
         assertThat(csvContent).contains("\"game\",\"\",\"Pokémon\"");
         assertThat(csvContent).contains("\"game\",\"\",\"One Piece\"");
@@ -480,9 +480,271 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
         Map<String, String> entries = unzipEntries(xlsxResp.body());
         assertThat(entries).containsKey("xl/worksheets/sheet1.xml");
         String sheetXml = entries.get("xl/worksheets/sheet1.xml");
-        assertThat(sheetXml).contains("<row r=\"1\">").contains("<row r=\"12\">");
+        assertThat(sheetXml).contains("<row r=\"1\">").contains("<row r=\"22\">");
         assertThat(sheetXml).contains("428500.00").contains("12855.00").contains("6184").contains("1470");
         assertThat(sheetXml).contains("Pokémon").contains("One Piece").contains("Other TCG");
+    }
+
+    @Test
+    void otherProductTypesAddUpInTheChartAndTheStockSplit() {
+        Seller seller = data.seller();
+        var buyer = data.buyer();
+        String slug = "cr15-other-" + data.tag().toLowerCase();
+        short gameId = ensureGame(dsl, slug.toUpperCase(), "CR15 Other " + slug, slug);
+        long single = createVariant(dsl, data, gameId, "SINGLE_CARD");
+        long accessory = createVariant(dsl, data, gameId, "ACCESSORY");
+        OffsetDateTime activeAt = OffsetDateTime.parse("2024-03-05T10:00:00+07:00");
+        OffsetDateTime closedAt = OffsetDateTime.parse("2024-03-11T00:01:00+07:00");
+        createHistoricalListingStock(dsl, seller.profileId(), single, 100, activeAt, closedAt);
+        createHistoricalListingStock(dsl, seller.profileId(), accessory, 50, activeAt, closedAt);
+        insertOrderWithItem(dsl, data, buyer.userId(), seller.profileId(), single,
+                "COMPLETED", OffsetDateTime.parse("2024-03-06T12:00:00+07:00"),
+                2, new BigDecimal("100.00"), new BigDecimal("200.00"), new BigDecimal("6.00"));
+        insertOrderWithItem(dsl, data, buyer.userId(), seller.profileId(), accessory,
+                "COMPLETED", OffsetDateTime.parse("2024-03-06T13:00:00+07:00"),
+                1, new BigDecimal("100.00"), new BigDecimal("100.00"), new BigDecimal("3.00"));
+
+        var report = reportService.report("2024-03-04", "2024-03-10", slug, null);
+
+        assertThat(report.summary().gmv()).isEqualByComparingTo("300.00");
+        assertThat(report.chartData().stream()
+                .map(day -> day.singles().add(day.sealed()).add(day.other()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)).isEqualByComparingTo("300.00");
+        assertThat(report.breakdownTable()).singleElement().satisfies(row -> {
+            assertThat(row.singleCards()).isEqualTo(100);
+            assertThat(row.sealedBoxes()).isZero();
+            assertThat(row.otherItems()).isEqualTo(50);
+            assertThat(row.remainingStock()).isEqualTo(150);
+        });
+        assertThat(report.totals().otherItems()).isEqualTo(50);
+
+        var onlyOther = reportService.report("2024-03-04", "2024-03-10", slug, "other");
+        assertThat(onlyOther.summary().gmv()).isEqualByComparingTo("100.00");
+        assertThat(onlyOther.summary().remainingStock()).isEqualTo(50);
+    }
+
+    @Test
+    void aWeekWithStockAndNoSalesIsNotEmpty() {
+        Seller seller = data.seller();
+        String slug = "cr15-stock-" + data.tag().toLowerCase();
+        short gameId = ensureGame(dsl, slug.toUpperCase(), "CR15 Stock " + slug, slug);
+        long single = createVariant(dsl, data, gameId, "SINGLE_CARD");
+        createHistoricalListingStock(dsl, seller.profileId(), single, 30,
+                OffsetDateTime.parse("2024-04-02T10:00:00+07:00"),
+                OffsetDateTime.parse("2024-04-08T00:01:00+07:00"));
+
+        var withStock = reportService.report("2024-04-01", "2024-04-07", slug, null);
+        assertThat(withStock.hasData()).isTrue();
+        assertThat(withStock.summary().remainingStock()).isEqualTo(30);
+        assertThat(withStock.summary().gmv()).isZero();
+        assertThat(withStock.breakdownTable()).singleElement()
+                .satisfies(row -> assertThat(row.remainingStock()).isEqualTo(30));
+
+        assertThat(reportService.report("2024-04-08", "2024-04-14", slug, null).hasData()).isFalse();
+    }
+
+    @Test
+    void thresholdEndpointsAreAdminOnly() {
+        ApiClient client = new ApiClient(port);
+        String url = "/api/v1/admin/reports/weekly-stock-profit/thresholds";
+        Map<String, Object> body = Map.of("lowStockThreshold", 500, "fastMovingPercent", 30);
+
+        assertThat(client.get(url, null).status()).isEqualTo(401);
+        assertThat(client.put(url, null, body).status()).isEqualTo(401);
+        assertThat(client.get(url, data.bearer(data.buyer())).status()).isEqualTo(403);
+        assertThat(client.put(url, data.bearer(data.buyer()), body).status()).isEqualTo(403);
+        String sellerToken = data.bearer(data.seller().principal());
+        assertThat(client.get(url, sellerToken).status()).isEqualTo(403);
+        assertThat(client.put(url, sellerToken, body).status()).isEqualTo(403);
+    }
+
+    @Test
+    void savedThresholdsDriveTheStockStatusAndInvalidOnesAreRefused() {
+        seedStandardAugust2026Dataset(dsl, data);
+        ApiClient client = new ApiClient(port);
+        String admin = data.bearer(data.admin());
+        String url = "/api/v1/admin/reports/weekly-stock-profit/thresholds";
+
+        Response defaults = client.get(url, admin);
+        assertThat(defaults.status()).isEqualTo(200);
+        assertThat(defaults.data().path("lowStockThreshold").asInt()).isEqualTo(500);
+        assertThat(defaults.data().path("fastMovingPercent").asInt()).isEqualTo(30);
+        assertThat(new BigDecimal(defaults.data().path("standardCommissionRatePercent").asText())).isPositive();
+        assertThat(statuses(reportService.report("2026-08-03", "2026-08-09", null, null)))
+                .containsExactly("NORMAL", "NORMAL", "NORMAL");
+
+        for (Map<String, Object> invalid : java.util.List.<Map<String, Object>>of(
+                Map.of("lowStockThreshold", -1, "fastMovingPercent", 30),
+                Map.of("lowStockThreshold", 500, "fastMovingPercent", 0),
+                Map.of("lowStockThreshold", 500, "fastMovingPercent", 101),
+                Map.of("lowStockThreshold", 500, "fastMovingPercent", 30.5),
+                Map.of("fastMovingPercent", 30))) {
+            assertThat(client.put(url, admin, invalid).status()).isEqualTo(400);
+        }
+        assertThat(client.get(url, admin).data().path("fastMovingPercent").asInt()).isEqualTo(30);
+
+        try {
+            Response saved = client.put(url, admin, Map.of("lowStockThreshold", 1300, "fastMovingPercent", 20));
+            assertThat(saved.status()).isEqualTo(200);
+            assertThat(saved.data().path("lowStockThreshold").asInt()).isEqualTo(1300);
+            assertThat(saved.data().path("fastMovingPercent").asInt()).isEqualTo(20);
+            assertThat(statuses(reportService.report("2026-08-03", "2026-08-09", null, null)))
+                    .containsExactly("NORMAL", "FAST_MOVING", "LOW_STOCK");
+
+            assertThat(client.put("/api/v1/admin/settings/report.fast_moving_percent", admin,
+                    Map.of("value", "abc")).status()).isEqualTo(400);
+        } finally {
+            client.put(url, admin, Map.of("lowStockThreshold", 500, "fastMovingPercent", 30));
+        }
+    }
+
+    private static java.util.List<String> statuses(
+            com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.Report report) {
+        return report.breakdownTable().stream()
+                .map(com.pegasus.pegasustcgapi.dto.metrics.WeeklyStockProfitViews.BreakdownRow::status)
+                .toList();
+    }
+
+    @Test
+    void breakdownByGameAndTypeSplitsEveryGameAndAddsUpToTheTotals() {
+        seedStandardAugust2026Dataset(dsl, data);
+        var report = reportService.report("2026-08-03", "2026-08-09", null, null);
+
+        var rows = report.breakdownByGameAndType();
+        assertThat(rows).extracting(row -> row.game() + "/" + row.productType()).containsExactly(
+                "Pokémon/SINGLE_CARD", "Pokémon/SEALED",
+                "One Piece/SINGLE_CARD", "One Piece/SEALED",
+                "Other TCG/SINGLE_CARD", "Other TCG/SEALED");
+        assertThat(rows.getFirst().productTypeLabel()).isEqualTo("การ์ดเดี่ยว");
+        assertThat(rows.get(1).productTypeLabel()).isEqualTo("กล่อง/ซองสุ่ม");
+        // Pokémon sealed: 1000 left, 10 sold for 5,960.
+        assertThat(rows.get(1).remainingStock()).isEqualTo(1000);
+        assertThat(rows.get(1).soldCount()).isEqualTo(10);
+        assertThat(rows.get(1).initialStock()).isEqualTo(1010);
+        assertThat(rows.get(1).gmv()).isEqualByComparingTo("5960.00");
+
+        assertThat(rows.stream().mapToLong(row -> row.remainingStock()).sum()).isEqualTo(report.totals().remainingStock());
+        assertThat(rows.stream().mapToLong(row -> row.soldCount()).sum()).isEqualTo(report.totals().soldCount());
+        assertThat(rows.stream().map(row -> row.gmv()).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .isEqualByComparingTo(report.totals().gmv());
+        assertThat(rows.stream().map(row -> row.netProfit()).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .isEqualByComparingTo(report.totals().netProfit());
+
+        // The per-game table keeps its shape.
+        assertThat(report.breakdownTable()).hasSize(3);
+
+        var filtered = reportService.report("2026-08-03", "2026-08-09", "one-piece", "sealed_box");
+        assertThat(filtered.breakdownByGameAndType()).singleElement().satisfies(row -> {
+            assertThat(row.game()).isEqualTo("One Piece");
+            assertThat(row.productType()).isEqualTo("SEALED");
+            assertThat(row.soldCount()).isEqualTo(16);
+        });
+    }
+
+    @Test
+    void breakdownByGameAndTypeAppliesThresholdsPerRow() {
+        Seller seller = data.seller();
+        var buyer = data.buyer();
+        String slug = "cr15-rows-" + data.tag().toLowerCase();
+        short gameId = ensureGame(dsl, slug.toUpperCase(), "CR15 Rows " + slug, slug);
+        long single = createVariant(dsl, data, gameId, "SINGLE_CARD");
+        long sealed = createVariant(dsl, data, gameId, "BOOSTER_BOX");
+        OffsetDateTime activeAt = OffsetDateTime.parse("2024-05-07T10:00:00+07:00");
+        OffsetDateTime closedAt = OffsetDateTime.parse("2024-05-13T00:01:00+07:00");
+        createHistoricalListingStock(dsl, seller.profileId(), single, 395, activeAt, closedAt);
+        createHistoricalListingStock(dsl, seller.profileId(), sealed, 729, activeAt, closedAt);
+        insertOrderWithItem(dsl, data, buyer.userId(), seller.profileId(), single,
+                "COMPLETED", OffsetDateTime.parse("2024-05-08T12:00:00+07:00"),
+                145, new BigDecimal("10.00"), new BigDecimal("1450.00"), new BigDecimal("43.50"));
+        insertOrderWithItem(dsl, data, buyer.userId(), seller.profileId(), sealed,
+                "COMPLETED", OffsetDateTime.parse("2024-05-08T13:00:00+07:00"),
+                420, new BigDecimal("10.00"), new BigDecimal("4200.00"), new BigDecimal("126.00"));
+
+        var rows = reportService.report("2024-05-06", "2024-05-12", slug, null).breakdownByGameAndType();
+
+        assertThat(rows).extracting(row -> row.status()).containsExactly("LOW_STOCK", "FAST_MOVING");
+        assertThat(rows).extracting(row -> row.statusLabel()).containsExactly("สต็อกต่ำ", "สต็อกหมุนเวียนเร็ว");
+    }
+
+    @Test
+    void kpiHistoryCarriesDailyMoneyAndClosingStockInBangkokDays() {
+        seedStandardAugust2026Dataset(dsl, data);
+        var report = reportService.report("2026-08-03", "2026-08-09", null, null);
+
+        var history = report.kpiHistory();
+        assertThat(history).hasSize(7);
+        assertThat(history.getFirst().date()).isEqualTo(java.time.LocalDate.parse("2026-08-03"));
+        assertThat(history.getFirst().gmv()).isEqualByComparingTo("150000.00");
+        assertThat(history.getFirst().netProfit()).isEqualByComparingTo("4500.00");
+        assertThat(history.getFirst().commission()).isEqualByComparingTo("4500.00");
+        // Sunday 23:59:59 in Bangkok still belongs to Sunday.
+        assertThat(history.getLast().gmv()).isEqualByComparingTo("9500.00");
+
+        assertThat(history.stream().map(day -> day.gmv()).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .isEqualByComparingTo(report.summary().gmv());
+        assertThat(history.stream().map(day -> day.netProfit()).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .isEqualByComparingTo(report.summary().netProfit());
+        assertThat(history.stream().map(day -> day.commission()).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .isEqualByComparingTo(report.summary().commission());
+
+        // The seeded stock appears on Wednesday 5 August and is still there on Sunday.
+        assertThat(history.get(1).remainingStock()).isZero();
+        assertThat(history.get(2).remainingStock()).isEqualTo(6184L);
+        assertThat(history.getLast().remainingStock()).isEqualTo(report.summary().remainingStock());
+
+        var onePiece = reportService.report("2026-08-03", "2026-08-09", "one-piece", null).kpiHistory();
+        assertThat(onePiece.getLast().remainingStock()).isEqualTo(1484L);
+
+        // A week with nothing still gets seven points for the sparklines.
+        var empty = reportService.report("2026-08-10", "2026-08-16", null, null);
+        assertThat(empty.hasData()).isFalse();
+        assertThat(empty.kpiHistory()).hasSize(7);
+        assertThat(empty.kpiHistory()).allSatisfy(day -> {
+            assertThat(day.gmv()).isZero();
+            assertThat(day.remainingStock()).isZero();
+        });
+    }
+
+    @Test
+    void exportCarriesOnlyTheChosenDatasetsAndTheBreakdownRows() throws IOException {
+        seedStandardAugust2026Dataset(dsl, data);
+        ApiClient client = new ApiClient(port);
+        String admin = data.bearer(data.admin());
+        String base = "/api/v1/admin/reports/weekly-stock-profit/export?startDate=2026-08-03&endDate=2026-08-09";
+
+        String both = csv(client.getBytes(base, admin, "text/csv"));
+        assertThat(both).contains(
+                "\"breakdown\",\"\",\"Pokémon\",\"2464\",\"1000\",\"239960.00\",\"7198.80\",\"7198.80\",\"3464\",\"\",\"\",\"0\",\"\",\"4254\",\"790\",\"NORMAL\"");
+        assertThat(both).contains(
+                "\"breakdown_type\",\"\",\"One Piece\",\"\",\"\",\"6840.00\",\"205.20\",\"205.20\",\"500\",\"\",\"\",\"\",\"SEALED\",\"516\",\"16\",\"NORMAL\"");
+        assertThat(both).contains(
+                "\"breakdown_total\",\"\",\"\",\"4284\",\"1900\",\"428500.00\",\"12855.00\",\"12855.00\",\"6184\"");
+
+        String kpi = csv(client.getBytes(base + "&datasets=kpi", admin, "text/csv"));
+        assertThat(kpi.trim().split("\\r?\\n")).hasSize(9);
+        assertThat(kpi).contains("\"summary\"").contains("\"daily\"")
+                .doesNotContain("\"game\",").doesNotContain("\"breakdown");
+
+        String breakdown = csv(client.getBytes(base + "&datasets=breakdown", admin, "text/csv"));
+        assertThat(breakdown.trim().split("\\r?\\n")).hasSize(14);
+        assertThat(breakdown).contains("\"breakdown_total\"")
+                .doesNotContain("\"summary\"").doesNotContain("\"daily\"");
+
+        assertThat(csv(client.getBytes(base + "&datasets=breakdown,kpi", admin, "text/csv")).split("\r\n"))
+                .hasSize(22);
+
+        assertThat(client.getBytes(base + "&datasets=stock", admin, "text/csv").status()).isEqualTo(400);
+        assertThat(client.getBytes(base + "&datasets=", admin, "text/csv").status()).isEqualTo(400);
+
+        BinaryResponse xlsx = client.getBytes(base + "&format=xlsx&datasets=breakdown", admin, "*/*");
+        String sheet = unzipEntries(xlsx.body()).get("xl/worksheets/sheet1.xml");
+        assertThat(sheet).contains("<row r=\"14\">").doesNotContain("<row r=\"15\">")
+                .contains("breakdown_type").doesNotContain("summary");
+    }
+
+    private static String csv(BinaryResponse response) {
+        assertThat(response.status()).isEqualTo(200);
+        return new String(response.body(), StandardCharsets.UTF_8);
     }
 
     private static Map<String, String> unzipEntries(byte[] bytes) throws IOException {
