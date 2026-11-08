@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.collection;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.collection.CollectionItemRequest;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Everything is scoped to the caller, so an id belonging to someone else reads
  * as not found rather than forbidden.
  */
+@SecurityRequirement(name = "BearerAuth")
 @RestController
 @RequestMapping(ApiPaths.COLLECTION)
 public class CollectionController {
