@@ -204,6 +204,8 @@ jobs:
         with:
           context: image
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ${{ env.IMAGE }}:sha-${{ github.sha }}
             ${{ env.IMAGE }}:${{ github.ref_name == 'main' && 'latest' || 'develop' }}
