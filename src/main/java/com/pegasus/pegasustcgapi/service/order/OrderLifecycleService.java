@@ -1100,7 +1100,7 @@ public class OrderLifecycleService {
                 orderRepository.findStatusHistoryBySellerOrderIds(sellerOrderIds);
 
         List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
-        Map<Long, String> sellerNames = orderRepository.findSellerNamesByProfileIds(profileIds);
+        Map<Long, OrderRepository.SellerIdentity> sellerIdentities = orderRepository.findSellerIdentitiesByProfileIds(profileIds);
         Map<Long, List<PromotionRedemptionRepository.Applied>> appliedBySalesOrder = appliedPromotions(
                 sellerOrders.stream().map(SellerOrderRecord::getSalesOrderId).distinct().toList());
 
@@ -1198,7 +1198,9 @@ public class OrderLifecycleService {
                     itemResponses,
                     shipmentResponses,
                     historyResponses,
-                    sellerNames.get(so.getSellerProfileId()),
+                    sellerIdentities.containsKey(so.getSellerProfileId())
+                            ? Objects.requireNonNullElse(sellerIdentities.get(so.getSellerProfileId()).displayName(),
+                                    sellerIdentities.get(so.getSellerProfileId()).username()) : null,
                     money(so.getSellerDiscountAmount()),
                     money(so.getPlatformDiscountAmount()),
                     // A Pegasus code and a Pegasus campaign are both paid back at release [TCG-680].
@@ -1206,7 +1208,9 @@ public class OrderLifecycleService {
                     so.getItemsSubtotal().add(money(so.getSaleSubsidyAmount()))
                             .subtract(money(so.getSellerDiscountAmount())),
                     promotions,
-                    SellerOrderStatus.PENDING_PAYMENT.name().equals(so.getStatus()) && !promotions.isEmpty()));
+                    SellerOrderStatus.PENDING_PAYMENT.name().equals(so.getStatus()) && !promotions.isEmpty(),
+                    sellerIdentities.containsKey(so.getSellerProfileId())
+                            ? sellerIdentities.get(so.getSellerProfileId()).username() : null));
         }
         return responses;
     }

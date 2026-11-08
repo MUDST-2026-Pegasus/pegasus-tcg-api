@@ -47,7 +47,8 @@ public record SellerOrderDetailsResponse(
         BigDecimal commissionBase,
         List<AppliedPromotion> promotions,
         /** Cancelling now gives the codes back: true while the order is unpaid and holds a code. */
-        boolean promotionsRestoredOnCancel
+        boolean promotionsRestoredOnCancel,
+        String sellerUsername
 ) {
     public SellerOrderDetailsResponse(
             long id,
@@ -77,7 +78,7 @@ public record SellerOrderDetailsResponse(
                 itemsSubtotal, shippingFee, discountAmount, grandTotal, commissionAmount, sellerNetAmount,
                 acceptedAt, shippedAt, deliveredAt, autoCompleteAt, completedAt, cancelledAt, cancelReason,
                 createdAt, items, shipments, statusHistory, sellerName, BigDecimal.ZERO, BigDecimal.ZERO,
-                BigDecimal.ZERO, itemsSubtotal, List.of(), false);
+                BigDecimal.ZERO, itemsSubtotal, List.of(), false, null);
     }
 
     public SellerOrderDetailsResponse(
