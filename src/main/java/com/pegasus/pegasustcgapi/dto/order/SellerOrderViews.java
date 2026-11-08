@@ -32,6 +32,8 @@ public final class SellerOrderViews {
      * @param shipBy                  {@code paidAt} plus the shop's handling days; null
      *                                until paid
      * @param shippingAddressSnapshot the address as it read at checkout, as JSON
+     * @param shippingChoice          the delivery choice the buyer picked, frozen at
+     *                                checkout; null for orders from before it was kept
      */
     public record Summary(
             SellerOrderDetailsResponse order,
@@ -43,13 +45,32 @@ public final class SellerOrderViews {
             String buyerNote,
             String source,
             Long auctionId,
-            String auctionNumber) {
+            String auctionNumber,
+            ShippingChoice shippingChoice) {
         public Summary(SellerOrderDetailsResponse order, String orderNumber, Buyer buyer,
                 OffsetDateTime paidAt, OffsetDateTime shipBy, String shippingAddressSnapshot,
                 String buyerNote) {
             this(order, orderNumber, buyer, paidAt, shipBy, shippingAddressSnapshot,
-                    buyerNote, "CART", null, null);
+                    buyerNote, "CART", null, null, null);
         }
+    }
+
+    /**
+     * The delivery choice as it read when the buyer checked out [TCG-503]. Read from
+     * the order's own snapshot, never the shop's current option, so later edits or a
+     * deleted option leave it as it was. The seller may still ship with another carrier.
+     *
+     * @param optionId    the option it came from; null once that option was deleted
+     * @param carrierCode null when the option was not tied to a carrier
+     * @param fee         what the buyer paid for delivery ({@code shipping_fee})
+     */
+    public record ShippingChoice(
+            Long optionId,
+            String name,
+            String carrierCode,
+            BigDecimal fee,
+            Short estDaysMin,
+            Short estDaysMax) {
     }
 
     /** The slip itself stays with the admin who checks it; the seller sees the outcome. */

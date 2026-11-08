@@ -6,6 +6,7 @@ import com.pegasus.pegasustcgapi.dto.order.SellerOrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.Buyer;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.Detail;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.Payment;
+import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.ShippingChoice;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.Summary;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -137,6 +138,8 @@ public class SellerOrderDeskService {
                 rows.stream().map(AdminOrderRow::sellerOrderId).toList());
         Map<Long, OrderContext> contexts = orders.findOrderContexts(
                 rows.stream().map(AdminOrderRow::salesOrderId).distinct().toList());
+        Map<Long, ShippingChoice> choices = orderRecords.findShippingChoicesBySellerOrderIds(
+                rows.stream().map(AdminOrderRow::sellerOrderId).toList());
 
         return rows.stream().map(row -> {
             OrderContext context = contexts.getOrDefault(row.salesOrderId(), new OrderContext(null, null));
@@ -148,7 +151,8 @@ public class SellerOrderDeskService {
                     row.paidAt(),
                     shipBy(row.paidAt(), shop),
                     context.shippingAddressSnapshot(),
-                    context.buyerNote(), row.source(), row.auctionId(), row.auctionNumber());
+                    context.buyerNote(), row.source(), row.auctionId(), row.auctionNumber(),
+                    choices.get(row.sellerOrderId()));
         }).toList();
     }
 
