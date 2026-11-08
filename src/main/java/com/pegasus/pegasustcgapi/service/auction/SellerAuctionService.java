@@ -151,7 +151,7 @@ public class SellerAuctionService {
                     item,
                     unitLabel,
                     a.startingPrice(),
-                    a.currentPrice(),
+                    a.closingOrCurrentPrice(),
                     a.bidCount(),
                     a.buyNowPrice(),
                     a.buyNowAvailable(),
@@ -391,10 +391,11 @@ public class SellerAuctionService {
         String unitLabel = unit != null ? formatUnitLabel(unit.publicUid(), unit.id()) : formatUnitLabel(null, a.listingUnitId());
 
         // Platform commission calculation
-        CommissionQuote quote = ledgerPort.quoteCommission(seller.id(), a.currentPrice());
+        BigDecimal price = a.closingOrCurrentPrice();
+        CommissionQuote quote = ledgerPort.quoteCommission(seller.id(), price);
         BigDecimal commissionPercent = quote != null ? quote.ratePercent() : new BigDecimal("5.0");
-        BigDecimal commissionFee = quote != null ? quote.amount() : a.currentPrice().multiply(new BigDecimal("0.05"));
-        BigDecimal estimatedPayout = a.currentPrice().subtract(commissionFee);
+        BigDecimal commissionFee = quote != null ? quote.amount() : price.multiply(new BigDecimal("0.05"));
+        BigDecimal estimatedPayout = price.subtract(commissionFee);
 
         // Bids with masked bidder aliases
         List<AuctionBid> bidRows = auctions.findBids(a.id(), 50, 0);
@@ -426,7 +427,7 @@ public class SellerAuctionService {
                 unitLabel,
                 a.startingPrice(),
                 a.bidIncrement(),
-                a.currentPrice(),
+                price,
                 a.bidCount(),
                 a.bidderCount(),
                 estimatedPayout,

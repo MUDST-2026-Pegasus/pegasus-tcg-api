@@ -62,7 +62,7 @@ public class AdminAuctionReadService {
             return new AdminAuctionRow(a.id(), a.auctionNumber(),
                     item.card() == null ? null : item.card().productName(),
                     bundle.resolveShopName(a.sellerProfileId()), usernames.get(a.sellerProfileId()),
-                    a.currentPrice(), a.bidCount(), a.bidderCount(), a.status(), a.endsAt(), a.paymentDueAt(),
+                    a.closingOrCurrentPrice(), a.bidCount(), a.bidderCount(), a.status(), a.endsAt(), a.paymentDueAt(),
                     List.of(), 0, a.suspendedAt());
         }).toList();
         return new AdminAuctionPage(PageResponse.of(result, paging.page(), paging.size(), counts.get(tab)),
@@ -80,7 +80,7 @@ public class AdminAuctionReadService {
                 items.buildAuctionItem(a.catalogVariantId(), a.condition()),
                 new AdminSeller(a.sellerProfileId(), seller.displayName(), seller.username(), seller.verified(),
                         seller.auctionCount(), seller.suspensionCount()),
-                a.startingPrice(), a.bidIncrement(), a.currentPrice(),
+                a.startingPrice(), a.bidIncrement(), a.closingOrCurrentPrice(),
                 a.bidCount(), a.bidderCount(), a.buyNowPrice(), a.originalEndsAt(), a.endsAt(),
                 a.extensionCount(), a.sellerNote(), a.sellerNoteUpdatedAt(), List.of(), 0,
                 admin.findBids(id), actions, OffsetDateTime.now(clock));

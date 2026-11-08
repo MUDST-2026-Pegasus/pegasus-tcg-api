@@ -194,7 +194,7 @@ public class AuctionBrowseService {
                 a.sellerNote(),
                 a.startingPrice(),
                 a.bidIncrement(),
-                a.currentPrice(),
+                a.closingOrCurrentPrice(),
                 minNextBid,
                 a.bidCount(),
                 a.bidderCount(),

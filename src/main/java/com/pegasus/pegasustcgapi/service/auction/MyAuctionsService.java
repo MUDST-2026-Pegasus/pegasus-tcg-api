@@ -69,7 +69,9 @@ public class MyAuctionsService {
                     price, myBids.getOrDefault(a.id(), Objects.equals(a.winnerId(), userId)
                             ? a.winningAmount() : null), shipping, totalDue,
                     live ? a.minNextBid() : null, live && a.extensionCount() > 0,
-                    a.endsAt(), state == AuctionViewerState.WON_AWAITING_PAYMENT ? a.paymentDueAt() : null,
+                    // A buy-now ends early, so an ended auction shows when it really closed [TCG-638]
+                    !live && a.closedAt() != null ? a.closedAt() : a.endsAt(),
+                    state == AuctionViewerState.WON_AWAITING_PAYMENT ? a.paymentDueAt() : null,
                     a.salesOrderId());
         }).toList();
         var penalty = strikes.status(userId, now);
