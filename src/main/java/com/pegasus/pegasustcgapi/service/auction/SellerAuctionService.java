@@ -158,7 +158,7 @@ public class SellerAuctionService {
                     a.buyNowPrice(),
                     a.buyNowAvailable(),
                     a.status(),
-                    a.endsAt(),
+                    a.closedOrEndsAt(),
                     deadline,
                     a.salesOrderId());
         }).toList();
@@ -442,7 +442,7 @@ public class SellerAuctionService {
                 a.sellerEditable(),
                 a.startedAt(),
                 a.originalEndsAt(),
-                a.endsAt(),
+                a.closedOrEndsAt(),
                 a.extensionCount(),
                 a.firstBidAt(),
                 winnerAlias,
