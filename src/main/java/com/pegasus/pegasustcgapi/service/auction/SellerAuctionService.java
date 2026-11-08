@@ -399,8 +399,8 @@ public class SellerAuctionService {
         BigDecimal commissionFee = quote != null ? quote.amount() : price.multiply(new BigDecimal("0.05"));
         BigDecimal estimatedPayout = price.subtract(commissionFee);
 
-        // Bids with masked bidder aliases
-        List<AuctionBid> bidRows = auctions.findBids(a.id(), 50, 0);
+        // Bids with masked bidder aliases; a suspension cancels every bid, the seller still sees them
+        List<AuctionBid> bidRows = auctions.findBids(a.id(), a.status() == AuctionStatus.SUSPENDED, 50, 0);
         List<Bid> bids = new ArrayList<>();
         if (!bidRows.isEmpty()) {
             Set<Long> userIds = Set.copyOf(bidRows.stream().map(AuctionBid::bidderId).toList());
@@ -449,6 +449,7 @@ public class SellerAuctionService {
                 a.paymentDueAt(),
                 a.salesOrderId(),
                 bids,
+                a.status() == AuctionStatus.SUSPENDED ? a.suspendedReason() : null,
                 now);
     }
 

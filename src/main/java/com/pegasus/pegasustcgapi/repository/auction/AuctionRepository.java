@@ -640,8 +640,17 @@ public class AuctionRepository {
 
     /** Active bids, newest first. */
     public List<AuctionBid> findBids(long auctionId, int limit, int offset) {
+        return findBids(auctionId, false, limit, offset);
+    }
+
+    /**
+     * Bids newest first; with {@code includeCancelled} also the ones an admin's suspension
+     * cancelled, so the seller still sees who bid what [TCG-640].
+     */
+    public List<AuctionBid> findBids(long auctionId, boolean includeCancelled, int limit, int offset) {
+        Condition status = includeCancelled ? DSL.noCondition() : AUCTION_BID.STATUS.eq(BidStatus.ACTIVE.name());
         return dsl.selectFrom(AUCTION_BID)
-                .where(AUCTION_BID.AUCTION_ID.eq(auctionId).and(AUCTION_BID.STATUS.eq(BidStatus.ACTIVE.name())))
+                .where(AUCTION_BID.AUCTION_ID.eq(auctionId).and(status))
                 .orderBy(AUCTION_BID.CREATED_AT.desc(), AUCTION_BID.ID.desc())
                 .limit(limit)
                 .offset(offset)

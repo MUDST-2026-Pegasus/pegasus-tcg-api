@@ -216,7 +216,7 @@ final class AuctionSamples {
                 now.minusDays(3).plusMinutes(40), null, null, null,
                 charizardBids(now).stream().map(b -> new Bid(b.bidderAlias(), b.bidderInitials(), false,
                         b.amount(), b.placedAt())).toList(),
-                now);
+                null, now);
     }
 
     static SellerAuctionDetail created(long id, OffsetDateTime now, BigDecimal start, BigDecimal increment,
@@ -225,7 +225,7 @@ final class AuctionSamples {
                 UUID.fromString("0f9e1c2a-6b1d-4e8a-9a51-2c7d5b3e1042"),
                 start, increment, start, 0, 0, start.multiply(new BigDecimal("0.95")), COMMISSION_PERCENT, buyNow,
                 buyNow != null, note, true, true, now, endsAt, endsAt, 0, null, null, null, null,
-                List.of(), now);
+                List.of(), null, now);
     }
 
     // ---- admin --------------------------------------------------------------------------
@@ -234,19 +234,19 @@ final class AuctionSamples {
         List<AdminAuctionRow> rows = List.of(
                 new AdminAuctionRow(139, "AUC-2026-0139", RAYQUAZA.card().productName(), RARECARD.shopName(),
                         RARECARD.username(), thb(21500), 41, 9, AuctionStatus.LIVE, now.plusMinutes(2), null,
-                        List.of(Signal.NEW_ACCOUNT_RAPID_BIDS, Signal.SHARED_ADDRESS_WITH_SELLER), 0, null),
+                        List.of(Signal.NEW_ACCOUNT_RAPID_BIDS, Signal.SHARED_ADDRESS_WITH_SELLER), 0, null, null),
                 new AdminAuctionRow(142, "AUC-2026-0142", CHARIZARD.card().productName(), CARDVAULT.shopName(),
                         CARDVAULT.username(), thb(8450), 12, 7, AuctionStatus.AWAITING_PAYMENT, now.minusMinutes(20),
-                        now.plusHours(23).plusMinutes(41), List.of(), 0, null),
+                        now.plusHours(23).plusMinutes(41), List.of(), 0, null, null),
                 new AdminAuctionRow(155, "AUC-2026-0155", "Pikachu Illustrator", "newshop_99", "newshop_99",
                         thb(2000), 0, 0, AuctionStatus.LIVE, now.plusDays(2), null, List.of(Signal.REPORTED), 3,
-                        null),
+                        null, null),
                 new AdminAuctionRow(98, "AUC-2026-0098", "Gengar VMAX Alt Art", "fakecards_th", "fakecards_th",
                         thb(6000), 3, 2, AuctionStatus.SUSPENDED, now.minusDays(6), null, List.of(), 0,
-                        now.minusDays(6)));
-        AdminAuctionViews.Kpis kpis = new AdminAuctionViews.Kpis(128, 14, 9, 2);
+                        now.minusDays(6), null));
+        AdminAuctionViews.Kpis kpis = new AdminAuctionViews.Kpis(128, 14, 9, 2, thb(486200));
         return new AdminAuctionPage(PageResponse.of(rows, page, size, 1204),
-                counts(AdminAuctionViews.Tab.class, 1204, 2, 128, 12, 1050, 2), kpis, 2, now);
+                counts(AdminAuctionViews.Tab.class, 1204, 2, 128, 12, 1050, 2), kpis, 2, 1, 1, now);
     }
 
     static AdminAuctionDetail adminDetail(long id, OffsetDateTime now, List<AdminAction> actions,

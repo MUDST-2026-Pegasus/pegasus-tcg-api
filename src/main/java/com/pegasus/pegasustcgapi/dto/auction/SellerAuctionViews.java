@@ -123,7 +123,9 @@ public final class SellerAuctionViews {
      * @param firstBidAt        when buy-now disappeared; null with no bids
      * @param winnerAlias       set once the auction ended with a winner
      * @param paymentDueAt      set with AWAITING_PAYMENT
-     * @param bids              newest first, bidders masked
+     * @param bids              newest first, bidders masked; on a SUSPENDED auction, the bids the
+     *                          suspension cancelled
+     * @param suspendReason     why an admin suspended it (SUSPENDED only); else null [TCG-640]
      */
     public record SellerAuctionDetail(
             long id,
@@ -153,6 +155,7 @@ public final class SellerAuctionViews {
             OffsetDateTime paymentDueAt,
             Long orderId,
             List<Bid> bids,
+            String suspendReason,
             OffsetDateTime serverTime) {
     }
 }

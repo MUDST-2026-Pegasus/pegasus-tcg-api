@@ -42,12 +42,14 @@ public final class AdminAuctionViews {
      * The KPI row (A1).
      *
      * @param suspendedLast30Days auctions suspended in the last 30 days
+     * @param soldLast30Days      what auctions sold for in the last 30 days, platform-wide [TCG-640]
      */
     public record Kpis(
             long live,
             long endingWithinHour,
             long awaitingPayment,
-            long suspendedLast30Days) {
+            long suspendedLast30Days,
+            BigDecimal soldLast30Days) {
     }
 
     /**
@@ -56,6 +58,7 @@ public final class AdminAuctionViews {
      * @param deadline    payment deadline, as on the seller's list; else null
      * @param reportCount user reports, shown as "ถูกรายงาน 3"
      * @param suspendedAt set with SUSPENDED
+     * @param cardImageUrl the card's official picture for the row thumbnail; null without one [TCG-640]
      */
     public record AdminAuctionRow(
             long id,
@@ -71,15 +74,22 @@ public final class AdminAuctionViews {
             OffsetDateTime deadline,
             List<Signal> signals,
             int reportCount,
-            OffsetDateTime suspendedAt) {
+            OffsetDateTime suspendedAt,
+            String cardImageUrl) {
     }
 
-    /** @param flaggedCount auctions with a signal, for the banner above the table */
+    /**
+     * @param flaggedCount    auctions with a signal, for the banner above the table
+     * @param reportedCount   flagged auctions that users reported
+     * @param suspiciousCount flagged auctions with an odd bidding pattern
+     */
     public record AdminAuctionPage(
             PageResponse<AdminAuctionRow> page,
             Map<Tab, Long> tabCounts,
             Kpis kpis,
             long flaggedCount,
+            long reportedCount,
+            long suspiciousCount,
             OffsetDateTime serverTime) {
     }
 
