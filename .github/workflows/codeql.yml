@@ -55,19 +55,33 @@ jobs:
           java-version: '25'
           cache: gradle
 
+      - name: Find CodeQL version on runner
+        id: codeql-tools
+        run: |
+          # Requesting the preinstalled version by URL makes the action use the toolcache instead of downloading.
+          version="$(ls "$RUNNER_TOOL_CACHE/CodeQL" 2>/dev/null | sort -V | tail -n 1 | cut -d- -f1)"
+          if [ -n "$version" ]; then
+            echo "url=https://github.com/github/codeql-action/releases/download/codeql-bundle-v${version}/codeql-bundle-linux64.tar.zst" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Initialize CodeQL
+        id: codeql-init
+        # A GitHub Releases outage must not fail CI; the last step reports the skipped scan.
+        continue-on-error: true
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
-          tools: toolcache
+          tools: ${{ steps.codeql-tools.outputs.url }}
           build-mode: manual
           config-file: ./.github/codeql/codeql-config.yml
 
       - name: Build for analysis
+        if: steps.codeql-init.outcome == 'success'
         run: ./gradlew build -x test --no-daemon
 
       - name: Perform CodeQL Analysis
+        if: steps.codeql-init.outcome == 'success'
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
@@ -75,6 +89,7 @@ jobs:
           upload: failure-only
 
       - name: Locate SARIF file
+        if: steps.codeql-init.outcome == 'success'
         id: locate-sarif
         run: |
           SARIF_FILE=$(ls sarif-results/*.sarif 2>/dev/null | head -n 1)
@@ -86,6 +101,7 @@ jobs:
           echo "Located SARIF file: $SARIF_FILE"
 
       - name: Filter generated sources from SARIF
+        if: steps.codeql-init.outcome == 'success'
         uses: advanced-security/filter-sarif@v1
         with:
           patterns: |
@@ -98,7 +114,12 @@ jobs:
           output: ${{ steps.locate-sarif.outputs.sarif_file }}
 
       - name: Upload CodeQL SARIF
+        if: steps.codeql-init.outcome == 'success'
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: ${{ steps.locate-sarif.outputs.sarif_file }}
           category: "/language:${{ matrix.language }}"
+
+      - name: Report skipped CodeQL scan
+        if: steps.codeql-init.outcome == 'failure'
+        run: echo "::warning title=CodeQL skipped::CodeQL could not be initialized, so this run was not scanned."
