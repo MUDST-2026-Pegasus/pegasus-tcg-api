@@ -161,6 +161,8 @@ public final class AuctionViews {
      * @param shippingFee     what the winner pays for delivery, for the "ยอดที่ต้องชำระถ้าชนะ" line
      * @param recentBids      newest first, at most five; the full list is under /bids
      * @param viewer          null for a guest
+     * @param winnerAlias     the masked winner ("n***t") once the auction ended with one; else null
+     * @param suspendReason   why an admin suspended it (SUSPENDED only); else null
      */
     public record AuctionDetail(
             long id,
@@ -185,6 +187,8 @@ public final class AuctionViews {
             BigDecimal shippingFee,
             List<Bid> recentBids,
             Viewer viewer,
+            String winnerAlias,
+            String suspendReason,
             OffsetDateTime serverTime) {
     }
 
