@@ -41,7 +41,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-          cache: gradle
+
+      # Caches deps, wrapper and the Gradle build cache (setup-java only did deps).
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
 
       - name: Generate test JWT secret
         run: echo "JWT_SECRET=$(openssl rand -base64 48)" >> "$GITHUB_ENV"
@@ -54,7 +59,7 @@ jobs:
           docker compose up -d --wait postgres minio
 
       - name: Test and build
-        run: ./gradlew build --no-daemon
+        run: ./gradlew build --build-cache
 
       - name: Publish BE test results
         if: always() && hashFiles('build/test-results/test/*.xml') != ''
@@ -199,6 +204,8 @@ jobs:
         with:
           context: image
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ${{ env.IMAGE }}:sha-${{ github.sha }}
             ${{ env.IMAGE }}:${{ github.ref_name == 'main' && 'latest' || 'develop' }}
