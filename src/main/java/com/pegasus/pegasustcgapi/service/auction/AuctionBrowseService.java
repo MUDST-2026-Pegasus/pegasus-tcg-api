@@ -202,7 +202,7 @@ public class AuctionBrowseService {
                 isBuyNowAvailable,
                 a.startedAt(),
                 a.originalEndsAt(),
-                a.endsAt(),
+                a.closedOrEndsAt(),
                 a.extensionCount(),
                 AuctionPolicy.DEFAULT_SHIPPING,
                 recentBids,

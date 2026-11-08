@@ -157,7 +157,8 @@ public final class AuctionViews {
      * @param buyNowPrice     the price the seller set; null when they set none
      * @param buyNowAvailable true only while LIVE with no bids and a buy-now price
      * @param originalEndsAt  the closing time the seller picked
-     * @param endsAt          the closing time now, after any 2-minute extensions
+     * @param endsAt          the closing time now, after any 2-minute extensions; once ended, when it
+     *                        really stopped (earlier after a buy-now, cancel or suspension)
      * @param shippingFee     what the winner pays for delivery, for the "ยอดที่ต้องชำระถ้าชนะ" line
      * @param recentBids      newest first, at most five; the full list is under /bids
      * @param viewer          null for a guest

@@ -55,13 +55,27 @@ public record Auction(
         OffsetDateTime updatedAt) {
 
     /**
-     * The price to show: what the card sold for once there is a winner, else the leading
-     * bid (or the starting price with no bids). A buy-now win has no bids, so
-     * {@code currentPrice} stays at the starting price while {@code winningAmount} holds
-     * the buy-now price [TCG-638].
+     * The price to show: what the card sold for while a winner holds it (AWAITING_PAYMENT or
+     * SOLD), else the leading bid (or the starting price with no bids). A buy-now win has no
+     * bids, so {@code currentPrice} stays at the starting price while {@code winningAmount}
+     * holds the buy-now price [TCG-638]. An unpaid win keeps {@code winningAmount} but did
+     * not sell, so it falls back to {@code currentPrice} [TCG-639].
      */
     public BigDecimal closingOrCurrentPrice() {
-        return winningAmount != null ? winningAmount : currentPrice;
+        boolean sold = status == AuctionStatus.AWAITING_PAYMENT || status == AuctionStatus.SOLD;
+        return sold && winningAmount != null ? winningAmount : currentPrice;
+    }
+
+    /**
+     * When it closes while live, when it really stopped once ended. A buy-now, a cancel or a
+     * suspension ends it before the time the seller picked [TCG-638, TCG-639].
+     */
+    public OffsetDateTime closedOrEndsAt() {
+        if (status == AuctionStatus.LIVE) return endsAt;
+        if (closedAt != null) return closedAt;
+        if (cancelledAt != null) return cancelledAt;
+        if (suspendedAt != null) return suspendedAt;
+        return endsAt;
     }
 
     /** Whether buy-now can still be used: LIVE, no bids yet and a price set. */

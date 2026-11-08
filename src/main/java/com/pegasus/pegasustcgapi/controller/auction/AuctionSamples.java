@@ -209,7 +209,7 @@ final class AuctionSamples {
     }
 
     static SellerAuctionDetail sellerDetail(long id, OffsetDateTime now) {
-        return new SellerAuctionDetail(id, "AUC-2026-0142", AuctionStatus.LIVE, CHARIZARD, "U-0771",
+        return new SellerAuctionDetail(id, "AUC-2026-0142", AuctionStatus.LIVE, CHARIZARD, "U-0771", null,
                 thb(2000), thb(100), thb(8450), 12, 7, thb(8027), COMMISSION_PERCENT, thb(12000), false,
                 "เก็บใน top loader ตั้งแต่แกะซอง ไม่เคยเล่น มีรูปมุมทั้ง 4 ด้านให้ดูในแกลเลอรี · ส่งแบบกล่องแข็ง",
                 false, false, now.minusDays(3), now.plusDays(1), now.plusDays(1).plusHours(4), 3,
@@ -222,6 +222,7 @@ final class AuctionSamples {
     static SellerAuctionDetail created(long id, OffsetDateTime now, BigDecimal start, BigDecimal increment,
             OffsetDateTime endsAt, BigDecimal buyNow, String note) {
         return new SellerAuctionDetail(id, "AUC-2026-0160", AuctionStatus.LIVE, CHARIZARD_EX, "U-1042",
+                UUID.fromString("0f9e1c2a-6b1d-4e8a-9a51-2c7d5b3e1042"),
                 start, increment, start, 0, 0, start.multiply(new BigDecimal("0.95")), COMMISSION_PERCENT, buyNow,
                 buyNow != null, note, true, true, now, endsAt, endsAt, 0, null, null, null, null,
                 List.of(), now);

@@ -24,7 +24,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Locale;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.InsertValuesStep9;
@@ -46,6 +49,9 @@ public class ListingUnitRepository {
 
     private static final List<String> SELLER_MOVABLE = List.of(
             ListingUnitStatus.IN_STOCK.name(), ListingUnitStatus.LISTED.name(), ListingUnitStatus.RETURNED.name());
+
+    /** The short code shown to sellers: "U-" and the last four hex digits of the card's public id. */
+    private static final Pattern UNIT_CODE = Pattern.compile("(?i)^U-([0-9a-f]{4})$");
 
     private final DSLContext dsl;
 
@@ -416,9 +422,33 @@ public class ListingUnitRepository {
                             .where(CATALOG_VARIANT.ID.eq(LISTING_UNIT.CATALOG_VARIANT_ID))
                             .and(CATALOG_PRODUCT.NAME.containsIgnoreCase(search)
                                     .or(CATALOG_PRODUCT.CARD_NUMBER.containsIgnoreCase(search))
-                                    .or(CATALOG_VARIANT.SKU.containsIgnoreCase(search)))));
+                                    .or(CATALOG_VARIANT.SKU.containsIgnoreCase(search))))
+                    .or(unitCodeMatches(search)));
         }
         return cond;
+    }
+
+    /** The card's full id (reopening an auction) or the short "U-1a2b" code the seller sees [TCG-639]. */
+    private static Condition unitCodeMatches(String search) {
+        try {
+            return LISTING_UNIT.PUBLIC_UID.eq(UUID.fromString(search));
+        } catch (IllegalArgumentException notUuid) {
+            Matcher shortCode = UNIT_CODE.matcher(search);
+            return shortCode.matches()
+                    ? LISTING_UNIT.PUBLIC_UID.cast(String.class).endsWith(shortCode.group(1).toLowerCase(Locale.ROOT))
+                    : DSL.falseCondition();
+        }
+    }
+
+    /** Public ids of these cards, keyed by unit id. */
+    public Map<Long, UUID> findPublicUids(Collection<Long> unitIds) {
+        if (unitIds == null || unitIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(LISTING_UNIT.ID, LISTING_UNIT.PUBLIC_UID)
+                .from(LISTING_UNIT)
+                .where(LISTING_UNIT.ID.in(unitIds))
+                .fetchMap(LISTING_UNIT.ID, LISTING_UNIT.PUBLIC_UID);
     }
 
     public Map<Long, String> findHeldOrderNumbers(Collection<Long> listingUnitIds) {

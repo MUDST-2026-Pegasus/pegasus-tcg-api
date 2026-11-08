@@ -115,6 +115,7 @@ public final class SellerAuctionViews {
     /**
      * One auction from the seller's side (S4, S4b).
      *
+     * @param unitUid           the stock card's id, for reopening it as a new auction; null if the card is gone
      * @param estimatedPayout   the current price after commission
      * @param commissionPercent the same rate as an ordinary sale, e.g. 5
      * @param editable          whether buy-now and the note may still change (LIVE with no bids)
@@ -130,6 +131,7 @@ public final class SellerAuctionViews {
             AuctionStatus status,
             AuctionItem item,
             String unitLabel,
+            UUID unitUid,
             BigDecimal startingPrice,
             BigDecimal bidIncrement,
             BigDecimal currentPrice,
