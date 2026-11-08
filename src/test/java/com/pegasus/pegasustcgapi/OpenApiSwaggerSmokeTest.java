@@ -113,6 +113,16 @@ class OpenApiSwaggerSmokeTest {
     @DisplayName("serves Swagger UI endpoint without requiring authentication")
     void swaggerUiAvailableUnauthenticated() throws Exception {
         mockMvc.perform(get("/swagger-ui/index.html"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("index.css")));
+        mockMvc.perform(get("/swagger-ui/index.css"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("golden-council.png")));
+        mockMvc.perform(get("/swagger-ui/golden-council.png"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith("image/png"));
     }
 }
