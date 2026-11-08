@@ -17,6 +17,7 @@ import com.pegasus.pegasustcgapi.dto.auction.AdminAuctionViews.Tab;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.BidStatus;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -71,11 +72,14 @@ public class AdminAuctionRepository {
                         DSL.count().filterWhere(live.and(AUCTION.ENDS_AT.le(now.plusHours(1)))),
                         DSL.count().filterWhere(AUCTION.STATUS.eq(AuctionStatus.AWAITING_PAYMENT.name())),
                         DSL.count().filterWhere(AUCTION.STATUS.eq(AuctionStatus.SUSPENDED.name())
-                                .and(AUCTION.SUSPENDED_AT.ge(now.minusDays(30)))))
+                                .and(AUCTION.SUSPENDED_AT.ge(now.minusDays(30)))),
+                        DSL.coalesce(DSL.sum(AUCTION.WINNING_AMOUNT).filterWhere(
+                                AUCTION.STATUS.eq(AuctionStatus.SOLD.name())
+                                        .and(AUCTION.CLOSED_AT.ge(now.minusDays(30)))), BigDecimal.ZERO))
                 .from(AUCTION)
                 .where(AUCTION.STATUS.in(AuctionStatus.LIVE.name(), AuctionStatus.AWAITING_PAYMENT.name(),
-                        AuctionStatus.SUSPENDED.name()))
-                .fetchSingle(r -> new Kpis(r.value1(), r.value2(), r.value3(), r.value4()));
+                        AuctionStatus.SUSPENDED.name(), AuctionStatus.SOLD.name()))
+                .fetchSingle(r -> new Kpis(r.value1(), r.value2(), r.value3(), r.value4(), r.value5()));
     }
 
     public Map<Long, String> sellerUsernames(Collection<Long> sellerProfileIds) {

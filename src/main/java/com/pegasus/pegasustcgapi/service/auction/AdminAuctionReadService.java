@@ -63,10 +63,12 @@ public class AdminAuctionReadService {
                     item.card() == null ? null : item.card().productName(),
                     bundle.resolveShopName(a.sellerProfileId()), usernames.get(a.sellerProfileId()),
                     a.closingOrCurrentPrice(), a.bidCount(), a.bidderCount(), a.status(), a.endsAt(), a.paymentDueAt(),
-                    List.of(), 0, a.suspendedAt());
+                    List.of(), 0, a.suspendedAt(),
+                    item.card() == null ? null : item.card().officialImageUrl());
         }).toList();
+        // Signals and reports stay at zero until report storage and signal rules exist.
         return new AdminAuctionPage(PageResponse.of(result, paging.page(), paging.size(), counts.get(tab)),
-                counts, admin.kpis(now), 0, now);
+                counts, admin.kpis(now), 0, 0, 0, now);
     }
 
     @Transactional(readOnly = true)
