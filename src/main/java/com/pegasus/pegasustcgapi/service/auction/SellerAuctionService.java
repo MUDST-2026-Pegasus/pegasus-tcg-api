@@ -446,6 +446,7 @@ public class SellerAuctionService {
                 a.paymentDueAt(),
                 a.salesOrderId(),
                 bids,
+                a.status() == AuctionStatus.SUSPENDED ? a.suspendedReason() : null,
                 now);
     }
 

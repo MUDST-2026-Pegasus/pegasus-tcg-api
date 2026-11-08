@@ -123,6 +123,7 @@ public final class SellerAuctionViews {
      * @param winnerAlias       set once the auction ended with a winner
      * @param paymentDueAt      set with AWAITING_PAYMENT
      * @param bids              newest first, bidders masked
+     * @param suspendReason     why an admin suspended it (SUSPENDED only); else null [TCG-640]
      */
     public record SellerAuctionDetail(
             long id,
@@ -151,6 +152,7 @@ public final class SellerAuctionViews {
             OffsetDateTime paymentDueAt,
             Long orderId,
             List<Bid> bids,
+            String suspendReason,
             OffsetDateTime serverTime) {
     }
 }

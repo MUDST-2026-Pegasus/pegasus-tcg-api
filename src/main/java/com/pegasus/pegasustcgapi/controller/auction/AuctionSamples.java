@@ -216,7 +216,7 @@ final class AuctionSamples {
                 now.minusDays(3).plusMinutes(40), null, null, null,
                 charizardBids(now).stream().map(b -> new Bid(b.bidderAlias(), b.bidderInitials(), false,
                         b.amount(), b.placedAt())).toList(),
-                now);
+                null, now);
     }
 
     static SellerAuctionDetail created(long id, OffsetDateTime now, BigDecimal start, BigDecimal increment,
@@ -224,7 +224,7 @@ final class AuctionSamples {
         return new SellerAuctionDetail(id, "AUC-2026-0160", AuctionStatus.LIVE, CHARIZARD_EX, "U-1042",
                 start, increment, start, 0, 0, start.multiply(new BigDecimal("0.95")), COMMISSION_PERCENT, buyNow,
                 buyNow != null, note, true, true, now, endsAt, endsAt, 0, null, null, null, null,
-                List.of(), now);
+                List.of(), null, now);
     }
 
     // ---- admin --------------------------------------------------------------------------
