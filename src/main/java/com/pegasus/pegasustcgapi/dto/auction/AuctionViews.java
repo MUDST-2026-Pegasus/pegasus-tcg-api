@@ -237,6 +237,8 @@ public final class AuctionViews {
      * @param totalDue     price plus shipping; set with WON_AWAITING_PAYMENT
      * @param minNextBid   set while live, for the "บิด ฿X" button
      * @param extended     true while live and at least one extension has happened ("ต่อเวลาอยู่")
+     * @param endsAt       the closing time while live; once ended, when it actually closed
+     *                     (earlier than planned after a buy-now)
      * @param deadline     paymentDueAt with WON_AWAITING_PAYMENT, else null
      * @param orderId      set once the auction checkout placed an order
      */

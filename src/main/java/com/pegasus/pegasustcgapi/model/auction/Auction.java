@@ -54,6 +54,16 @@ public record Auction(
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt) {
 
+    /**
+     * The price to show: what the card sold for once there is a winner, else the leading
+     * bid (or the starting price with no bids). A buy-now win has no bids, so
+     * {@code currentPrice} stays at the starting price while {@code winningAmount} holds
+     * the buy-now price [TCG-638].
+     */
+    public BigDecimal closingOrCurrentPrice() {
+        return winningAmount != null ? winningAmount : currentPrice;
+    }
+
     /** Whether buy-now can still be used: LIVE, no bids yet and a price set. */
     public boolean buyNowAvailable() {
         return status == AuctionStatus.LIVE && bidCount == 0 && buyNowPrice != null;
