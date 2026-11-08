@@ -18,6 +18,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrderStatusHistory.SELLER_ORDER_STATUS_HISTORY;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerShippingOption.SELLER_SHIPPING_OPTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.Shipment.SHIPMENT;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
@@ -27,6 +28,7 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderStatusHistoryRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.ShipmentRecord;
+import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.ShippingChoice;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -383,6 +385,11 @@ public class OrderRepository {
             Long shippingOptionId) {
 
         BigDecimal discountAmount = sellerDiscount.add(platformDiscount);
+        // Snapshot the chosen option as it reads right now, in the same transaction
+        // that resolved it [TCG-503]; later edits to the option never reach this row.
+        var option = shippingOptionId == null ? null : dsl.selectFrom(SELLER_SHIPPING_OPTION)
+                .where(SELLER_SHIPPING_OPTION.ID.eq(shippingOptionId))
+                .fetchOne();
         return dsl.insertInto(SELLER_ORDER)
                 .set(SELLER_ORDER.SALES_ORDER_ID, salesOrderId)
                 .set(SELLER_ORDER.SELLER_PROFILE_ID, sellerProfileId)
@@ -400,6 +407,10 @@ public class OrderRepository {
                 .set(SELLER_ORDER.COMMISSION_AMOUNT, commissionAmount)
                 .set(SELLER_ORDER.SELLER_NET_AMOUNT, sellerNetAmount)
                 .set(SELLER_ORDER.SHIPPING_OPTION_ID, shippingOptionId)
+                .set(SELLER_ORDER.SHIPPING_OPTION_NAME, option == null ? null : option.getName())
+                .set(SELLER_ORDER.SHIPPING_CARRIER_CODE, option == null ? null : option.getCarrierCode())
+                .set(SELLER_ORDER.SHIPPING_EST_DAYS_MIN, option == null ? null : option.getEstDaysMin())
+                .set(SELLER_ORDER.SHIPPING_EST_DAYS_MAX, option == null ? null : option.getEstDaysMax())
                 .returning()
                 .fetchSingle();
     }
@@ -626,6 +637,24 @@ public class OrderRepository {
                 .where(ORDER_ITEM.SELLER_ORDER_ID.in(sellerOrderIds))
                 .groupBy(ORDER_ITEM.SELLER_ORDER_ID)
                 .fetchMap(ORDER_ITEM.SELLER_ORDER_ID, r -> r.get(cost));
+    }
+
+    /**
+     * The delivery choice frozen on each order at checkout [TCG-503]. Orders with no
+     * snapshot (placed before it existed and not backfillable) are left out.
+     */
+    public Map<Long, ShippingChoice> findShippingChoicesBySellerOrderIds(Collection<Long> sellerOrderIds) {
+        if (sellerOrderIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(SELLER_ORDER.ID, SELLER_ORDER.SHIPPING_OPTION_ID, SELLER_ORDER.SHIPPING_OPTION_NAME,
+                        SELLER_ORDER.SHIPPING_CARRIER_CODE, SELLER_ORDER.SHIPPING_FEE,
+                        SELLER_ORDER.SHIPPING_EST_DAYS_MIN, SELLER_ORDER.SHIPPING_EST_DAYS_MAX)
+                .from(SELLER_ORDER)
+                .where(SELLER_ORDER.ID.in(sellerOrderIds))
+                .and(SELLER_ORDER.SHIPPING_OPTION_NAME.isNotNull())
+                .fetchMap(SELLER_ORDER.ID, r -> new ShippingChoice(r.value2(), r.value3(), r.value4(),
+                        r.value5(), r.value6(), r.value7()));
     }
 
     /** Orders this buyer paid for at this shop, the one being looked at included. */

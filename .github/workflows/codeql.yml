@@ -60,6 +60,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
+          tools: toolcache
           build-mode: manual
           config-file: ./.github/codeql/codeql-config.yml
 
