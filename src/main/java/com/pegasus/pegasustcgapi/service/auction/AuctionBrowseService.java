@@ -207,6 +207,9 @@ public class AuctionBrowseService {
                 AuctionPolicy.DEFAULT_SHIPPING,
                 recentBids,
                 viewer,
+                a.winnerId() == null ? null
+                        : AuctionItemMapper.maskUsername(auctions.findUsername(a.winnerId()).orElse(null)),
+                a.status() == AuctionStatus.SUSPENDED ? a.suspendedReason() : null,
                 now);
     }
 

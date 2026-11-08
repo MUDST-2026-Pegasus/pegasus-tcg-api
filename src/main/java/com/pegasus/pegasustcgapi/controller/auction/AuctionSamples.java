@@ -138,7 +138,7 @@ final class AuctionSamples {
                 "เก็บใน top loader ตั้งแต่แกะซอง ไม่เคยเล่น มีรูปมุมทั้ง 4 ด้านให้ดูในแกลเลอรี · ส่งแบบกล่องแข็ง",
                 thb(2000), thb(100), thb(8450), thb(8550), 12, 7, thb(12000), false,
                 now.minusDays(3), now.plusDays(1), now.plusDays(1).plusHours(4), 3, SHIPPING,
-                charizardBids(now), viewer, now);
+                charizardBids(now), viewer, null, null, now);
     }
 
     static BidHistory bidHistory(OffsetDateTime now, int page, int size) {
