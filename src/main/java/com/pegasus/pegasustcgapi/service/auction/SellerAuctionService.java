@@ -140,10 +140,12 @@ public class SellerAuctionService {
 
         Set<Long> variantIds = rows.stream().map(Auction::catalogVariantId).collect(Collectors.toSet());
         var bundle = auctionItemMapper.buildAuctionItems(variantIds, List.of());
+        // Same "U-xxxx" code as the detail page and the stock picker [TCG-639]
+        Map<Long, UUID> publicUids = units.findPublicUids(rows.stream().map(Auction::listingUnitId).toList());
 
         List<SellerAuctionRow> listRows = rows.stream().map(a -> {
             AuctionItem item = bundle.buildAuctionItem(a.catalogVariantId(), a.condition());
-            String unitLabel = formatUnitLabel(null, a.listingUnitId());
+            String unitLabel = formatUnitLabel(publicUids.get(a.listingUnitId()), a.listingUnitId());
             OffsetDateTime deadline = resolveDeadline(a);
             return new SellerAuctionRow(
                     a.id(),
@@ -425,6 +427,7 @@ public class SellerAuctionService {
                 a.status(),
                 item,
                 unitLabel,
+                unit != null ? unit.publicUid() : null,
                 a.startingPrice(),
                 a.bidIncrement(),
                 price,
