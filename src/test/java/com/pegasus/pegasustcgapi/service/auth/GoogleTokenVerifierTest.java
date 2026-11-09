@@ -30,8 +30,11 @@ import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @DisplayName("GoogleTokenVerifier")
 class GoogleTokenVerifierTest {
@@ -203,6 +206,22 @@ class GoogleTokenVerifierTest {
         assertThatThrownBy(() -> verifier.verify("   "))
                 .isInstanceOfSatisfying(UnauthorizedException.class,
                         e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.GOOGLE_TOKEN_INVALID));
+    }
+
+    @Test
+    @DisplayName("returns 503 GOOGLE_SIGNIN_DISABLED when Google JWKS cannot be fetched (non-BadJwtException)")
+    void returns503WhenJwksFetchFails() {
+        NimbusJwtDecoder failingDecoder = mock(NimbusJwtDecoder.class);
+        when(failingDecoder.decode("some-token"))
+                .thenThrow(new JwtException("An error occurred while attempting to retrieve the JWK Set"));
+        DefaultGoogleTokenVerifier unavailableVerifier =
+                new DefaultGoogleTokenVerifier(CLIENT_ID, failingDecoder, CLOCK);
+
+        assertThatThrownBy(() -> unavailableVerifier.verify("some-token"))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.errorCode()).isEqualTo(ErrorCode.GOOGLE_SIGNIN_DISABLED);
+                    assertThat(e.getMessage()).isEqualTo("Google sign-in is temporarily unavailable");
+                });
     }
 
     private static String mint(JwtEncoder encoder, Consumer<JwtClaimsSet.Builder> customizer) {

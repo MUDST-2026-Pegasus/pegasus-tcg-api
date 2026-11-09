@@ -60,6 +60,7 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.support.TransactionOperations;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("AuthService")
@@ -120,7 +121,8 @@ class AuthServiceTest {
 
         service = new AuthService(
                 users, userIdentities, roles, authTokens, jwtService,
-                passwordEncoder, properties, storageService, clock, googleTokenVerifier);
+                passwordEncoder, properties, storageService, clock, googleTokenVerifier,
+                TransactionOperations.withoutTransaction());
     }
 
     @Nested

@@ -32,12 +32,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -74,7 +74,6 @@ public class AuthService {
     public record GoogleAuthResult(AuthResponse response, boolean created) {
     }
 
-    @Autowired
     public AuthService(
             UserRepository users,
             UserIdentityRepository userIdentities,
@@ -98,37 +97,8 @@ public class AuthService {
         this.storage = storage;
         this.clock = clock;
         this.googleTokenVerifier = googleTokenVerifier;
-        this.tx = tx != null ? tx : TransactionOperations.withoutTransaction();
+        this.tx = Objects.requireNonNull(tx);
         this.decoyHash = passwordEncoder.encode(UUID.randomUUID().toString());
-    }
-
-    public AuthService(
-            UserRepository users,
-            UserIdentityRepository userIdentities,
-            RoleService roles,
-            AuthTokenService authTokens,
-            JwtService jwtService,
-            PasswordEncoder passwordEncoder,
-            AuthProperties properties,
-            StorageService storage,
-            Clock clock,
-            GoogleTokenVerifier googleTokenVerifier) {
-        this(users, userIdentities, roles, authTokens, jwtService, passwordEncoder, properties,
-                storage, clock, googleTokenVerifier, TransactionOperations.withoutTransaction());
-    }
-
-    public AuthService(
-            UserRepository users,
-            RoleService roles,
-            AuthTokenService authTokens,
-            JwtService jwtService,
-            PasswordEncoder passwordEncoder,
-            AuthProperties properties,
-            StorageService storage,
-            Clock clock) {
-        this(users, null, roles, authTokens, jwtService, passwordEncoder, properties,
-                storage, clock, new DefaultGoogleTokenVerifier(properties, clock),
-                TransactionOperations.withoutTransaction());
     }
 
     @Transactional
@@ -303,9 +273,6 @@ public class AuthService {
                 return new GoogleAuthResult(response, true);
             } catch (DuplicateKeyException e) {
                 if (isUsernameConflict(e)) {
-                    if (attempt == MAX_USERNAME_ATTEMPTS) {
-                        throw new ConflictException(ErrorCode.USERNAME_ALREADY_USED);
-                    }
                     continue;
                 }
                 if (isIdentitySubjectConflict(e) || isEmailConflict(e)) {

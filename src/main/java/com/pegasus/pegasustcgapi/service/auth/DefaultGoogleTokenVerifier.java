@@ -9,11 +9,14 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimNames;
 import org.springframework.security.oauth2.jwt.JwtClaimValidator;
@@ -33,6 +36,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class DefaultGoogleTokenVerifier implements GoogleTokenVerifier {
+
+    private static final Logger log = LoggerFactory.getLogger(DefaultGoogleTokenVerifier.class);
 
     static final String GOOGLE_JWKS_URI = "https://www.googleapis.com/oauth2/v3/certs";
 
@@ -78,8 +83,11 @@ public class DefaultGoogleTokenVerifier implements GoogleTokenVerifier {
         final Jwt jwt;
         try {
             jwt = decoder.decode(credential);
-        } catch (JwtException e) {
+        } catch (BadJwtException e) {
             throw new UnauthorizedException(ErrorCode.GOOGLE_TOKEN_INVALID);
+        } catch (JwtException e) {
+            log.warn("Could not verify Google credential: {}", e.getClass().getSimpleName());
+            throw new ApiException(ErrorCode.GOOGLE_SIGNIN_DISABLED, "Google sign-in is temporarily unavailable");
         }
 
         String subject = jwt.getSubject();

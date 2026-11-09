@@ -437,6 +437,63 @@ class GoogleSignInIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    @DisplayName("enforces status, soft-delete, and ADMIN/SUPPORT checks on already-linked Google identities")
+    void enforcesStatusSoftDeleteAndRolesOnAlreadyLinkedIdentities() {
+        // 1. Already-linked user becomes SUSPENDED -> 403 ACCOUNT_SUSPENDED
+        String suspSub = "linked-sub-susp-" + tag;
+        long suspUserId = createLinkedGoogleUser("l_susp_" + tag, "l_susp_" + tag + "@gmail.com", suspSub);
+        dsl.update(USER_ACCOUNT).set(USER_ACCOUNT.STATUS, UserStatus.SUSPENDED)
+                .where(USER_ACCOUNT.ID.eq(suspUserId)).execute();
+        willReturn(new GoogleIdentity(suspSub, "l_susp_" + tag + "@gmail.com", true, "Linked Suspended", null))
+                .given(googleTokenVerifier).verify("cred-linked-susp");
+
+        Response suspResp = client.post(ApiPaths.AUTH + "/google", null, Map.of("credential", "cred-linked-susp"));
+        assertThat(suspResp.status()).isEqualTo(403);
+        assertThat(suspResp.errorCode()).isEqualTo(ErrorCode.ACCOUNT_SUSPENDED.name());
+
+        // 2. Already-linked user becomes DEACTIVATED -> 403 ACCOUNT_DEACTIVATED
+        String deactSub = "linked-sub-deact-" + tag;
+        long deactUserId = createLinkedGoogleUser("l_deact_" + tag, "l_deact_" + tag + "@gmail.com", deactSub);
+        dsl.update(USER_ACCOUNT).set(USER_ACCOUNT.STATUS, UserStatus.DEACTIVATED)
+                .where(USER_ACCOUNT.ID.eq(deactUserId)).execute();
+        willReturn(new GoogleIdentity(deactSub, "l_deact_" + tag + "@gmail.com", true, "Linked Deactivated", null))
+                .given(googleTokenVerifier).verify("cred-linked-deact");
+
+        Response deactResp = client.post(ApiPaths.AUTH + "/google", null, Map.of("credential", "cred-linked-deact"));
+        assertThat(deactResp.status()).isEqualTo(403);
+        assertThat(deactResp.errorCode()).isEqualTo(ErrorCode.ACCOUNT_DEACTIVATED.name());
+
+        // 3. Already-linked user is soft-deleted -> 403 ACCOUNT_DEACTIVATED
+        String delSub = "linked-sub-del-" + tag;
+        long delUserId = createLinkedGoogleUser("l_del_" + tag, "l_del_" + tag + "@gmail.com", delSub);
+        dsl.update(USER_ACCOUNT).set(USER_ACCOUNT.DELETED_AT, OffsetDateTime.now())
+                .where(USER_ACCOUNT.ID.eq(delUserId)).execute();
+        willReturn(new GoogleIdentity(delSub, "l_del_" + tag + "@gmail.com", true, "Linked Deleted", null))
+                .given(googleTokenVerifier).verify("cred-linked-del");
+
+        Response delResp = client.post(ApiPaths.AUTH + "/google", null, Map.of("credential", "cred-linked-del"));
+        assertThat(delResp.status()).isEqualTo(403);
+        assertThat(delResp.errorCode()).isEqualTo(ErrorCode.ACCOUNT_DEACTIVATED.name());
+
+        // 4. Already-linked user is later granted ADMIN or SUPPORT -> 403 GOOGLE_SIGNIN_NOT_ALLOWED
+        for (RoleCode privilegedRole : List.of(RoleCode.ADMIN, RoleCode.SUPPORT)) {
+            String roleTag = "l_" + privilegedRole.name().toLowerCase() + "_" + tag;
+            String roleSub = "linked-sub-" + roleTag;
+            long roleUserId = createLinkedGoogleUser(roleTag, roleTag + "@gmail.com", roleSub);
+            short roleId = roleRepository.findIdByCode(privilegedRole).orElseThrow();
+            roleRepository.grant(roleUserId, roleId, null);
+
+            willReturn(new GoogleIdentity(roleSub, roleTag + "@gmail.com", true, "Linked Staff", null))
+                    .given(googleTokenVerifier).verify("cred-linked-" + roleTag);
+
+            Response roleResp = client.post(ApiPaths.AUTH + "/google", null,
+                    Map.of("credential", "cred-linked-" + roleTag));
+            assertThat(roleResp.status()).isEqualTo(403);
+            assertThat(roleResp.errorCode()).isEqualTo(ErrorCode.GOOGLE_SIGNIN_NOT_ALLOWED.name());
+        }
+    }
+
+    @Test
     @DisplayName("rejects POST /auth/google when Origin is not in the allow-list with 403 ACCESS_DENIED")
     void rejectsDisallowedOriginWith403() {
         Response response = client.post(
@@ -462,6 +519,24 @@ class GoogleSignInIntegrationTest extends PostgresIntegrationTest {
             short roleId = roleRepository.findIdByCode(code).orElseThrow();
             roleRepository.grant(userId, roleId, null);
         }
+        return userId;
+    }
+
+    private long createLinkedGoogleUser(String username, String email, String providerSubject) {
+        long userId = dsl.insertInto(USER_ACCOUNT)
+                .set(USER_ACCOUNT.EMAIL, email)
+                .set(USER_ACCOUNT.USERNAME, username)
+                .set(USER_ACCOUNT.DISPLAY_NAME, username)
+                .set(USER_ACCOUNT.STATUS, UserStatus.ACTIVE)
+                .returningResult(USER_ACCOUNT.ID)
+                .fetchSingle(USER_ACCOUNT.ID);
+        short buyerRoleId = roleRepository.findIdByCode(RoleCode.BUYER).orElseThrow();
+        roleRepository.grant(userId, buyerRoleId, null);
+        dsl.insertInto(USER_IDENTITY)
+                .set(USER_IDENTITY.USER_ID, userId)
+                .set(USER_IDENTITY.PROVIDER, "GOOGLE")
+                .set(USER_IDENTITY.PROVIDER_SUBJECT, providerSubject)
+                .execute();
         return userId;
     }
 }
