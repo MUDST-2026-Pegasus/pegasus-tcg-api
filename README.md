@@ -461,6 +461,8 @@ Cancellation or an approved return creates an `APPROVED` refund obligation. For 
 - Successful responses use the common `ApiResult` envelope with `success`, `message`, and `data`.
 - List endpoints that paginate use zero-based `page` and a `size` default of `20`.
 - Error responses include a stable code in `data.code`; use the code rather than matching the human-readable message.
+- Validation errors (`VALIDATION_FAILED`) list `data.violations[]` as `{ field, message, code, params }`: `code` is the failed constraint (`NotBlank`, `Size`, `Pattern`, … or `typeMismatch` / `missingParameter`) and `params` its attributes, e.g. `{"field":"accountNumber","code":"Size","params":{"min":0,"max":34},"message":"size must be between 0 and 34"}`. Clients translate `code` + `params` and keep `message` as the fallback.
+- Every `ErrorCode` and its default message is exported by `./gradlew exportErrorCatalog` to `build/i18n/errors/en.json`. On every push to `develop`, CI pushes that file to the Tolgee namespace `errors` (language `en`, `forceMode: KEEP`, so edited translations are never overwritten). The job needs the repository secret `TOLGEE_API_KEY` (a project API key allowed to create keys) and is skipped without it. The web app translates error codes from that namespace.
 - Catalogued products and variants are deactivated with `active: false`. A product can be deleted only while no listing, stock record, order or collection references its variants (otherwise `409 PRODUCT_IN_USE`); variants are never deleted on their own.
 
 ## Project layout

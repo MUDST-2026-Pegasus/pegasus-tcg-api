@@ -276,6 +276,9 @@ class SellerAuctionServiceTest {
             assertThatThrownBy(() -> service.create(USER_ID, request))
                     .extracting(SellerAuctionServiceTest::codeOf)
                     .isEqualTo(ErrorCode.AUCTION_END_TOO_SOON);
+            assertThatThrownBy(() -> service.create(USER_ID, request))
+                    .extracting(e -> ((ApiException) e).details())
+                    .isEqualTo(java.util.Map.of("minMinutes", 60L));
 
             verify(auctions, never()).insert(any());
         }
@@ -291,6 +294,9 @@ class SellerAuctionServiceTest {
             assertThatThrownBy(() -> service.create(USER_ID, request))
                     .extracting(SellerAuctionServiceTest::codeOf)
                     .isEqualTo(ErrorCode.AUCTION_END_TOO_FAR);
+            assertThatThrownBy(() -> service.create(USER_ID, request))
+                    .extracting(e -> ((ApiException) e).details())
+                    .isEqualTo(java.util.Map.of("maxDays", 30L));
 
             verify(auctions, never()).insert(any());
         }

@@ -73,8 +73,8 @@ public class SellerAuctionController {
             description = "Opens at once and locks the card. The shop must be VERIFIED.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Auction opened"),
-            @ApiResponse(responseCode = "400", description = "VALIDATION_FAILED, AUCTION_END_TOO_SOON, "
-                    + "AUCTION_END_TOO_FAR or BUY_NOW_BELOW_START"),
+            @ApiResponse(responseCode = "400", description = "VALIDATION_FAILED, AUCTION_END_TOO_SOON (details.minMinutes), "
+                    + "AUCTION_END_TOO_FAR (details.maxDays) or BUY_NOW_BELOW_START"),
             @ApiResponse(responseCode = "403", description = "SELLER_NOT_VERIFIED"),
             @ApiResponse(responseCode = "404", description = "LISTING_UNIT_NOT_FOUND"),
             @ApiResponse(responseCode = "409", description = "UNIT_NOT_AVAILABLE")

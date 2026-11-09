@@ -230,10 +230,15 @@ public class SellerAuctionService {
         var minimum = settings.getMinutes(PlatformSettingService.AUCTION_MIN_DURATION_MINUTES);
         var maximum = settings.getDays(PlatformSettingService.AUCTION_MAX_DURATION_DAYS);
         if (endsAt.isBefore(now.plus(minimum))) {
-            throw new BadRequestException(ErrorCode.AUCTION_END_TOO_SOON, "The closing time must be at least " + minimum.toMinutes() + " minutes from now");
+            // จำนวนเวลาแยกใน details ให้ FE ใส่ ICU params ได้ (แบบ BID_TOO_LOW) [TCG-548]
+            throw new BadRequestException(ErrorCode.AUCTION_END_TOO_SOON,
+                    "The closing time must be at least " + minimum.toMinutes() + " minutes from now",
+                    Map.of("minMinutes", minimum.toMinutes()));
         }
         if (endsAt.isAfter(now.plus(maximum))) {
-            throw new BadRequestException(ErrorCode.AUCTION_END_TOO_FAR, "The closing time must be within " + maximum.toDays() + " days from now");
+            throw new BadRequestException(ErrorCode.AUCTION_END_TOO_FAR,
+                    "The closing time must be within " + maximum.toDays() + " days from now",
+                    Map.of("maxDays", maximum.toDays()));
         }
 
         // Bid increment validation: strictly > 0
