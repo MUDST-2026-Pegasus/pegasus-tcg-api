@@ -9,9 +9,13 @@ import com.pegasus.pegasustcgapi.repository.audit.AuditLogRepository;
 import com.pegasus.pegasustcgapi.security.ClientAddress;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.RecordComponent;
+import com.pegasus.pegasustcgapi.dto.audit.AuditLogSummaryResponse;
 import java.net.InetAddress;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.Objects;
 import java.util.Set;
 import org.springframework.stereotype.Service;
@@ -73,6 +77,29 @@ public class AuditLogService {
                 .map(row -> AuditLogResponse.from(row, json.readTree(row.metadataJson())))
                 .toList();
         return PageResponse.of(items, paging.page(), paging.size(), logs.count(filter));
+    }
+
+    /** Number of top admins the summary names. */
+    static final int TOP_ACTORS = 3;
+
+    /** Counts over {@code [from, to)}; either end may be open. */
+    @Transactional(readOnly = true)
+    public AuditLogSummaryResponse summary(OffsetDateTime from, OffsetDateTime to) {
+        long total = 0;
+        long bySystem = 0;
+        Map<String, Long> byAction = new TreeMap<>();
+        for (AuditLogRepository.ActionCount row : logs.countByAction(from, to)) {
+            total += row.count();
+            if (row.bySystem()) {
+                bySystem += row.count();
+            }
+            byAction.merge(row.action(), (long) row.count(), Long::sum);
+        }
+        List<AuditLogSummaryResponse.TopActor> top = logs.topActors(from, to, TOP_ACTORS).stream()
+                .map(a -> new AuditLogSummaryResponse.TopActor(
+                        a.userId(), a.username(), a.displayName(), a.count()))
+                .toList();
+        return new AuditLogSummaryResponse(total, total - bySystem, bySystem, byAction, top);
     }
 
     /**
