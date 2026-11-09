@@ -37,7 +37,7 @@ class OpenApiSwaggerSmokeTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.openapi").exists())
                 .andExpect(jsonPath("$.info.title").value("Pegasus TCG API"))
-                .andExpect(jsonPath("$.info.contact.email").value("thanapat.boat16@gmail.com"))
+                .andExpect(jsonPath("$.info.contact.email").value("pegasus.dev.teams@gmail.com"))
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth").exists())
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth.type").value("http"))
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth.scheme").value("bearer"))

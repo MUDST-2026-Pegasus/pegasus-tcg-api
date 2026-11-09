@@ -35,7 +35,7 @@ public class OpenApiConfig {
                         .version("v1.0.0")
                         .contact(new Contact()
                                 .name("Pegasus Engineering Team")
-                                .email("thanapat.boat16@gmail.com"))
+                                .email("pegasus.dev.teams@gmail.com"))
                         .license(new License()
                                 .name("Apache 2.0")
                                 .url("https://www.apache.org/licenses/LICENSE-2.0")))
