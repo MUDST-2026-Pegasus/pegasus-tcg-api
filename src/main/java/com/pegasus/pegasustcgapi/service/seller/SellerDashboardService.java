@@ -22,6 +22,7 @@ import com.pegasus.pegasustcgapi.repository.seller.SellerDashboardRepository.Rev
 import com.pegasus.pegasustcgapi.repository.seller.SellerDashboardRepository.SalesTotals;
 import com.pegasus.pegasustcgapi.repository.finance.wallet.WalletRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
@@ -63,17 +64,20 @@ public class SellerDashboardService {
     private final WalletRepository wallets;
     private final SellerPort sellers;
     private final Clock clock;
+    private final StorageService storage;
 
     public SellerDashboardService(
             SellerDashboardRepository dashboard,
             WalletRepository wallets,
             SellerPort sellers,
-            Clock clock) {
+            Clock clock,
+            StorageService storage) {
 
         this.dashboard = dashboard;
         this.wallets = wallets;
         this.sellers = sellers;
         this.clock = clock;
+        this.storage = storage;
     }
 
     /**
@@ -106,7 +110,7 @@ public class SellerDashboardService {
                 dashboard.lowStockCount(shopId, LOW_STOCK_THRESHOLD),
                 dashboard.lowStockListings(shopId, LOW_STOCK_THRESHOLD, LOW_STOCK_ROWS).stream()
                         .map(row -> new LowStockListing(row.listingId(), row.productName(), row.lotLabel(),
-                                row.conditionCode(), row.quantityAvailable(), row.quantityTotal()))
+                                row.conditionCode(), row.quantityAvailable(), row.quantityTotal(), signed(row.imageKey())))
                         .toList());
 
         ReviewTotals reviewTotals = dashboard.reviews(shopId, from, to);
@@ -118,7 +122,7 @@ public class SellerDashboardService {
 
         List<RecentOrder> recent = dashboard.recentOrders(shopId, RECENT_ORDERS).stream()
                 .map(row -> new RecentOrder(row.sellerOrderId(), row.sellerOrderNumber(), row.buyerUsername(),
-                        row.buyerDisplayName(), row.firstItemName(), row.itemCount(), row.grandTotal(),
+                        row.buyerDisplayName(), row.firstItemName(), signed(row.firstImageKey()), row.itemCount(), row.grandTotal(),
                         row.status(), row.createdAt()))
                 .toList();
 
@@ -147,6 +151,10 @@ public class SellerDashboardService {
                 .map(balance -> balance.available().subtract(reserved).max(BigDecimal.ZERO))
                 .orElseGet(() -> BigDecimal.ZERO.setScale(2));
         return new Wallet(withdrawable, dashboard.heldInEscrow(shop.id()));
+    }
+
+    private String signed(String imageKey) {
+        return imageKey == null || imageKey.isBlank() ? null : storage.presignDownload(imageKey);
     }
 
     /** Twelve months ending with the selected one, months with no sales included as zero. */

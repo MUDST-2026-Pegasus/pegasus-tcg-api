@@ -1,5 +1,8 @@
 package com.pegasus.pegasustcgapi.service.seller;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.ListingImage.LISTING_IMAGE;
+import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
+
 import com.pegasus.pegasustcgapi.service.metrics.AdminMetricsService;
 
 import com.pegasus.pegasustcgapi.service.cart.CartService;
@@ -157,6 +160,27 @@ class SellerDashboardIntegrationTest extends PostgresIntegrationTest {
                 .extracting(row -> row.listingId())
                 .containsExactly(oneLeft.listing().id(), twoLeft.listing().id());
         assertThat(dashboard.listings().lowStock().getFirst().quantityAvailable()).isEqualTo(1);
+    }
+
+    @Test
+    void dashboardSignsFirstOrderImageAndPrefersListingPhotoForLowStock() {
+        Seller seller = data.seller();
+        Placed placed = place(seller, 2, 1, "100.00");
+        long sellerOrderId = placed.order().sellerOrders().getFirst().id();
+        String orderImageKey = "test/order-" + data.tag() + ".jpg";
+        String listingImageKey = "test/listing-" + data.tag() + ".jpg";
+        dsl.update(ORDER_ITEM).set(ORDER_ITEM.IMAGE_KEY_SNAPSHOT, orderImageKey)
+                .where(ORDER_ITEM.SELLER_ORDER_ID.eq(sellerOrderId)).execute();
+        dsl.insertInto(LISTING_IMAGE)
+                .set(LISTING_IMAGE.LISTING_ID, placed.listing().id())
+                .set(LISTING_IMAGE.IMAGE_KEY, listingImageKey)
+                .set(LISTING_IMAGE.IS_PRIMARY, true)
+                .execute();
+
+        Dashboard dashboard = dashboards.dashboard(seller.principal(), null);
+
+        assertThat(dashboard.recentOrders().getFirst().firstImageUrl()).contains(orderImageKey);
+        assertThat(dashboard.listings().lowStock().getFirst().imageUrl()).contains(listingImageKey);
     }
 
     @Test
