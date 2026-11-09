@@ -31,7 +31,7 @@ public class AdminWeeklyStockProfitRepository {
     private static final String COMPLETED_LINES = """
             completed_lines AS (
                 SELECT so.id AS seller_order_id, so.commission_amount, so.completed_at,
-                       oi.quantity, oi.line_total, oi.unit_cost_snapshot * oi.quantity AS cost,
+                       oi.quantity, oi.line_total,
                        g.slug, g.name, %s AS product_group,
                        SUM(oi.line_total) OVER (PARTITION BY so.id) AS order_gmv
                   FROM seller_order so
@@ -65,10 +65,11 @@ public class AdminWeeklyStockProfitRepository {
             COALESCE(ROUND(SUM(CASE WHEN commission_amount > 0 THEN commission_amount * line_total / NULLIF(order_gmv, 0)
                               ELSE ROUND(line_total * 0.03, 2) END), 2), 0)""";
 
-    private static final String PROFIT_SUM = """
-            COALESCE(ROUND(SUM(CASE WHEN cost > 0 THEN line_total - cost - commission_amount * line_total / NULLIF(order_gmv, 0)
-                              WHEN commission_amount > 0 THEN commission_amount * line_total / NULLIF(order_gmv, 0)
-                              ELSE ROUND(line_total * 0.03, 2) END), 2), 0)""";
+    /**
+     * The platform's net profit is the commission it earns. The seller's unit cost is the seller's
+     * money and stays out of this report; deduct only costs the platform itself pays.
+     */
+    private static final String PROFIT_SUM = COMMISSION_SUM;
 
     private final DSLContext dsl;
 

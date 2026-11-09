@@ -423,6 +423,30 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
     }
 
     @Test
+    void netProfitIsPlatformCommissionEvenWhenSellerCostIsRecorded() {
+        Seller seller = data.seller();
+        var buyer = data.buyer();
+        short gameId = ensureGame(dsl, "CR15_COST", "Pokémon", "pokemon");
+        long costedVariantId = createVariant(dsl, data, gameId, "SINGLE_CARD");
+        long uncostedVariantId = createVariant(dsl, data, gameId, "SINGLE_CARD");
+
+        insertOrderWithItem(dsl, data, buyer.userId(), seller.profileId(), costedVariantId,
+                "COMPLETED", OffsetDateTime.parse("2025-06-04T12:00:00+07:00"),
+                1, new BigDecimal("1000.00"), new BigDecimal("1000.00"), new BigDecimal("30.00"));
+        insertOrderWithItem(dsl, data, buyer.userId(), seller.profileId(), uncostedVariantId,
+                "COMPLETED", OffsetDateTime.parse("2025-06-04T13:00:00+07:00"),
+                1, new BigDecimal("1000.00"), new BigDecimal("1000.00"), new BigDecimal("30.00"));
+        dsl.execute("UPDATE order_item SET unit_cost_snapshot = 700 WHERE catalog_variant_id = ?", costedVariantId);
+
+        var report = reportService.report("2025-06-02", "2025-06-08", null, null);
+
+        assertThat(report.summary().netProfit()).isEqualByComparingTo("60.00");
+        assertThat(report.summary().commission()).isEqualByComparingTo("60.00");
+        assertThat(report.totals().netProfit()).isEqualByComparingTo("60.00");
+        assertThat(report.kpiHistory().get(2).netProfit()).isEqualByComparingTo("60.00");
+    }
+
+    @Test
     void validatesQueryParametersAndReturns400BadRequestForInvalidDates() {
         ApiClient client = new ApiClient(port);
         String adminToken = data.bearer(data.admin());
