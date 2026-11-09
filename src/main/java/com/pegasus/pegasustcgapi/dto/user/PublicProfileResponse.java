@@ -1,5 +1,5 @@
 package com.pegasus.pegasustcgapi.dto.user;
 
 /** Only the profile fields visitors need on a storefront. */
-public record PublicProfileResponse(String username, String displayName, String avatarUrl, String phone) {
+public record PublicProfileResponse(String username, String displayName, String avatarUrl, String bannerUrl, String phone) {
 }

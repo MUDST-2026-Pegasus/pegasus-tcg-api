@@ -84,7 +84,7 @@ public class PasswordService {
         authTokens.revokeAll(userId, TokenPurpose.REFRESH);
 
         log.info("Password changed for user {}", userId);
-        return new AuthResponse(UserResponse.from(user), authService.startSession(user, client));
+        return new AuthResponse(authService.currentUser(user.id()), authService.startSession(user, client));
     }
 
     private static String normalize(String email) {

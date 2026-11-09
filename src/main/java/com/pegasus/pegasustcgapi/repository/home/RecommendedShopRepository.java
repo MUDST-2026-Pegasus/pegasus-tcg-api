@@ -17,7 +17,7 @@ public class RecommendedShopRepository {
 
     public List<Shop> topShops() {
         return db.fetch("""
-                SELECT sp.id AS seller_id, u.username, u.display_name, u.avatar_url,
+                SELECT sp.id AS seller_id, u.username, u.display_name, u.avatar_url, u.banner_url,
                        COALESCE(r.rating_avg, 0) AS rating_avg,
                        COALESCE(r.rating_count, 0) AS rating_count,
                        COUNT(l.id)::int AS active_listing_count
@@ -39,6 +39,7 @@ public class RecommendedShopRepository {
                 row.get("username", String.class),
                 row.get("display_name", String.class),
                 row.get("avatar_url", String.class),
+                row.get("banner_url", String.class),
                 row.get("rating_avg", BigDecimal.class),
                 row.get("rating_count", Integer.class),
                 row.get("active_listing_count", Integer.class)));
@@ -78,7 +79,7 @@ public class RecommendedShopRepository {
                 row.get("image_key", String.class)));
     }
 
-    public record Shop(long sellerId, String username, String displayName, String avatarKey,
+    public record Shop(long sellerId, String username, String displayName, String avatarKey, String bannerKey,
                        BigDecimal ratingAvg, int ratingCount, int activeListingCount) {}
 
     public record Preview(long sellerId, long listingId, String imageKey) {}

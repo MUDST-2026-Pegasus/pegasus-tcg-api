@@ -12,7 +12,7 @@ import jakarta.validation.constraints.Size;
  *
  * <p>Null-semantics: a field set to {@code null} (or omitted) means "keep the
  * current value". A field set to {@code ""} means "clear the value" (applies to
- * {@code bio}, {@code phone}, and {@code avatarUrl}; {@code displayName} must
+ * {@code bio}, {@code phone}, {@code avatarUrl}, and {@code bannerUrl}; {@code displayName} must
  * contain at least one non-whitespace character when present).
  */
 @Schema(description = "Payload for updating current user profile")
@@ -41,7 +41,17 @@ public record UpdateProfileRequest(
         String avatarUrl,
 
         @Schema(description = "Whether the contact phone is public on the storefront (null = keep)")
-        Boolean phonePublic) {
+        Boolean phonePublic,
+
+        @Schema(description = "Uploaded shop banner object key (null = keep, empty = clear; SELLER role required for new keys)",
+                example = "banners/2026/11/uuid.webp")
+        @Size(max = 500)
+        String bannerUrl) {
+
+    public UpdateProfileRequest(String displayName, String bio, String phone, String avatarUrl,
+            Boolean phonePublic) {
+        this(displayName, bio, phone, avatarUrl, phonePublic, null);
+    }
 
     public UpdateProfileRequest(String displayName, String bio, String phone, String avatarUrl) {
         this(displayName, bio, phone, avatarUrl, null);
@@ -61,6 +71,10 @@ public record UpdateProfileRequest(
 
     public String cleanAvatarUrl() {
         return blankToNull(avatarUrl);
+    }
+
+    public String cleanBannerUrl() {
+        return blankToNull(bannerUrl);
     }
 
     private static String blankToNull(String value) {

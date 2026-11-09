@@ -8,6 +8,7 @@ public record RecommendedShopResponse(
         String username,
         String displayName,
         String avatarUrl,
+        String bannerUrl,
         BigDecimal ratingAvg,
         int ratingCount,
         int activeListingCount,

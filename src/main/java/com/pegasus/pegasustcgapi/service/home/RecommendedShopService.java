@@ -28,7 +28,7 @@ public class RecommendedShopService {
                 .collect(Collectors.groupingBy(RecommendedShopRepository.Preview::sellerId));
 
         return ranked.stream().map(shop -> new RecommendedShopResponse(
-                shop.username(), shop.displayName(), signed(shop.avatarKey()),
+                shop.username(), shop.displayName(), signed(shop.avatarKey()), signed(shop.bannerKey()),
                 shop.ratingAvg(), shop.ratingCount(), shop.activeListingCount(),
                 previews.getOrDefault(shop.sellerId(), List.of()).stream()
                         .map(preview -> new RecommendedShopResponse.Preview(

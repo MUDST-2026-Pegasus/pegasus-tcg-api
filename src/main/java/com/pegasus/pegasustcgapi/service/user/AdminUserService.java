@@ -102,6 +102,7 @@ public class AdminUserService {
 
     private UserResponse toResponse(AuthUser user) {
         String avatar = user.avatarUrl() == null ? null : storage.presignDownload(user.avatarUrl());
-        return UserResponse.from(user, avatar);
+        String banner = user.bannerUrl() == null ? null : storage.presignDownload(user.bannerUrl());
+        return UserResponse.from(user, avatar, banner);
     }
 }

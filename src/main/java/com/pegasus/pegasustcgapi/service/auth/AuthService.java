@@ -133,7 +133,7 @@ public class AuthService {
         AuthUser user = loadWithRoles(userId);
         log.info("Registered user {} with roles {}", userId, user.roles());
 
-        return new AuthResponse(UserResponse.from(user), startSession(user, client));
+        return new AuthResponse(toUserResponse(user), startSession(user, client));
     }
 
     /**
@@ -167,7 +167,7 @@ public class AuthService {
         users.recordSuccessfulLogin(user.id(), OffsetDateTime.now(clock));
 
         AuthUser current = loadWithRoles(user.id());
-        return new AuthResponse(UserResponse.from(current), startSession(current, client));
+        return new AuthResponse(toUserResponse(current), startSession(current, client));
     }
 
     public GoogleAuthResult loginWithGoogle(GoogleLoginRequest request, ClientInfo client) {
@@ -207,7 +207,7 @@ public class AuthService {
             users.recordSuccessfulLogin(user.id(), now);
             userIdentities.updateLastLoginAt(identity.id(), now);
             AuthUser current = loadWithRoles(user.id());
-            return new AuthResponse(UserResponse.from(current), startSession(current, client));
+            return new AuthResponse(toUserResponse(current), startSession(current, client));
         });
     }
 
@@ -239,7 +239,7 @@ public class AuthService {
                 AuthUser current = loadWithRoles(existingUser.id());
                 TokenResponse tokens = startSession(current, client);
                 log.info("Linked existing account for user {} to Google identity", existingUser.id());
-                return new AuthResponse(UserResponse.from(current), tokens);
+                return new AuthResponse(toUserResponse(current), tokens);
             });
         } catch (DuplicateKeyException e) {
             Optional<UserIdentity> raced = userIdentities.findByProviderAndSubject(
@@ -268,7 +268,7 @@ public class AuthService {
                     roles.grant(userId, Set.of(RoleCode.BUYER), null);
                     AuthUser user = loadWithRoles(userId);
                     log.info("Registered Google user {} with roles {}", userId, user.roles());
-                    return new AuthResponse(UserResponse.from(user), startSession(user, client));
+                    return new AuthResponse(toUserResponse(user), startSession(user, client));
                 });
                 return new GoogleAuthResult(response, true);
             } catch (DuplicateKeyException e) {
@@ -383,7 +383,7 @@ public class AuthService {
         JwtService.AccessToken access = jwtService.issue(user);
         long remainingMillis = java.time.Duration.between(clock.instant(), refresh.expiresAt().toInstant()).toMillis();
         long refreshSeconds = Math.max(0, (remainingMillis + 999) / 1000);
-        return new AuthResponse(UserResponse.from(user), TokenResponse.bearer(
+        return new AuthResponse(toUserResponse(user), TokenResponse.bearer(
                 access.value(), access.expiresInSeconds(), refresh.value(), refreshSeconds));
     }
 
@@ -407,10 +407,15 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public UserResponse currentUser(long userId) {
-        AuthUser user = loadWithRoles(userId);
+        return toUserResponse(loadWithRoles(userId));
+    }
+
+    private UserResponse toUserResponse(AuthUser user) {
         String signedAvatar = user.avatarUrl() == null ? null
                 : storage.presignDownload(user.avatarUrl());
-        return UserResponse.from(user, signedAvatar);
+        String signedBanner = user.bannerUrl() == null ? null
+                : storage.presignDownload(user.bannerUrl());
+        return UserResponse.from(user, signedAvatar, signedBanner);
     }
 
     /** Opens a brand new session; used by login, registration and password changes. */
