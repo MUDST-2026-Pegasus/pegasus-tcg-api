@@ -252,6 +252,7 @@ class AuctionCloseSchedulerTest {
             Auction auction = sampleAuction(auctionId, AuctionStatus.LIVE, 0, new BigDecimal("1000.00"), NOW.minusSeconds(10), null);
             given(auctions.lock(auctionId)).willReturn(Optional.of(auction));
             given(auctions.recordAuctionUnsold(auctionId, NOW)).willReturn(true);
+            given(units.revertFromAuction(UNIT_ID)).willReturn(true);
 
             ListingUnit unit = sampleUnit(UNIT_ID);
             given(units.findOfSeller(UNIT_ID, SELLER_PROFILE_ID)).willReturn(Optional.of(unit));

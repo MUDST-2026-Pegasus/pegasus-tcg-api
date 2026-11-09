@@ -81,6 +81,10 @@ public class AuctionBidService {
             }
         }
 
+        // 2. Buyer Eligibility & auction live status validation (before the leading check, so a
+        // closed auction or a banned leader gets the real reason)
+        validator.validateCanBid(auction, userId, now);
+
         // Prevent self-outbidding: current leading bidder cannot bid against themselves
         if (auction.leadingBidId() != null) {
             auctions.findBidById(auction.leadingBidId()).ifPresent(leadingBid -> {
@@ -89,9 +93,6 @@ public class AuctionBidService {
                 }
             });
         }
-
-        // 2. Buyer Eligibility & auction live status validation
-        validator.validateCanBid(auction, userId, now);
 
         // 3. Bid amount validation: first bid >= startingPrice, subsequent bids >= currentPrice + bidIncrement
         BigDecimal minNextBid = auction.minNextBid();

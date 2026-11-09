@@ -9,6 +9,8 @@ import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.AuctionSummary;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Bid;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.BidHistory;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Filter;
+import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Rules;
+import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Seller;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Sort;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Viewer;
@@ -57,6 +59,8 @@ public class AuctionBrowseService {
     private final AuctionEligibilityValidator validator;
     private final AuctionItemMapper itemMapper;
     private final Clock clock;
+    private final AuctionShippingFee shippingFee;
+    private final PlatformSettingService settings;
 
     @Transactional(readOnly = true)
     public ProductAuctionStats productStats(long productId) {
@@ -68,11 +72,32 @@ public class AuctionBrowseService {
             AuctionRepository auctions,
             AuctionEligibilityValidator validator,
             AuctionItemMapper itemMapper,
-            Clock clock) {
+            Clock clock,
+            AuctionShippingFee shippingFee,
+            PlatformSettingService settings) {
         this.auctions = auctions;
         this.validator = validator;
         this.itemMapper = itemMapper;
         this.clock = clock;
+        this.shippingFee = shippingFee;
+        this.settings = settings;
+    }
+
+    public AuctionBrowseService(
+            AuctionRepository auctions,
+            AuctionEligibilityValidator validator,
+            AuctionItemMapper itemMapper,
+            Clock clock) {
+        this(auctions, validator, itemMapper, clock, AuctionShippingFee.fixed(), null);
+    }
+
+    /** The rules shown on the page; the defaults when built without settings (tests). */
+    private Rules currentRules() {
+        if (settings == null) return Rules.DEFAULTS;
+        return new Rules(
+                settings.getDecimal(PlatformSettingService.AUCTION_PAYMENT_HOURS),
+                settings.getInt(PlatformSettingService.AUCTION_STRIKE_LIMIT),
+                settings.getInt(PlatformSettingService.AUCTION_BAN_DAYS));
     }
 
     public AuctionBrowseService(
@@ -205,12 +230,13 @@ public class AuctionBrowseService {
                 a.originalEndsAt(),
                 a.closedOrEndsAt(),
                 a.extensionCount(),
-                AuctionPolicy.DEFAULT_SHIPPING,
+                shippingFee.quote(a.sellerProfileId(), a.closingOrCurrentPrice()),
                 recentBids,
                 viewer,
                 a.winnerId() == null ? null
                         : AuctionItemMapper.maskUsername(auctions.findUsername(a.winnerId()).orElse(null)),
                 a.status() == AuctionStatus.SUSPENDED ? a.suspendedReason() : null,
+                currentRules(),
                 now);
     }
 

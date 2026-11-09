@@ -103,7 +103,10 @@ public class AuctionCloseService {
         }
 
         // Return card to stock (listing_unit status becomes IN_STOCK)
-        units.revertFromAuction(auction.listingUnitId());
+        if (!units.revertFromAuction(auction.listingUnitId())) {
+            // Roll back the UNSOLD update too, so the card is not left locked with no open auction.
+            throw new IllegalStateException("Auction card was not ON_AUCTION: " + auction.listingUnitId());
+        }
 
         // Record inventory movement via InventoryService
         units.findOfSeller(auction.listingUnitId(), auction.sellerProfileId())
