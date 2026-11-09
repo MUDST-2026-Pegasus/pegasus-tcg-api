@@ -54,7 +54,12 @@ public final class AuthUserBuilder {
     }
 
     public AuthUserBuilder withPassword(String rawPassword) {
-        this.passwordHash = FakePasswordEncoder.encoded(rawPassword);
+        this.passwordHash = rawPassword == null ? null : FakePasswordEncoder.encoded(rawPassword);
+        return this;
+    }
+
+    public AuthUserBuilder withoutPassword() {
+        this.passwordHash = null;
         return this;
     }
 

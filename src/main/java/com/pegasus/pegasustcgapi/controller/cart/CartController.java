@@ -16,6 +16,7 @@ import com.pegasus.pegasustcgapi.service.cart.CartService.AddResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
@@ -82,6 +83,7 @@ public class CartController {
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
             @ApiResponse(responseCode = "409", description = "Listing not purchasable, insufficient stock, or seller cannot buy own listing")
     })
+    @SecurityRequirement(name = "BearerAuth")
     @PostMapping("/items/batch")
     public ResponseEntity<ApiResult<CartResponse>> addBatchItems(
             @RequestBody @Valid @Size(min = 1, max = 50, message = "Batch size must be between 1 and 50") List<@Valid CartItemRequest> requests,
@@ -101,6 +103,7 @@ public class CartController {
             @ApiResponse(responseCode = "200", description = "Guest cart merged into user cart"),
             @ApiResponse(responseCode = "401", description = "Unauthorized")
     })
+    @SecurityRequirement(name = "BearerAuth")
     @PostMapping("/merge")
     public ResponseEntity<ApiResult<CartResponse>> mergeCart(
             @RequestHeader(value = "X-Cart-Session", required = false) String sessionKey,

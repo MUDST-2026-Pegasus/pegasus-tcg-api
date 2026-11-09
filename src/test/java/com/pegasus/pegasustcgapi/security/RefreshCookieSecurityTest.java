@@ -73,6 +73,13 @@ class RefreshCookieSecurityTest {
         response = new MockHttpServletResponse();
         filter.doFilter(request, response, new MockFilterChain());
         assertThat(response.getStatus()).isEqualTo(200);
+
+        MockHttpServletRequest googleRequest = new MockHttpServletRequest("POST", "/api/v1/auth/google");
+        googleRequest.setContentType("application/json");
+        googleRequest.addHeader("Origin", "https://evil.example.com");
+        MockHttpServletResponse googleResponse = new MockHttpServletResponse();
+        filter.doFilter(googleRequest, googleResponse, new MockFilterChain());
+        assertThat(googleResponse.getStatus()).isEqualTo(403);
     }
 
     @Test

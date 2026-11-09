@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.catalog;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.catalog.AdminGameResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.CardSetRequest;
@@ -43,6 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Logos come back twice: the stored value to send back on update, and a URL
  * the browser can open, so an uploaded key shows as a picture here too.
  */
+@SecurityRequirement(name = "BearerAuth")
 @RestController
 @RequestMapping(ApiPaths.ADMIN)
 @PreAuthorize("hasRole('ADMIN')")

@@ -4,6 +4,7 @@ import static org.mockito.Mockito.reset;
 
 import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
+import com.pegasus.pegasustcgapi.service.auth.GoogleTokenVerifier;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,7 +43,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
                 "pegasus.sale.refresh-cron=-",
                 "pegasus.payment.mock-enabled=true",
                 // Every test calls from localhost; the cap itself is covered by PromoRateLimitFilterTest.
-                "pegasus.promo.rate-limit-per-minute=1000000"
+                "pegasus.promo.rate-limit-per-minute=1000000",
+                "pegasus.auth.google.client-id="
         })
 @Import(IntegrationTestConfig.class)
 @ActiveProfiles("test") // mock payment is only allowed under local/test (MockPaymentProductionGuard)
@@ -76,10 +78,14 @@ public abstract class PostgresIntegrationTest {
     @MockitoSpyBean
     protected InventoryPort inventoryPort;
 
+    /** A spy, so integration tests can stub Google ID token verification without calling Google. */
+    @MockitoSpyBean
+    protected GoogleTokenVerifier googleTokenVerifier;
+
     @BeforeEach
     void resetSharedState() {
         clock.reset();
-        reset(ledgerPort, inventoryPort);
+        reset(ledgerPort, inventoryPort, googleTokenVerifier);
     }
 
     @AfterEach

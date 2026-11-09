@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.catalog;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.CatalogCardEffectRequest;
@@ -51,6 +52,7 @@ import org.springframework.web.bind.annotation.RestController;
  * deactivated instead. Variants are never deleted on their own. Images are
  * always deletable: an image is a file, and removing it removes the file too.
  */
+@SecurityRequirement(name = "BearerAuth")
 @RestController
 @RequestMapping(ApiPaths.ADMIN + "/catalog")
 @PreAuthorize("hasRole('ADMIN')")

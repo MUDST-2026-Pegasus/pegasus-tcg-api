@@ -2,9 +2,12 @@ package com.pegasus.pegasustcgapi.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.pegasus.pegasustcgapi.dto.auth.GoogleLoginRequest;
 import com.pegasus.pegasustcgapi.dto.auth.LoginRequest;
 import com.pegasus.pegasustcgapi.dto.auth.TokenResponse;
+import com.pegasus.pegasustcgapi.model.auth.IdentityProvider;
 import com.pegasus.pegasustcgapi.model.auth.IssuedToken;
+import com.pegasus.pegasustcgapi.model.auth.UserIdentity;
 import com.pegasus.pegasustcgapi.model.finance.payout.PayoutAccount;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
@@ -15,6 +18,11 @@ class SensitiveToStringTest {
     void authenticationAndBankAccountObjectsDoNotExposeSecretsInToString() {
         assertRedacted(new LoginRequest("person@example.com", "plain-password"),
                 "person@example.com", "plain-password");
+        assertRedacted(new GoogleLoginRequest("google-id-token-secret"),
+                "google-id-token-secret");
+        assertRedacted(new UserIdentity(1, 2, IdentityProvider.GOOGLE, "google-sub-secret",
+                OffsetDateTime.now(), OffsetDateTime.now()),
+                "google-sub-secret");
         assertRedacted(TokenResponse.bearer("access-jwt", 900, "refresh-secret", 3600),
                 "access-jwt", "refresh-secret");
         assertRedacted(new IssuedToken(3, "opaque-refresh-token", OffsetDateTime.now()),

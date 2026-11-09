@@ -46,7 +46,8 @@ public class UserRoleController {
             @ApiResponse(responseCode = "200", description = "Role granted successfully"),
             @ApiResponse(responseCode = "400", description = "Request payload failed validation"),
             @ApiResponse(responseCode = "403", description = "Access denied — caller lacks ADMIN role"),
-            @ApiResponse(responseCode = "404", description = "User or role not found")
+            @ApiResponse(responseCode = "404", description = "User or role not found"),
+            @ApiResponse(responseCode = "409", description = "Privileged role requires a password on the account")
     })
     @PostMapping
     public ApiResult<Set<RoleCode>> grant(

@@ -143,5 +143,22 @@ class PasswordServiceTest {
             verify(authTokens, never()).revokeAll(anyLong(), any());
             verify(authService, never()).startSession(any(), any());
         }
+
+        @Test
+        @DisplayName("refuses password change for a Google-only account with null passwordHash")
+        void rejectsGoogleOnlyAccountWithoutPassword() {
+            given(authService.loadWithRoles(USER_ID))
+                    .willReturn(anActiveUser().withId(USER_ID).withoutPassword().build());
+
+            assertThatThrownBy(() -> service.change(
+                    USER_ID, new ChangePasswordRequest("any-password", "brand-new-password"), CLIENT))
+                    .isInstanceOfSatisfying(UnauthorizedException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INVALID_CREDENTIALS));
+
+            verify(passwordEncoder, never()).matches(any(), any());
+            verify(users, never()).updatePasswordHash(anyLong(), anyString());
+            verify(authTokens, never()).revokeAll(anyLong(), any());
+            verify(authService, never()).startSession(any(), any());
+        }
     }
 }

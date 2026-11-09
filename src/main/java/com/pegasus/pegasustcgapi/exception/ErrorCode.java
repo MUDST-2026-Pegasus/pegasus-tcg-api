@@ -14,11 +14,14 @@ public enum ErrorCode {
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect"),
     UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Authentication is required"),
     INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "Token is invalid, expired or already used"),
+    GOOGLE_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Google credential is invalid or expired"),
 
     ACCOUNT_LOCKED(HttpStatus.FORBIDDEN, "Account is temporarily locked"),
     ACCOUNT_SUSPENDED(HttpStatus.FORBIDDEN, "Account is suspended"),
     ACCOUNT_DEACTIVATED(HttpStatus.FORBIDDEN, "Account is deactivated"),
     EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Email address is not verified"),
+    GOOGLE_EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Google email address is not verified"),
+    GOOGLE_SIGNIN_NOT_ALLOWED(HttpStatus.FORBIDDEN, "This account cannot sign in with Google"),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "Not allowed to perform this action"),
     SELLER_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Seller profile is not verified"),
     BIDDING_BANNED(HttpStatus.FORBIDDEN, "You are barred from bidding after not paying for won auctions"),
@@ -57,6 +60,9 @@ public enum ErrorCode {
 
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email address is already registered"),
     USERNAME_ALREADY_USED(HttpStatus.CONFLICT, "Username is already taken"),
+    GOOGLE_ALREADY_LINKED(HttpStatus.CONFLICT, "Account is already linked to a different Google identity"),
+    GOOGLE_LINK_NOT_ALLOWED(HttpStatus.CONFLICT, "This email address cannot be linked to Google automatically"),
+    ROLE_REQUIRES_PASSWORD(HttpStatus.CONFLICT, "Privileged roles require a password on the account"),
     SELLER_ALREADY_VERIFIED(HttpStatus.CONFLICT, "Seller profile is already verified"),
     VERIFICATION_IN_REVIEW(HttpStatus.CONFLICT, "A verification request is already under review"),
     VERIFICATION_ALREADY_DECIDED(HttpStatus.CONFLICT, "This verification request was already decided"),
@@ -156,7 +162,8 @@ public enum ErrorCode {
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many requests; try again in a minute"),
 
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error"),
-    STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Object storage is unavailable");
+    STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Object storage is unavailable"),
+    GOOGLE_SIGNIN_DISABLED(HttpStatus.SERVICE_UNAVAILABLE, "Google sign-in is not configured");
 
     private final HttpStatus status;
     private final String defaultMessage;
