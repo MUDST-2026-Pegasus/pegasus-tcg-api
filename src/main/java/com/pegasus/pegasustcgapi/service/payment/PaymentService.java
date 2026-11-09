@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.payment;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
@@ -42,13 +44,15 @@ public class PaymentService {
     private final AuctionRepository auctions;
     private final PromptPayProperties promptPayProperties;
     private final PromptPayQrService promptPayQrService;
+    private final AuditLogService audit;
 
     @Autowired
     public PaymentService(PaymentRepository payments, EscrowRepository escrow,
             WalletLedgerService ledger, OrderLifecycleService orders,
             PlatformSettingService settings, StorageService storage, Clock clock,
             AuctionRepository auctions, PromptPayProperties promptPayProperties,
-            PromptPayQrService promptPayQrService) {
+            PromptPayQrService promptPayQrService,
+            AuditLogService audit) {
         this.payments = payments;
         this.escrow = escrow;
         this.ledger = ledger;
@@ -59,6 +63,7 @@ public class PaymentService {
         this.auctions = auctions;
         this.promptPayProperties = java.util.Objects.requireNonNull(promptPayProperties);
         this.promptPayQrService = java.util.Objects.requireNonNull(promptPayQrService);
+        this.audit = audit;
     }
 
     @Transactional
@@ -137,11 +142,18 @@ public class PaymentService {
         }
         if (approved) {
             succeed(payment, adminId);
+            audit.record(adminId, AuditAction.PAYMENT_APPROVED, paymentId,
+                    "Approved payment #" + paymentId + " for order #" + order.getId(),
+                    AuditLogService.meta("orderId", order.getId(), "amount", payment.getAmount()));
         } else {
             if (reason == null || reason.isBlank()) throw new BadRequestException(ErrorCode.VALIDATION_FAILED);
             if (payments.reject(paymentId, adminId, reason, now()) != 1) {
                 throw new ConflictException(ErrorCode.PAYMENT_STATE);
             }
+            audit.record(adminId, AuditAction.PAYMENT_REJECTED, paymentId,
+                    "Rejected payment #" + paymentId + " for order #" + order.getId(),
+                    AuditLogService.meta("orderId", order.getId(), "amount", payment.getAmount(),
+                            "reason", reason));
         }
         return view(payments.find(paymentId).orElseThrow(), order);
     }

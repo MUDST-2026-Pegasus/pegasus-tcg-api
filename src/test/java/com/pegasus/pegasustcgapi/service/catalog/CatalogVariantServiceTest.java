@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import static org.mockito.Mockito.mock;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -55,7 +57,7 @@ class CatalogVariantServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CatalogVariantService(variants, products, games, taxonomy);
+        service = new CatalogVariantService(variants, products, games, taxonomy, mock(AuditLogService.class));
     }
 
     private static CatalogProduct pikachu() {
@@ -87,7 +89,7 @@ class CatalogVariantServiceTest {
         given(variants.insert(eq(PRODUCT_ID), any())).willReturn(901L);
         given(variants.findById(901L)).willReturn(Optional.of(englishNormal()));
 
-        service.create(PRODUCT_ID, fields(null, "en", CardFinish.NORMAL));
+        service.create(PRODUCT_ID, fields(null, "en", CardFinish.NORMAL), 9L);
 
         ArgumentCaptor<VariantFields> saved = ArgumentCaptor.forClass(VariantFields.class);
         verify(variants).insert(eq(PRODUCT_ID), saved.capture());
@@ -103,7 +105,7 @@ class CatalogVariantServiceTest {
                 .willReturn(false);
         given(variants.skuTaken("MY-SKU-1", null)).willReturn(true);
 
-        assertThatThrownBy(() -> service.create(PRODUCT_ID, fields("my-sku-1", "EN", CardFinish.NORMAL)))
+        assertThatThrownBy(() -> service.create(PRODUCT_ID, fields("my-sku-1", "EN", CardFinish.NORMAL), 9L))
                 .isInstanceOf(ConflictException.class)
                 .extracting(e -> ((ConflictException) e).errorCode())
                 .isEqualTo(ErrorCode.SKU_ALREADY_USED);
@@ -118,7 +120,7 @@ class CatalogVariantServiceTest {
         given(variants.identityTaken(PRODUCT_ID, "EN", CardFinish.NORMAL, CardEdition.UNLIMITED,
                 null, null)).willReturn(true);
 
-        assertThatThrownBy(() -> service.create(PRODUCT_ID, fields(null, "EN", CardFinish.NORMAL)))
+        assertThatThrownBy(() -> service.create(PRODUCT_ID, fields(null, "EN", CardFinish.NORMAL), 9L))
                 .isInstanceOf(ConflictException.class)
                 .extracting(e -> ((ConflictException) e).errorCode())
                 .isEqualTo(ErrorCode.VARIANT_ALREADY_EXISTS);
@@ -136,7 +138,7 @@ class CatalogVariantServiceTest {
         given(variants.insert(eq(PRODUCT_ID), any())).willReturn(902L);
         given(variants.findById(902L)).willReturn(Optional.of(englishNormal()));
 
-        assertThat(service.create(PRODUCT_ID, fields("MY-FOIL", "EN", CardFinish.FOIL))).isNotNull();
+        assertThat(service.create(PRODUCT_ID, fields("MY-FOIL", "EN", CardFinish.FOIL), 9L)).isNotNull();
     }
 
     @Test
@@ -146,7 +148,7 @@ class CatalogVariantServiceTest {
         given(variants.identityTaken(PRODUCT_ID, "EN", CardFinish.NORMAL, CardEdition.UNLIMITED,
                 null, 901L)).willReturn(false);
 
-        service.update(PRODUCT_ID, 901L, fields(null, "EN", CardFinish.NORMAL));
+        service.update(PRODUCT_ID, 901L, fields(null, "EN", CardFinish.NORMAL), 9L);
 
         ArgumentCaptor<VariantFields> saved = ArgumentCaptor.forClass(VariantFields.class);
         verify(variants).update(eq(901L), saved.capture());

@@ -75,13 +75,13 @@ class PayoutIntegrationTest extends PostgresIntegrationTest {
         assertThat(ledger.sellerWallet(seller.userId(), 0, 10).withdrawable())
                 .isEqualByComparingTo("50.00");
         payouts.approve(request.getId(), data.admin().userId());
-        payouts.processing(request.getId());
-        payouts.paid(request.getId(), "BANK-TRANSFER-123", "payouts/test.png");
+        payouts.processing(request.getId(), data.admin().userId());
+        payouts.paid(request.getId(), "BANK-TRANSFER-123", "payouts/test.png", data.admin().userId());
         assertThat(ledger.sellerWallet(seller.userId(), 0, 10).balanceAvailable())
                 .isEqualByComparingTo("50.00");
         assertThat(dsl.fetchCount(LEDGER_ENTRY, LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYOUT")
                 .and(LEDGER_ENTRY.REFERENCE_ID.eq(request.getId())))).isEqualTo(1);
-        assertThatThrownBy(() -> payouts.paid(request.getId(), "BANK-TRANSFER-123", "payouts/test.png"))
+        assertThatThrownBy(() -> payouts.paid(request.getId(), "BANK-TRANSFER-123", "payouts/test.png", data.admin().userId()))
                 .isInstanceOf(RuntimeException.class);
         mvc.perform(get("/api/v1/sellers/me/payouts")
                         .with(jwt().jwt(j -> j.subject(String.valueOf(seller.userId())))))
@@ -205,8 +205,8 @@ class PayoutIntegrationTest extends PostgresIntegrationTest {
 
         var req = payouts.request(seller.userId(), new BigDecimal("130.00"));
         payouts.approve(req.getId(), data.admin().userId());
-        payouts.processing(req.getId());
-        payouts.paid(req.getId(), "REF-LINK", "payouts/link.png");
+        payouts.processing(req.getId(), data.admin().userId());
+        payouts.paid(req.getId(), "REF-LINK", "payouts/link.png", data.admin().userId());
 
         assertThat(dsl.select(SELLER_ORDER.PAYOUT_ID).from(SELLER_ORDER).where(SELLER_ORDER.ID.eq(order1))
                 .fetchSingle(SELLER_ORDER.PAYOUT_ID)).isEqualTo(req.getId());

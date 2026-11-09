@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import static org.mockito.Mockito.mock;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -65,7 +67,7 @@ class CatalogProductServiceTest {
     @BeforeEach
     void setUp() {
         service = new CatalogProductService(products, games, taxonomy, new ProductAttributeValidator(),
-                images, storage);
+                images, storage, mock(AuditLogService.class));
     }
 
     private static CatalogProduct pikachu() {
@@ -164,7 +166,7 @@ class CatalogProductServiceTest {
         given(games.attributesOf(POKEMON)).willReturn(List.of());
 
         service.update(501L, new ProductFields(MAGIC, 202, null, ProductType.BOOSTER_BOX,
-                "Renamed", null, "a-new-slug", null, null, null, Map.of(), false));
+                "Renamed", null, "a-new-slug", null, null, null, Map.of(), false), 9L);
 
         ArgumentCaptor<ProductFields> saved = ArgumentCaptor.forClass(ProductFields.class);
         verify(products).update(eq(501L), saved.capture());
@@ -241,7 +243,7 @@ class CatalogProductServiceTest {
                 imageOf(1L, "catalog/front.jpg"), imageOf(2L, "catalog/back.jpg")));
 
         inCommittedTransaction(() -> {
-            service.delete(501);
+            service.delete(501, 9L);
             verify(products).delete(501);
             verify(storage, never()).delete(anyString());
         });
@@ -259,7 +261,7 @@ class CatalogProductServiceTest {
                 imageOf(1L, "catalog/front.jpg"), imageOf(2L, "catalog/back.jpg")));
         doThrow(new IllegalStateException("storage down")).when(storage).delete("catalog/front.jpg");
 
-        inCommittedTransaction(() -> service.delete(501));
+        inCommittedTransaction(() -> service.delete(501, 9L));
 
         verify(storage).delete("catalog/back.jpg");
     }
@@ -270,7 +272,7 @@ class CatalogProductServiceTest {
         given(products.lockById(501)).willReturn(Optional.of(pikachu()));
         given(products.isReferenced(501)).willReturn(true);
 
-        assertThatThrownBy(() -> service.delete(501))
+        assertThatThrownBy(() -> service.delete(501, 9L))
                 .isInstanceOf(ConflictException.class)
                 .extracting(e -> ((ConflictException) e).errorCode())
                 .isEqualTo(ErrorCode.PRODUCT_IN_USE);
@@ -287,7 +289,7 @@ class CatalogProductServiceTest {
         given(images.findByProductId(501)).willReturn(List.of());
         given(products.delete(501)).willThrow(new DataIntegrityViolationException("fk_listing_variant"));
 
-        assertThatThrownBy(() -> service.delete(501))
+        assertThatThrownBy(() -> service.delete(501, 9L))
                 .isInstanceOf(ConflictException.class)
                 .extracting(e -> ((ConflictException) e).errorCode())
                 .isEqualTo(ErrorCode.PRODUCT_IN_USE);
@@ -298,7 +300,7 @@ class CatalogProductServiceTest {
     void deleteUnknownProduct() {
         given(products.lockById(999)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.delete(999))
+        assertThatThrownBy(() -> service.delete(999, 9L))
                 .isInstanceOf(NotFoundException.class)
                 .extracting(e -> ((NotFoundException) e).errorCode())
                 .isEqualTo(ErrorCode.PRODUCT_NOT_FOUND);

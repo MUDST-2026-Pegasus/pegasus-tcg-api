@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.job.payment;
 
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.job.JobLock;
 
 import com.pegasus.pegasustcgapi.job.JobLock;
@@ -53,7 +54,7 @@ class PendingPaymentTimeoutSchedulerTest {
     private PendingPaymentTimeoutScheduler scheduler(int batchSize) {
         return new PendingPaymentTimeoutScheduler(
                 orderRepository, orderLifecycleService, platformSettingService, jobLock,
-                Clock.fixed(NOW, ZoneOffset.UTC), batchSize);
+                Clock.fixed(NOW, ZoneOffset.UTC), batchSize, null);
     }
 
     private void lockGranted() {

@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.finance.payout;
 
+import static org.mockito.Mockito.mock;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 
@@ -43,7 +45,7 @@ class PayoutServiceTest {
 
     @BeforeEach void setUp() {
         service = new PayoutService(payouts, accounts, wallets, ledger, sellers,
-                settings, storage, Clock.systemUTC());
+                settings, storage, Clock.systemUTC(), mock(AuditLogService.class));
     }
 
     @Test void requestCannotSpendMoneyAlreadyReservedForAnotherPayout() {
@@ -77,7 +79,7 @@ class PayoutServiceTest {
                 org.mockito.ArgumentMatchers.eq("BANK-1"), org.mockito.ArgumentMatchers.eq("slip.png"), any()))
                 .thenReturn(1);
 
-        service.paid(9L, "BANK-1", "slip.png");
+        service.paid(9L, "BANK-1", "slip.png", 9L);
 
         verify(storage).requireUploadedFor(UploadPurpose.PAYOUT_SLIP, "slip.png");
         verify(ledger).post(5L, WalletLedgerService.Bucket.AVAILABLE, "PAYOUT_OUT",
@@ -90,7 +92,7 @@ class PayoutServiceTest {
         payout.setStatus("APPROVED");
         when(payouts.lock(9L)).thenReturn(Optional.of(payout));
 
-        assertThatThrownBy(() -> service.paid(9L, "BANK-1", "slip.png"))
+        assertThatThrownBy(() -> service.paid(9L, "BANK-1", "slip.png", 9L))
                 .isInstanceOf(ConflictException.class);
         verifyNoInteractions(ledger, storage);
     }

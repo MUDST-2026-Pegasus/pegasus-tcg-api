@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import static org.mockito.Mockito.mock;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -54,7 +56,7 @@ class CatalogTaxonomyServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CatalogTaxonomyService(categories, cardSets, games, storage);
+        service = new CatalogTaxonomyService(categories, cardSets, games, storage, mock(AuditLogService.class));
     }
 
     private static CatalogCategory singles() {
@@ -75,7 +77,7 @@ class CatalogTaxonomyServiceTest {
         given(categories.findById(201)).willReturn(Optional.of(singles()));
 
         service.createCategory(new CategoryFields(POKEMON, null, " singles ", " Single cards ",
-                null, (short) 1, true, null));
+                null, (short) 1, true, null), 9L);
 
         ArgumentCaptor<CategoryFields> saved = ArgumentCaptor.forClass(CategoryFields.class);
         verify(categories).insert(saved.capture());
@@ -93,7 +95,7 @@ class CatalogTaxonomyServiceTest {
                         "accessories", (short) 9, true, null)));
 
         CatalogCategory created = service.createCategory(new CategoryFields(null, null,
-                "ACCESSORY", "Accessories", null, (short) 9, true, null));
+                "ACCESSORY", "Accessories", null, (short) 9, true, null), 9L);
 
         assertThat(created.isCrossGame()).isTrue();
         verify(games, never()).require(anyShort());
@@ -105,7 +107,7 @@ class CatalogTaxonomyServiceTest {
         given(categories.codeTaken(POKEMON, "SINGLES", null)).willReturn(true);
 
         assertThatThrownBy(() -> service.createCategory(new CategoryFields(POKEMON, null,
-                "SINGLES", "Single cards", null, (short) 1, true, null)))
+                "SINGLES", "Single cards", null, (short) 1, true, null), 9L))
                 .isInstanceOf(ConflictException.class)
                 .extracting(e -> ((ConflictException) e).errorCode())
                 .isEqualTo(ErrorCode.CATEGORY_CODE_ALREADY_USED);
@@ -119,7 +121,7 @@ class CatalogTaxonomyServiceTest {
         given(categories.findById(201)).willReturn(Optional.of(singles()));
 
         assertThatThrownBy(() -> service.updateCategory(201, new CategoryFields(POKEMON, 201,
-                "SINGLES", "Single cards", null, (short) 1, true, null)))
+                "SINGLES", "Single cards", null, (short) 1, true, null), 9L))
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).errorCode())
                 .isEqualTo(ErrorCode.VALIDATION_FAILED);
@@ -131,7 +133,7 @@ class CatalogTaxonomyServiceTest {
         given(categories.findById(999)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.createCategory(new CategoryFields(null, 999,
-                "SUB", "Sub", null, (short) 0, true, null)))
+                "SUB", "Sub", null, (short) 0, true, null), 9L))
                 .isInstanceOf(NotFoundException.class)
                 .extracting(e -> ((NotFoundException) e).errorCode())
                 .isEqualTo(ErrorCode.CATEGORY_NOT_FOUND);
@@ -145,7 +147,7 @@ class CatalogTaxonomyServiceTest {
         given(categories.findById(301)).willReturn(Optional.of(magicSingles));
 
         assertThatThrownBy(() -> service.createCategory(new CategoryFields(POKEMON, 301,
-                "PROMO", "Promos", null, (short) 0, true, null)))
+                "PROMO", "Promos", null, (short) 0, true, null), 9L))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("same game");
 
@@ -158,7 +160,7 @@ class CatalogTaxonomyServiceTest {
         given(categories.findById(201)).willReturn(Optional.of(singles()));
 
         assertThatThrownBy(() -> service.createCategory(new CategoryFields(null, 201,
-                "SLEEVES", "Sleeves", null, (short) 0, true, null)))
+                "SLEEVES", "Sleeves", null, (short) 0, true, null), 9L))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("same game");
     }
@@ -175,7 +177,7 @@ class CatalogTaxonomyServiceTest {
                 "PLAYMATS", "Playmats", "playmats", (short) 0, true, null)));
 
         CatalogCategory created = service.createCategory(new CategoryFields(POKEMON, 203,
-                "PLAYMATS", "Playmats", null, (short) 0, true, null));
+                "PLAYMATS", "Playmats", null, (short) 0, true, null), 9L);
 
         assertThat(created.parentId()).isEqualTo(203);
     }
@@ -187,7 +189,7 @@ class CatalogTaxonomyServiceTest {
         given(categories.codeTaken(POKEMON, "SINGLES", 201)).willReturn(false);
 
         service.updateCategory(201, new CategoryFields(POKEMON, null, "SINGLES",
-                "Singles (renamed)", "a-new-slug", (short) 2, false, null));
+                "Singles (renamed)", "a-new-slug", (short) 2, false, null), 9L);
 
         ArgumentCaptor<CategoryFields> saved = ArgumentCaptor.forClass(CategoryFields.class);
         verify(categories).update(eq(201), saved.capture());
@@ -203,7 +205,7 @@ class CatalogTaxonomyServiceTest {
         given(cardSets.findById(301)).willReturn(Optional.of(terastal()));
 
         service.createCardSet(POKEMON, new CardSetFields(" sv8a ", " Terastal Festival ", null,
-                LocalDate.of(2024, 10, 18), 187, null));
+                LocalDate.of(2024, 10, 18), 187, null), 9L);
 
         ArgumentCaptor<CardSetFields> saved = ArgumentCaptor.forClass(CardSetFields.class);
         verify(cardSets).insert(eq(POKEMON), saved.capture());
@@ -217,7 +219,7 @@ class CatalogTaxonomyServiceTest {
         given(cardSets.codeTaken(POKEMON, "SV8A", null)).willReturn(true);
 
         assertThatThrownBy(() -> service.createCardSet(POKEMON,
-                new CardSetFields("SV8A", "Terastal Festival", null, null, null, null)))
+                new CardSetFields("SV8A", "Terastal Festival", null, null, null, null), 9L))
                 .isInstanceOf(ConflictException.class)
                 .extracting(e -> ((ConflictException) e).errorCode())
                 .isEqualTo(ErrorCode.CARD_SET_CODE_ALREADY_USED);
@@ -231,7 +233,7 @@ class CatalogTaxonomyServiceTest {
         given(cardSets.findById(999)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.updateCardSet(999,
-                new CardSetFields("SV8A", "Terastal Festival", null, null, null, null)))
+                new CardSetFields("SV8A", "Terastal Festival", null, null, null, null), 9L))
                 .isInstanceOf(NotFoundException.class)
                 .extracting(e -> ((NotFoundException) e).errorCode())
                 .isEqualTo(ErrorCode.CARD_SET_NOT_FOUND);
@@ -245,7 +247,7 @@ class CatalogTaxonomyServiceTest {
         given(cardSets.lockById(301)).willReturn(Optional.of(terastal()));
         given(cardSets.hasProducts(301)).willReturn(false);
 
-        service.deleteCardSet(301);
+        service.deleteCardSet(301, 9L);
 
         verify(cardSets).delete(301);
     }
@@ -256,7 +258,7 @@ class CatalogTaxonomyServiceTest {
         given(cardSets.lockById(301)).willReturn(Optional.of(terastal()));
         given(cardSets.hasProducts(301)).willReturn(true);
 
-        assertThatThrownBy(() -> service.deleteCardSet(301))
+        assertThatThrownBy(() -> service.deleteCardSet(301, 9L))
                 .isInstanceOf(ConflictException.class)
                 .extracting(e -> ((ConflictException) e).errorCode())
                 .isEqualTo(ErrorCode.CARD_SET_IN_USE);
@@ -269,7 +271,7 @@ class CatalogTaxonomyServiceTest {
     void deleteUnknownCardSet() {
         given(cardSets.lockById(999)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.deleteCardSet(999))
+        assertThatThrownBy(() -> service.deleteCardSet(999, 9L))
                 .isInstanceOf(NotFoundException.class)
                 .extracting(e -> ((NotFoundException) e).errorCode())
                 .isEqualTo(ErrorCode.CARD_SET_NOT_FOUND);
@@ -285,7 +287,7 @@ class CatalogTaxonomyServiceTest {
                 .willThrow(new ApiException(ErrorCode.VALIDATION_FAILED, "The key must come from a CATALOG_IMAGE upload"));
 
         assertThatThrownBy(() -> service.createCategory(new CategoryFields(null, null,
-                "BOXES", "Boxes", null, (short) 0, true, bankBook)))
+                "BOXES", "Boxes", null, (short) 0, true, bankBook), 9L))
                 .isInstanceOf(ApiException.class);
 
         verify(categories, never()).insert(any());
@@ -299,7 +301,7 @@ class CatalogTaxonomyServiceTest {
         given(categories.codeTaken(POKEMON, "SINGLES", 201)).willReturn(false);
 
         service.updateCategory(201, new CategoryFields(POKEMON, null, "SINGLES", "Singles", null,
-                (short) 1, true, "seed/categories/singles.jpg"));
+                (short) 1, true, "seed/categories/singles.jpg"), 9L);
 
         verifyNoInteractions(storage);
     }
@@ -312,7 +314,7 @@ class CatalogTaxonomyServiceTest {
                 .willThrow(new ApiException(ErrorCode.VALIDATION_FAILED, "The key must come from a CATALOG_IMAGE upload"));
 
         assertThatThrownBy(() -> service.createCardSet(POKEMON,
-                new CardSetFields("SV8A", "Terastal Festival", null, null, null, slip)))
+                new CardSetFields("SV8A", "Terastal Festival", null, null, null, slip), 9L))
                 .isInstanceOf(ApiException.class);
 
         verify(cardSets, never()).insert(anyShort(), any());
@@ -326,7 +328,7 @@ class CatalogTaxonomyServiceTest {
         given(cardSets.findById(301)).willReturn(Optional.of(terastal()));
 
         service.createCardSet(POKEMON, new CardSetFields("SV8A", "Terastal Festival", null,
-                null, null, "https://example.com/sv8a.png"));
+                null, null, "https://example.com/sv8a.png"), 9L);
 
         verifyNoInteractions(storage);
     }
@@ -338,7 +340,7 @@ class CatalogTaxonomyServiceTest {
                 "BOOSTER_BOXES", "Booster boxes", "booster-boxes", (short) 2, true, null)));
 
         assertThatThrownBy(() -> service.createCategory(new CategoryFields(null, 204,
-                "JUMBO", "Jumbo boxes", null, (short) 0, true, null)))
+                "JUMBO", "Jumbo boxes", null, (short) 0, true, null), 9L))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("one level deep");
 
@@ -355,7 +357,7 @@ class CatalogTaxonomyServiceTest {
         given(categories.hasChildren(203)).willReturn(true);
 
         assertThatThrownBy(() -> service.updateCategory(203, new CategoryFields(null, 205,
-                "SEALED", "Sealed product", null, (short) 2, true, null)))
+                "SEALED", "Sealed product", null, (short) 2, true, null), 9L))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("cannot be moved under");
     }

@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service.user;
 
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.auth.AuthTokenService;
 
 import static com.pegasus.pegasustcgapi.support.AuthUserBuilder.anActiveUser;
@@ -51,6 +52,9 @@ class AdminUserServiceTest {
 
     @Mock
     private StorageService storage;
+
+    @Mock
+    private AuditLogService audit;
 
     @InjectMocks
     private AdminUserService service;

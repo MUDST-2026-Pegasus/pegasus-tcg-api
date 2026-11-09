@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.finance.commission;
 
+import static org.mockito.Mockito.mock;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -22,7 +24,7 @@ class CommissionRuleServiceTest {
                 new BigDecimal("5.0"), BigDecimal.ZERO, new BigDecimal("10.00"),
                 new BigDecimal("5.00"), (short) 0, OffsetDateTime.now(), null, true);
 
-        assertThatThrownBy(() -> new CommissionRuleService(rules).create(request, 1L))
+        assertThatThrownBy(() -> new CommissionRuleService(rules, mock(AuditLogService.class)).create(request, 1L))
                 .isInstanceOf(BadRequestException.class);
         verifyNoInteractions(rules);
     }

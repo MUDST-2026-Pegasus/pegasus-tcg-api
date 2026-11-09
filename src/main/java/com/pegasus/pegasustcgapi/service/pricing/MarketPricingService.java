@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.pricing;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 
 import com.pegasus.pegasustcgapi.config.PricingProperties;
@@ -64,6 +66,7 @@ public class MarketPricingService {
     private final TransactionTemplate transactions;
     private final PricingProperties properties;
     private final Clock clock;
+    private final AuditLogService audit;
 
     public MarketPricingService(
             ListingRepository listings,
@@ -74,7 +77,8 @@ public class MarketPricingService {
             SalePriceRefresher salePrices,
             PlatformTransactionManager transactionManager,
             PricingProperties properties,
-            Clock clock) {
+            Clock clock,
+            AuditLogService audit) {
 
         this.listings = listings;
         this.stats = stats;
@@ -85,11 +89,28 @@ public class MarketPricingService {
         this.transactions = new TransactionTemplate(transactionManager);
         this.properties = properties;
         this.clock = clock;
+        this.audit = audit;
     }
 
     /** Today in the market's own time zone, which is what the 03:00 schedule is in. */
     public RunResult runToday() {
         return run(LocalDate.now(clock.withZone(properties.zone())));
+    }
+
+    /**
+     * The admin's "run now" button. The run commits market by market, so its
+     * audit row is written on its own once the run is over.
+     */
+    public RunResult runTodayFor(long adminId) {
+        RunResult result = runToday();
+        audit.recordOnItsOwn(adminId, AuditAction.MARKET_PRICING_RUN, result.statDate(),
+                "Ran market pricing for " + result.statDate(),
+                AuditLogService.meta("marketsComputed", result.marketsComputed(),
+                        "listingsRepriced", result.listingsRepriced(),
+                        "listingsUnchanged", result.listingsUnchanged(),
+                        "listingsSkipped", result.listingsSkipped(),
+                        "marketsFailed", result.marketsFailed()));
+        return result;
     }
 
     public RunResult run(LocalDate day) {

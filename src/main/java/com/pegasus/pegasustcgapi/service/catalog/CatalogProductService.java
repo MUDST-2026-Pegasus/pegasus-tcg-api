@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.common.Slugs;
 import com.pegasus.pegasustcgapi.exception.ApiException;
@@ -51,6 +53,7 @@ public class CatalogProductService {
     private final ProductAttributeValidator attributeValidator;
     private final CatalogImageRepository images;
     private final StorageService storage;
+    private final AuditLogService audit;
 
     public CatalogProductService(
             CatalogProductRepository products,
@@ -58,7 +61,8 @@ public class CatalogProductService {
             CatalogTaxonomyService taxonomy,
             ProductAttributeValidator attributeValidator,
             CatalogImageRepository images,
-            StorageService storage) {
+            StorageService storage,
+            AuditLogService audit) {
 
         this.products = products;
         this.games = games;
@@ -66,6 +70,7 @@ public class CatalogProductService {
         this.attributeValidator = attributeValidator;
         this.images = images;
         this.storage = storage;
+        this.audit = audit;
     }
 
     public CatalogProduct require(long productId) {
@@ -124,7 +129,11 @@ public class CatalogProductService {
         long id = products.insert(withDerived(requested, slug, attributes), createdBy);
         log.info("Catalogued product: name='{}' id={} slug='{}'",
                 LogSanitizer.sanitize(requested.name()), id, LogSanitizer.sanitize(slug));
-        return require(id);
+        CatalogProduct created = require(id);
+        audit.record(createdBy, AuditAction.CATALOG_PRODUCT_CREATED, id,
+                "Created product \"" + created.name() + "\"",
+                AuditLogService.meta("gameId", created.gameId(), "slug", created.slug()));
+        return created;
     }
 
     /**
@@ -133,7 +142,7 @@ public class CatalogProductService {
      * because links point at it.
      */
     @Transactional
-    public CatalogProduct update(long productId, ProductFields requested) {
+    public CatalogProduct update(long productId, ProductFields requested, long adminId) {
         CatalogProduct existing = require(productId);
         requireTaxonomyOfGame(existing.gameId(), requested.categoryId(), requested.cardSetId());
 
@@ -141,7 +150,10 @@ public class CatalogProductService {
                 games.attributesOf(existing.gameId()), requested.attributes());
 
         products.update(productId, withDerived(requested, existing.slug(), attributes));
-        return require(productId);
+        CatalogProduct updated = require(productId);
+        audit.record(adminId, AuditAction.CATALOG_PRODUCT_UPDATED, productId,
+                "Updated product \"" + updated.name() + "\"", AuditLogService.diff(existing, updated));
+        return updated;
     }
 
     /**
@@ -158,8 +170,8 @@ public class CatalogProductService {
      * is logged and left behind: an orphaned object costs storage, nothing more.
      */
     @Transactional
-    public void delete(long productId) {
-        products.lockById(productId)
+    public void delete(long productId, long adminId) {
+        CatalogProduct doomed = products.lockById(productId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND));
 
         if (products.isReferenced(productId)) {
@@ -174,6 +186,10 @@ public class CatalogProductService {
         } catch (DataIntegrityViolationException | IntegrityConstraintViolationException raced) {
             throw new ConflictException(ErrorCode.PRODUCT_IN_USE);
         }
+        audit.record(adminId, AuditAction.CATALOG_PRODUCT_DELETED, productId,
+                "Deleted product \"" + doomed.name() + "\"",
+                AuditLogService.meta("gameId", doomed.gameId(), "slug", doomed.slug(),
+                        "imagesRemoved", imageKeys.size()));
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override

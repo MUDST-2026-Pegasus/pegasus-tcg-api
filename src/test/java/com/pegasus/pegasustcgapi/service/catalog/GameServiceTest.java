@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import static org.mockito.Mockito.mock;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -53,7 +55,7 @@ class GameServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new GameService(games, attributes, storage);
+        service = new GameService(games, attributes, storage, mock(AuditLogService.class));
     }
 
     private static Game pokemon() {
@@ -86,8 +88,8 @@ class GameServiceTest {
         given(games.findById(POKEMON)).willReturn(Optional.of(seeded));
         given(games.codeTaken("POKEMON", POKEMON)).willReturn(false);
 
-        service.update(POKEMON, withLogo("seed/games/pokemon.png"));
-        service.update(POKEMON, withLogo("https://example.com/pokemon.png"));
+        service.update(POKEMON, withLogo("seed/games/pokemon.png"), 9L);
+        service.update(POKEMON, withLogo("https://example.com/pokemon.png"), 9L);
 
         verify(storage, never()).requireUploadedFor(any(), anyString());
     }
@@ -135,7 +137,7 @@ class GameServiceTest {
         given(games.codeTaken("POKEMON", POKEMON)).willReturn(false);
 
         service.update(POKEMON, new GameFields("pokemon", "Pokemon TCG JP", null, "new-slug", null,
-                (short) 2, false));
+                (short) 2, false), 9L);
 
         ArgumentCaptor<GameFields> saved = ArgumentCaptor.forClass(GameFields.class);
         verify(games).update(eq(POKEMON), saved.capture());
@@ -178,7 +180,7 @@ class GameServiceTest {
         AttributeFields upperCaseKey = new AttributeFields("HP", "HP", AttributeDataType.NUMBER,
                 List.of(), true, false, (short) 1);
 
-        assertThatThrownBy(() -> service.addAttribute(POKEMON, upperCaseKey))
+        assertThatThrownBy(() -> service.addAttribute(POKEMON, upperCaseKey, 9L))
                 .isInstanceOf(ConflictException.class)
                 .extracting(e -> ((ConflictException) e).errorCode())
                 .isEqualTo(ErrorCode.ATTRIBUTE_KEY_ALREADY_USED);
@@ -192,7 +194,7 @@ class GameServiceTest {
         AttributeFields noOptions = new AttributeFields("card_type", "Type",
                 AttributeDataType.ENUM, List.of(), true, false, (short) 1);
 
-        assertThatThrownBy(() -> service.addAttribute(POKEMON, noOptions))
+        assertThatThrownBy(() -> service.addAttribute(POKEMON, noOptions, 9L))
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).errorCode())
                 .isEqualTo(ErrorCode.INVALID_ATTRIBUTE_DEFINITION);
@@ -208,7 +210,7 @@ class GameServiceTest {
         AttributeFields numberWithOptions = new AttributeFields("hp", "HP",
                 AttributeDataType.NUMBER, List.of("100", "200"), true, false, (short) 1);
 
-        assertThatThrownBy(() -> service.addAttribute(POKEMON, numberWithOptions))
+        assertThatThrownBy(() -> service.addAttribute(POKEMON, numberWithOptions, 9L))
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).errorCode())
                 .isEqualTo(ErrorCode.INVALID_ATTRIBUTE_DEFINITION);
@@ -222,7 +224,7 @@ class GameServiceTest {
 
         given(attributes.findById(55)).willReturn(Optional.of(magicAttribute));
 
-        assertThatThrownBy(() -> service.updateAttribute(POKEMON, 55, hp()))
+        assertThatThrownBy(() -> service.updateAttribute(POKEMON, 55, hp(), 9L))
                 .isInstanceOf(NotFoundException.class)
                 .extracting(e -> ((NotFoundException) e).errorCode())
                 .isEqualTo(ErrorCode.ATTRIBUTE_NOT_FOUND);

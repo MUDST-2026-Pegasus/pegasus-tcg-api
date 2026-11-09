@@ -39,7 +39,7 @@ class CommissionRuleIntegrationTest extends PostgresIntegrationTest {
                 now.minusDays(1), null, true);
         assertThat(ledgerPort.quoteCommission(seller.profileId(), new BigDecimal("100.00"),
                 List.of(card.variantId())).amount()).isEqualByComparingTo("9.00");
-        rules.deactivate(older);
+        rules.deactivate(older, admin.userId());
         assertThat(frozen.amount()).isEqualByComparingTo("7.00");
     }
 

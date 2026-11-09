@@ -58,14 +58,15 @@ public class AdminCommissionRuleController {
 
     @Operation(summary = "Update commission rule")
     @PutMapping("/{id}")
-    public ApiResult<Detail> update(@PathVariable long id, @Valid @RequestBody CommissionRuleRequest request) {
-        return ApiResult.success(rules.update(id, request));
+    public ApiResult<Detail> update(@PathVariable long id, @Valid @RequestBody CommissionRuleRequest request,
+            AuthPrincipal principal) {
+        return ApiResult.success(rules.update(id, request, principal.userId()));
     }
 
     @Operation(summary = "Deactivate commission rule without deleting its history")
     @PostMapping("/{id}/deactivate")
-    public ApiResult<Void> deactivate(@PathVariable long id) {
-        rules.deactivate(id);
+    public ApiResult<Void> deactivate(@PathVariable long id, AuthPrincipal principal) {
+        rules.deactivate(id, principal.userId());
         return ApiResult.success("Commission rule deactivated", null);
     }
 
@@ -73,8 +74,8 @@ public class AdminCommissionRuleController {
             description = "Orders keep the rate and amount frozen at checkout; "
                     + "commission charges only lose their link to the rule.")
     @DeleteMapping("/{id}")
-    public ApiResult<Void> delete(@PathVariable long id) {
-        rules.delete(id);
+    public ApiResult<Void> delete(@PathVariable long id, AuthPrincipal principal) {
+        rules.delete(id, principal.userId());
         return ApiResult.success("Commission rule deleted", null);
     }
 }

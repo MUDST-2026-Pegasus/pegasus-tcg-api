@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.common.Slugs;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
@@ -37,15 +39,18 @@ public class CatalogTaxonomyService {
     private final CardSetRepository cardSets;
     private final GameService games;
     private final StorageService storage;
+    private final AuditLogService audit;
 
     public CatalogTaxonomyService(
             CatalogCategoryRepository categories, CardSetRepository cardSets, GameService games,
-            StorageService storage) {
+            StorageService storage,
+            AuditLogService audit) {
 
         this.categories = categories;
         this.cardSets = cardSets;
         this.games = games;
         this.storage = storage;
+        this.audit = audit;
     }
 
     // ---------- categories ----------
@@ -64,7 +69,7 @@ public class CatalogTaxonomyService {
     }
 
     @Transactional
-    public CatalogCategory createCategory(CategoryFields requested) {
+    public CatalogCategory createCategory(CategoryFields requested, long adminId) {
         if (requested.gameId() != null) {
             games.require(requested.gameId());
         }
@@ -77,11 +82,15 @@ public class CatalogTaxonomyService {
         }
 
         int id = categories.insert(fields(requested, code, null));
-        return requireCategory(id);
+        CatalogCategory created = requireCategory(id);
+        audit.record(adminId, AuditAction.CATALOG_CATEGORY_CREATED, id,
+                "Created category \"" + created.name() + "\"",
+                AuditLogService.meta("gameId", created.gameId(), "code", created.code()));
+        return created;
     }
 
     @Transactional
-    public CatalogCategory updateCategory(int categoryId, CategoryFields requested) {
+    public CatalogCategory updateCategory(int categoryId, CategoryFields requested, long adminId) {
         CatalogCategory existing = requireCategory(categoryId);
         requireParentUsable(requested.parentId(), categoryId, existing.gameId());
         requireImageUsable(requested.imageKey(), existing.imageKey());
@@ -92,7 +101,10 @@ public class CatalogTaxonomyService {
         }
 
         categories.update(categoryId, fields(requested, code, existing.slug()));
-        return requireCategory(categoryId);
+        CatalogCategory updated = requireCategory(categoryId);
+        audit.record(adminId, AuditAction.CATALOG_CATEGORY_UPDATED, categoryId,
+                "Updated category \"" + updated.name() + "\"", AuditLogService.diff(existing, updated));
+        return updated;
     }
 
     // ---------- card sets ----------
@@ -108,7 +120,7 @@ public class CatalogTaxonomyService {
     }
 
     @Transactional
-    public CardSet createCardSet(short gameId, CardSetFields requested) {
+    public CardSet createCardSet(short gameId, CardSetFields requested, long adminId) {
         games.require(gameId);
         requireLogoUsable(requested.logoUrl(), null);
 
@@ -118,11 +130,15 @@ public class CatalogTaxonomyService {
         }
 
         int id = cardSets.insert(gameId, withCode(requested, code));
-        return requireCardSet(id);
+        CardSet created = requireCardSet(id);
+        audit.record(adminId, AuditAction.CARD_SET_CREATED, id,
+                "Created card set \"" + created.name() + "\"",
+                AuditLogService.meta("gameId", gameId, "code", created.code()));
+        return created;
     }
 
     @Transactional
-    public CardSet updateCardSet(int cardSetId, CardSetFields requested) {
+    public CardSet updateCardSet(int cardSetId, CardSetFields requested, long adminId) {
         CardSet existing = requireCardSet(cardSetId);
         requireLogoUsable(requested.logoUrl(), existing.logoUrl());
 
@@ -132,7 +148,10 @@ public class CatalogTaxonomyService {
         }
 
         cardSets.update(cardSetId, withCode(requested, code));
-        return requireCardSet(cardSetId);
+        CardSet updated = requireCardSet(cardSetId);
+        audit.record(adminId, AuditAction.CARD_SET_UPDATED, cardSetId,
+                "Updated card set \"" + updated.name() + "\"", AuditLogService.diff(existing, updated));
+        return updated;
     }
 
     /**
@@ -141,8 +160,8 @@ public class CatalogTaxonomyService {
      * without a word.
      */
     @Transactional
-    public void deleteCardSet(int cardSetId) {
-        cardSets.lockById(cardSetId)
+    public void deleteCardSet(int cardSetId, long adminId) {
+        CardSet doomed = cardSets.lockById(cardSetId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.CARD_SET_NOT_FOUND));
 
         if (cardSets.hasProducts(cardSetId)) {
@@ -150,6 +169,9 @@ public class CatalogTaxonomyService {
         }
 
         cardSets.delete(cardSetId);
+        audit.record(adminId, AuditAction.CARD_SET_DELETED, cardSetId,
+                "Deleted card set \"" + doomed.name() + "\"",
+                AuditLogService.meta("gameId", doomed.gameId(), "code", doomed.code()));
     }
 
     /**

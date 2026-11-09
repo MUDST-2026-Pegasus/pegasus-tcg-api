@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service.user;
 
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import static com.pegasus.pegasustcgapi.support.AuthUserBuilder.anActiveUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -41,6 +42,9 @@ class RoleServiceTest {
 
     @Mock
     private UserRepository users;
+
+    @Mock
+    private AuditLogService audit;
 
     @InjectMocks
     private RoleService service;

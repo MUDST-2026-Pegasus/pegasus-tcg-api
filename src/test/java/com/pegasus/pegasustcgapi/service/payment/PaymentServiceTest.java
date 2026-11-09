@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service.payment;
 
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
@@ -58,7 +59,8 @@ class PaymentServiceTest {
     @BeforeEach void setUp() {
         service = new PaymentService(payments, escrow, ledger, orders, settings, storage, Clock.systemUTC(),
                 auctions, promptPayProperties,
-                new com.pegasus.pegasustcgapi.service.payment.PromptPayQrService(promptPayProperties));
+                new com.pegasus.pegasustcgapi.service.payment.PromptPayQrService(promptPayProperties),
+                mock(AuditLogService.class));
     }
 
     @Test void auctionPaymentShowsDeadlineFromAuctionClose() {

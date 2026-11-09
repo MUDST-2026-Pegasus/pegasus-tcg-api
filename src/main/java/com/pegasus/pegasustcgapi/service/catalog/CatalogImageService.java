@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.dto.catalog.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
@@ -35,17 +37,20 @@ public class CatalogImageService {
     private final CatalogProductService products;
     private final CatalogVariantService variants;
     private final StorageService storage;
+    private final AuditLogService audit;
 
     public CatalogImageService(
             CatalogImageRepository images,
             CatalogProductService products,
             CatalogVariantService variants,
-            StorageService storage) {
+            StorageService storage,
+            AuditLogService audit) {
 
         this.images = images;
         this.products = products;
         this.variants = variants;
         this.storage = storage;
+        this.audit = audit;
     }
 
     /** @param includeInactive false is the public view, where a retired product has no art to show */
@@ -65,7 +70,7 @@ public class CatalogImageService {
      *               variant, which is the usual case
      */
     @Transactional
-    public CatalogImageResponse add(long productId, ImageFields fields) {
+    public CatalogImageResponse add(long productId, ImageFields fields, long adminId) {
         products.require(productId);
         if (fields.catalogVariantId() != null) {
             variants.requireOfProduct(productId, fields.catalogVariantId());
@@ -89,15 +94,21 @@ public class CatalogImageService {
         long id = images.insert(productId, withPrimary(fields, primary));
         log.info("Added image: key='{}' productId={}",
                 LogSanitizer.sanitize(fields.imageKey()), productId);
+        audit.record(adminId, AuditAction.CATALOG_IMAGE_ADDED, productId,
+                "Added image #" + id + " to product #" + productId,
+                AuditLogService.meta("imageId", id, "variantId", fields.catalogVariantId(), "primary", primary));
         return require(productId, id);
     }
 
     @Transactional
-    public CatalogImageResponse makePrimary(long productId, long imageId) {
+    public CatalogImageResponse makePrimary(long productId, long imageId, long adminId) {
         CatalogImage image = requireImage(productId, imageId);
 
         images.clearPrimary(productId, image.id());
         images.markPrimary(image.id());
+        audit.record(adminId, AuditAction.CATALOG_IMAGE_PRIMARY_SET, productId,
+                "Set image #" + imageId + " as primary for product #" + productId,
+                AuditLogService.meta("imageId", imageId));
         return require(productId, imageId);
     }
 
@@ -108,7 +119,7 @@ public class CatalogImageService {
      * art at all always has one to show.
      */
     @Transactional
-    public void delete(long productId, long imageId) {
+    public void delete(long productId, long imageId, long adminId) {
         CatalogImage image = requireImage(productId, imageId);
 
         images.delete(imageId);
@@ -118,6 +129,9 @@ public class CatalogImageService {
                     .ifPresent(next -> images.markPrimary(next.id()));
         }
 
+        audit.record(adminId, AuditAction.CATALOG_IMAGE_DELETED, productId,
+                "Deleted image #" + imageId + " of product #" + productId,
+                AuditLogService.meta("imageId", imageId, "wasPrimary", image.primary()));
         storage.delete(image.imageKey());
         log.info("Deleted image: key='{}' productId={}",
                 LogSanitizer.sanitize(image.imageKey()), productId);

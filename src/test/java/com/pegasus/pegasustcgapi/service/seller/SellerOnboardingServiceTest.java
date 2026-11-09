@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.seller;
 
+import static org.mockito.Mockito.mock;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.user.RoleService;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -70,7 +72,8 @@ class SellerOnboardingServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SellerOnboardingService(profiles, verifications, users, payoutAccounts, roles, storage, FIXED);
+        service = new SellerOnboardingService(profiles, verifications, users, payoutAccounts, roles, storage,
+                mock(AuditLogService.class), FIXED);
     }
 
     private static SellerVerification request(VerificationStatus status) {

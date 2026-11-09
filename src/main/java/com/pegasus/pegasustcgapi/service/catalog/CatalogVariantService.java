@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.common.Slugs;
 import com.pegasus.pegasustcgapi.dto.catalog.VariantLookupResponse;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
@@ -11,6 +13,7 @@ import com.pegasus.pegasustcgapi.model.catalog.CatalogVariant;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogVariantRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogVariantRepository.VariantFields;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
@@ -42,17 +45,20 @@ public class CatalogVariantService {
     private final CatalogProductService products;
     private final GameService games;
     private final CatalogTaxonomyService taxonomy;
+    private final AuditLogService audit;
 
     public CatalogVariantService(
             CatalogVariantRepository variants,
             CatalogProductService products,
             GameService games,
-            CatalogTaxonomyService taxonomy) {
+            CatalogTaxonomyService taxonomy,
+            AuditLogService audit) {
 
         this.variants = variants;
         this.products = products;
         this.games = games;
         this.taxonomy = taxonomy;
+        this.audit = audit;
     }
 
     /**
@@ -105,7 +111,7 @@ public class CatalogVariantService {
     }
 
     @Transactional
-    public CatalogVariant create(long productId, VariantFields requested) {
+    public CatalogVariant create(long productId, VariantFields requested, long adminId) {
         CatalogProduct product = products.require(productId);
         VariantFields fields = normalise(requested);
 
@@ -117,11 +123,14 @@ public class CatalogVariantService {
 
         long id = variants.insert(productId, withSku(fields, sku));
         log.info("Added variant {} to product {}", sku, productId);
+        audit.record(adminId, AuditAction.CATALOG_VARIANT_CREATED, id,
+                "Added variant " + sku + " to product #" + productId,
+                AuditLogService.meta("productId", productId, "sku", sku));
         return require(id);
     }
 
     @Transactional
-    public CatalogVariant update(long productId, long variantId, VariantFields requested) {
+    public CatalogVariant update(long productId, long variantId, VariantFields requested, long adminId) {
         CatalogVariant existing = requireOfProduct(productId, variantId);
         VariantFields fields = normalise(requested);
 
@@ -132,7 +141,12 @@ public class CatalogVariantService {
                 : requireSkuFree(fields.sku(), variantId);
 
         variants.update(variantId, withSku(fields, sku));
-        return require(variantId);
+        CatalogVariant updated = require(variantId);
+        Map<String, Object> changes = AuditLogService.diff(existing, updated);
+        changes.put("productId", productId);
+        audit.record(adminId, AuditAction.CATALOG_VARIANT_UPDATED, variantId,
+                "Updated variant " + updated.sku() + " of product #" + productId, changes);
+        return updated;
     }
 
     private void requireIdentityFree(long productId, VariantFields fields, Long exceptId) {
