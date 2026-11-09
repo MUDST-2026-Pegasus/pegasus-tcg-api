@@ -53,7 +53,8 @@ public final class SellerDashboardViews {
             String lotLabel,
             String conditionCode,
             int quantityAvailable,
-            int quantityTotal) {
+            int quantityTotal,
+            String imageUrl) {
     }
 
     /**
@@ -86,6 +87,7 @@ public final class SellerDashboardViews {
             String buyerUsername,
             String buyerDisplayName,
             String firstItemName,
+            String firstImageUrl,
             int itemCount,
             BigDecimal grandTotal,
             String status,
