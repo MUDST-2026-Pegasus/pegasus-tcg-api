@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.job.order;
 
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.job.JobLock;
 
 import com.pegasus.pegasustcgapi.job.JobLock;
@@ -40,7 +41,7 @@ class OrderAutoReleaseSchedulerTest {
 
     private OrderAutoReleaseScheduler scheduler(int batchSize) {
         return new OrderAutoReleaseScheduler(
-                orderRepository, orderLifecycleService, jobLock, Clock.systemUTC(), batchSize);
+                orderRepository, orderLifecycleService, jobLock, Clock.systemUTC(), batchSize, null);
     }
 
     /** Stands in for winning the lock: the task runs. */

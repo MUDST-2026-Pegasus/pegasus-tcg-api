@@ -80,9 +80,10 @@ public class AdminCatalogTaxonomyController {
 
     @PutMapping("/games/{gameId}")
     public ApiResult<AdminGameResponse> updateGame(
-            @PathVariable short gameId, @Valid @RequestBody GameRequest request) {
+            @PathVariable short gameId, @Valid @RequestBody GameRequest request, AuthPrincipal principal) {
 
-        return ApiResult.success("Game updated", response(games.update(gameId, request.toFields())));
+        return ApiResult.success("Game updated",
+                response(games.update(gameId, request.toFields(), principal.userId())));
     }
 
     // ---------- game attributes ----------
@@ -94,9 +95,10 @@ public class AdminCatalogTaxonomyController {
 
     @PostMapping("/games/{gameId}/attributes")
     public ResponseEntity<ApiResult<GameAttribute>> addAttribute(
-            @PathVariable short gameId, @Valid @RequestBody GameAttributeRequest request) {
+            @PathVariable short gameId, @Valid @RequestBody GameAttributeRequest request,
+            AuthPrincipal principal) {
 
-        GameAttribute created = games.addAttribute(gameId, request.toFields());
+        GameAttribute created = games.addAttribute(gameId, request.toFields(), principal.userId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResult.success("Attribute added", created));
     }
@@ -105,18 +107,19 @@ public class AdminCatalogTaxonomyController {
     public ApiResult<GameAttribute> updateAttribute(
             @PathVariable short gameId,
             @PathVariable int attributeId,
-            @Valid @RequestBody GameAttributeRequest request) {
+            @Valid @RequestBody GameAttributeRequest request,
+            AuthPrincipal principal) {
 
         return ApiResult.success("Attribute updated",
-                games.updateAttribute(gameId, attributeId, request.toFields()));
+                games.updateAttribute(gameId, attributeId, request.toFields(), principal.userId()));
     }
 
     /** Values already stored under this key are left where they are, unread. */
     @DeleteMapping("/games/{gameId}/attributes/{attributeId}")
     public ApiResult<Void> deleteAttribute(
-            @PathVariable short gameId, @PathVariable int attributeId) {
+            @PathVariable short gameId, @PathVariable int attributeId, AuthPrincipal principal) {
 
-        games.deleteAttribute(gameId, attributeId);
+        games.deleteAttribute(gameId, attributeId, principal.userId());
         return ApiResult.success("Attribute deleted", null);
     }
 
@@ -132,9 +135,9 @@ public class AdminCatalogTaxonomyController {
 
     @PostMapping("/categories")
     public ResponseEntity<ApiResult<CatalogCategory>> createCategory(
-            @Valid @RequestBody CategoryRequest request) {
+            @Valid @RequestBody CategoryRequest request, AuthPrincipal principal) {
 
-        CatalogCategory created = taxonomy.createCategory(request.toFields());
+        CatalogCategory created = taxonomy.createCategory(request.toFields(), principal.userId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResult.success("Category added", created));
     }
@@ -142,35 +145,38 @@ public class AdminCatalogTaxonomyController {
     /** The game is fixed at creation; everything else, including retiring it, is editable. */
     @PutMapping("/categories/{categoryId}")
     public ApiResult<CatalogCategory> updateCategory(
-            @PathVariable int categoryId, @Valid @RequestBody CategoryRequest request) {
+            @PathVariable int categoryId, @Valid @RequestBody CategoryRequest request,
+            AuthPrincipal principal) {
 
         return ApiResult.success("Category updated",
-                taxonomy.updateCategory(categoryId, request.toFields()));
+                taxonomy.updateCategory(categoryId, request.toFields(), principal.userId()));
     }
 
     // ---------- card sets ----------
 
     @PostMapping("/games/{gameId}/card-sets")
     public ResponseEntity<ApiResult<CardSetResponse>> createCardSet(
-            @PathVariable short gameId, @Valid @RequestBody CardSetRequest request) {
+            @PathVariable short gameId, @Valid @RequestBody CardSetRequest request,
+            AuthPrincipal principal) {
 
-        CardSet created = taxonomy.createCardSet(gameId, request.toFields());
+        CardSet created = taxonomy.createCardSet(gameId, request.toFields(), principal.userId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResult.success("Card set added", response(created)));
     }
 
     @PutMapping("/card-sets/{cardSetId}")
     public ApiResult<CardSetResponse> updateCardSet(
-            @PathVariable int cardSetId, @Valid @RequestBody CardSetRequest request) {
+            @PathVariable int cardSetId, @Valid @RequestBody CardSetRequest request,
+            AuthPrincipal principal) {
 
         return ApiResult.success("Card set updated",
-                response(taxonomy.updateCardSet(cardSetId, request.toFields())));
+                response(taxonomy.updateCardSet(cardSetId, request.toFields(), principal.userId())));
     }
 
     /** A set that still has products, retired ones included, is refused with CARD_SET_IN_USE. */
     @DeleteMapping("/card-sets/{cardSetId}")
-    public ApiResult<Void> deleteCardSet(@PathVariable int cardSetId) {
-        taxonomy.deleteCardSet(cardSetId);
+    public ApiResult<Void> deleteCardSet(@PathVariable int cardSetId, AuthPrincipal principal) {
+        taxonomy.deleteCardSet(cardSetId, principal.userId());
         return ApiResult.success("Card set deleted", null);
     }
 

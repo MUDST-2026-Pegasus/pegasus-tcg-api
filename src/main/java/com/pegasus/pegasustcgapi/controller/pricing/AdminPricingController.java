@@ -5,6 +5,7 @@ import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.service.pricing.MarketPricingService;
 import com.pegasus.pegasustcgapi.service.pricing.MarketPricingService.RunResult;
 import org.springframework.security.access.prepost.PreAuthorize;
+import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,7 +27,7 @@ public class AdminPricingController {
      * and the second result shows that: no markets computed, nothing repriced.
      */
     @PostMapping("/market-run")
-    public ApiResult<RunResult> runMarket() {
-        return ApiResult.success("Market run finished", pricing.runToday());
+    public ApiResult<RunResult> runMarket(AuthPrincipal principal) {
+        return ApiResult.success("Market run finished", pricing.runTodayFor(principal.userId()));
     }
 }

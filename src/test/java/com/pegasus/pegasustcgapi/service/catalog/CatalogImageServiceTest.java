@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import static org.mockito.Mockito.mock;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -54,7 +56,7 @@ class CatalogImageServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CatalogImageService(images, products, variants, storage);
+        service = new CatalogImageService(images, products, variants, storage, mock(AuditLogService.class));
     }
 
     private static CatalogImage image(long id, boolean primary) {
@@ -75,7 +77,7 @@ class CatalogImageServiceTest {
         given(images.findById(1L)).willReturn(Optional.of(image(1L, true)));
         given(storage.presignDownload(KEY)).willReturn("http://localhost:9000/signed");
 
-        CatalogImageResponse added = service.add(PRODUCT_ID, fields(false));
+        CatalogImageResponse added = service.add(PRODUCT_ID, fields(false), 9L);
 
         ArgumentCaptor<ImageFields> saved = ArgumentCaptor.forClass(ImageFields.class);
         verify(images).insert(eq(PRODUCT_ID), saved.capture());
@@ -89,7 +91,7 @@ class CatalogImageServiceTest {
         willThrow(new ApiException(ErrorCode.UNSUPPORTED_FILE_TYPE))
                 .given(storage).requireUploadedFor(UploadPurpose.CATALOG_IMAGE, KEY);
 
-        assertThatThrownBy(() -> service.add(PRODUCT_ID, fields(false)))
+        assertThatThrownBy(() -> service.add(PRODUCT_ID, fields(false), 9L))
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).errorCode())
                 .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
@@ -102,7 +104,7 @@ class CatalogImageServiceTest {
     void fileAttachesToOneImageOnly() {
         given(images.keyInUse(KEY)).willReturn(true);
 
-        assertThatThrownBy(() -> service.add(PRODUCT_ID, fields(false)))
+        assertThatThrownBy(() -> service.add(PRODUCT_ID, fields(false), 9L))
                 .isInstanceOf(ConflictException.class)
                 .extracting(e -> ((ConflictException) e).errorCode())
                 .isEqualTo(ErrorCode.IMAGE_KEY_IN_USE);
@@ -116,7 +118,7 @@ class CatalogImageServiceTest {
         willThrow(new NotFoundException(ErrorCode.FILE_NOT_FOUND))
                 .given(storage).requireUploadedFor(UploadPurpose.CATALOG_IMAGE, KEY);
 
-        assertThatThrownBy(() -> service.add(PRODUCT_ID, fields(false)))
+        assertThatThrownBy(() -> service.add(PRODUCT_ID, fields(false), 9L))
                 .isInstanceOf(NotFoundException.class)
                 .extracting(e -> ((NotFoundException) e).errorCode())
                 .isEqualTo(ErrorCode.FILE_NOT_FOUND);
@@ -130,7 +132,7 @@ class CatalogImageServiceTest {
         given(images.findById(2L)).willReturn(Optional.of(image(2L, false)));
         given(storage.presignDownload(KEY)).willReturn("http://localhost:9000/signed");
 
-        service.makePrimary(PRODUCT_ID, 2L);
+        service.makePrimary(PRODUCT_ID, 2L, 9L);
 
         verify(images).clearPrimary(PRODUCT_ID, 2L);
         verify(images).markPrimary(2L);
@@ -142,7 +144,7 @@ class CatalogImageServiceTest {
         given(images.findById(1L)).willReturn(Optional.of(image(1L, true)));
         given(images.findByProductId(PRODUCT_ID)).willReturn(List.of(image(2L, false)));
 
-        service.delete(PRODUCT_ID, 1L);
+        service.delete(PRODUCT_ID, 1L, 9L);
 
         verify(images).delete(1L);
         verify(images).markPrimary(2L);
@@ -155,7 +157,7 @@ class CatalogImageServiceTest {
         given(images.findById(1L)).willReturn(Optional.of(image(1L, true)));
         given(images.findByProductId(PRODUCT_ID)).willReturn(List.of());
 
-        service.delete(PRODUCT_ID, 1L);
+        service.delete(PRODUCT_ID, 1L, 9L);
 
         verify(images).delete(1L);
         verify(images, never()).markPrimary(anyLong());
@@ -168,7 +170,7 @@ class CatalogImageServiceTest {
         CatalogImage otherProduct = new CatalogImage(9L, 777L, null, KEY, null, (short) 0, false);
         given(images.findById(9L)).willReturn(Optional.of(otherProduct));
 
-        assertThatThrownBy(() -> service.delete(PRODUCT_ID, 9L))
+        assertThatThrownBy(() -> service.delete(PRODUCT_ID, 9L, 9L))
                 .isInstanceOf(NotFoundException.class)
                 .extracting(e -> ((NotFoundException) e).errorCode())
                 .isEqualTo(ErrorCode.IMAGE_NOT_FOUND);
@@ -184,7 +186,7 @@ class CatalogImageServiceTest {
 
         ImageFields ofAnotherVariant = new ImageFields(902L, KEY, null, (short) 0, false);
 
-        assertThatThrownBy(() -> service.add(PRODUCT_ID, ofAnotherVariant))
+        assertThatThrownBy(() -> service.add(PRODUCT_ID, ofAnotherVariant, 9L))
                 .isInstanceOf(NotFoundException.class);
 
         verify(storage, never()).requireUploadedFor(any(), anyString());
@@ -203,7 +205,7 @@ class CatalogImageServiceTest {
         given(storage.presignDownload(any())).willReturn("https://example.com/image.png");
 
         ImageFields fields = new ImageFields(null, testInputPath, "Alt Art", (short) 0, false);
-        CatalogImageResponse response = service.add(PRODUCT_ID, fields);
+        CatalogImageResponse response = service.add(PRODUCT_ID, fields, 9L);
         assertThat(response).isNotNull();
     }
 

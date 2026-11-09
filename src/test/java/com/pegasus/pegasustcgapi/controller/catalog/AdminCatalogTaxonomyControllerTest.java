@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.catalog;
 
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
@@ -145,7 +147,7 @@ class AdminCatalogTaxonomyControllerTest {
 
     @Test
     void createCategoryDefaultsActiveAndOrder() throws Exception {
-        when(taxonomy.createCategory(any())).thenReturn(new CatalogCategory(8, (short) 2, null,
+        when(taxonomy.createCategory(any(), anyLong())).thenReturn(new CatalogCategory(8, (short) 2, null,
                 "SINGLE", "Singles", "singles", (short) 0, true, null));
 
         mvc.perform(post(ADMIN + "/categories").contentType(MediaType.APPLICATION_JSON)
@@ -153,7 +155,7 @@ class AdminCatalogTaxonomyControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.id").value(8));
         verify(taxonomy).createCategory(argThat(fields -> fields.active()
-                && fields.displayOrder() == 0 && fields.gameId() == 2));
+                && fields.displayOrder() == 0 && fields.gameId() == 2), anyLong());
     }
 
     @Test
@@ -177,17 +179,17 @@ class AdminCatalogTaxonomyControllerTest {
     @Test
     void cardSetWithProductsCannotBeDeleted() throws Exception {
         org.mockito.Mockito.doThrow(new ConflictException(ErrorCode.CARD_SET_IN_USE))
-                .when(taxonomy).deleteCardSet(9);
+                .when(taxonomy).deleteCardSet(eq(9), anyLong());
 
         mvc.perform(delete(ADMIN + "/card-sets/9"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.data.code").value("CARD_SET_IN_USE"));
-        verify(taxonomy).deleteCardSet(9);
+        verify(taxonomy).deleteCardSet(eq(9), anyLong());
     }
 
     @Test
     void unknownCardSetIsReportedAsNotFoundOnUpdate() throws Exception {
-        when(taxonomy.updateCardSet(org.mockito.ArgumentMatchers.eq(99), any()))
+        when(taxonomy.updateCardSet(org.mockito.ArgumentMatchers.eq(99), any(), anyLong()))
                 .thenThrow(new NotFoundException(ErrorCode.CARD_SET_NOT_FOUND));
 
         mvc.perform(put(ADMIN + "/card-sets/99").contentType(MediaType.APPLICATION_JSON)
@@ -201,6 +203,6 @@ class AdminCatalogTaxonomyControllerTest {
         mvc.perform(delete(ADMIN + "/card-sets/9"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Card set deleted"));
-        verify(taxonomy).deleteCardSet(9);
+        verify(taxonomy).deleteCardSet(eq(9), anyLong());
     }
 }

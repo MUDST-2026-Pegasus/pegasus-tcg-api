@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.user;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.model.user.RoleCode;
 import com.pegasus.pegasustcgapi.repository.user.RoleRepository;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
@@ -20,10 +22,12 @@ public class RoleService {
 
     private final RoleRepository roles;
     private final UserRepository users;
+    private final AuditLogService audit;
 
-    public RoleService(RoleRepository roles, UserRepository users) {
+    public RoleService(RoleRepository roles, UserRepository users, AuditLogService audit) {
         this.roles = roles;
         this.users = users;
+        this.audit = audit;
     }
 
     public Set<RoleCode> rolesOf(long userId) {
@@ -41,6 +45,8 @@ public class RoleService {
     public Set<RoleCode> grantAsAdmin(long userId, RoleCode code, long actingAdminId) {
         requireExistingUser(userId);
         roles.grant(userId, roleId(code), actingAdminId);
+        audit.record(actingAdminId, AuditAction.USER_ROLE_GRANTED, userId,
+                "Granted " + code + " to user #" + userId, AuditLogService.meta("role", code.name()));
         return rolesOf(userId);
     }
 
@@ -53,6 +59,8 @@ public class RoleService {
                     ErrorCode.ACCESS_DENIED, "An admin cannot revoke their own ADMIN role");
         }
         roles.revoke(userId, roleId(code));
+        audit.record(actingAdminId, AuditAction.USER_ROLE_REVOKED, userId,
+                "Revoked " + code + " from user #" + userId, AuditLogService.meta("role", code.name()));
         return rolesOf(userId);
     }
 

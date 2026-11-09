@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.user;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.auth.AuthTokenService;
 
 import com.pegasus.pegasustcgapi.common.PageResponse;
@@ -33,13 +35,16 @@ public class AdminUserService {
     private final RoleRepository roles;
     private final AuthTokenService authTokens;
     private final StorageService storage;
+    private final AuditLogService audit;
 
     public AdminUserService(
-            UserRepository users, RoleRepository roles, AuthTokenService authTokens, StorageService storage) {
+            UserRepository users, RoleRepository roles, AuthTokenService authTokens, StorageService storage,
+            AuditLogService audit) {
         this.users = users;
         this.roles = roles;
         this.authTokens = authTokens;
         this.storage = storage;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -77,6 +82,9 @@ public class AdminUserService {
 
         if (user.status() != status) {
             users.updateStatus(userId, status);
+            audit.record(actingAdminId, AuditAction.USER_STATUS_CHANGED, userId,
+                    "Set user #" + userId + " to " + status,
+                    AuditLogService.change(user.status().name(), status.name()));
             if (status != UserStatus.ACTIVE) {
                 int revoked = authTokens.revokeAll(userId, TokenPurpose.REFRESH);
                 log.info("Admin {} set user {} to {}; revoked {} refresh token(s)",

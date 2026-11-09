@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.setting;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -8,7 +10,9 @@ import com.pegasus.pegasustcgapi.repository.setting.PlatformSettingRepository;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
@@ -48,12 +52,17 @@ public class PlatformSettingService {
     /** Weekly report: percent of the week's stock sold, above which a row reads as fast moving. */
     public static final String REPORT_FAST_MOVING_PERCENT = "report.fast_moving_percent";
 
+    /** Values that hold a bank account; the log records that they changed, not what to. */
+    private static final Set<String> REDACTED_IN_AUDIT = Set.of(PAYMENT_TRANSFER_ACCOUNT);
+
     private final PlatformSettingRepository settings;
     private final ObjectMapper json;
+    private final AuditLogService audit;
 
-    public PlatformSettingService(PlatformSettingRepository settings, ObjectMapper json) {
+    public PlatformSettingService(PlatformSettingRepository settings, ObjectMapper json, AuditLogService audit) {
         this.settings = settings;
         this.json = json;
+        this.audit = audit;
     }
 
     public List<Setting> list() {
@@ -113,6 +122,7 @@ public class PlatformSettingService {
      *
      * @param rawJson the new value as JSON — {@code 7}, {@code "THB"}, {@code {"a":1}}
      */
+    @Transactional
     public Setting update(String key, String rawJson, long adminId) {
         if (!settings.exists(key)) {
             throw new NotFoundException(ErrorCode.SETTING_NOT_FOUND, key);
@@ -170,8 +180,20 @@ public class PlatformSettingService {
             throw new ApiException(ErrorCode.VALIDATION_FAILED,
                     "Setting " + key + " must be a whole percent from 1 to 100");
         }
+        String before = settings.findValue(key).orElse("null");
         settings.update(key, rawJson, adminId);
-        return get(key);
+        Setting after = get(key);
+        // The settings response has no history of its own; this row is it.
+        audit.record(adminId, AuditAction.SETTING_UPDATED, key, "Changed setting " + key,
+                REDACTED_IN_AUDIT.contains(key)
+                        ? AuditLogService.meta("redacted", true)
+                        : AuditLogService.change(readJson(before), readJson(after.value())));
+        return after;
+    }
+
+    /** Stored values are JSON already; parsed so the log shows 7, not "7". */
+    private Object readJson(String raw) {
+        return json.readTree(raw);
     }
 
     /**

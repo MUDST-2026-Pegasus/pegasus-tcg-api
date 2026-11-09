@@ -59,23 +59,26 @@ public class AdminPayoutController {
     }
 
     @PostMapping("/{id}/processing")
-    public ApiResult<Payout> processing(@PathVariable long id) {
-        return ApiResult.success(Payout.from(payouts.processing(id)));
+    public ApiResult<Payout> processing(@PathVariable long id, AuthPrincipal principal) {
+        return ApiResult.success(Payout.from(payouts.processing(id, principal.userId())));
     }
 
     @PostMapping("/{id}/paid")
-    public ApiResult<Payout> paid(@PathVariable long id, @Valid @RequestBody Paid body) {
-        return ApiResult.success(Payout.from(payouts.paid(id, body.transferReference(), body.slipImageKey())));
+    public ApiResult<Payout> paid(@PathVariable long id, @Valid @RequestBody Paid body, AuthPrincipal principal) {
+        return ApiResult.success(Payout.from(
+                payouts.paid(id, body.transferReference(), body.slipImageKey(), principal.userId())));
     }
 
     @PostMapping("/{id}/reject")
-    public ApiResult<Payout> reject(@PathVariable long id, @Valid @RequestBody Reason body) {
-        return ApiResult.success(Payout.from(payouts.reject(id, body.reason())));
+    public ApiResult<Payout> reject(@PathVariable long id, @Valid @RequestBody Reason body,
+            AuthPrincipal principal) {
+        return ApiResult.success(Payout.from(payouts.reject(id, body.reason(), principal.userId())));
     }
 
     @PostMapping("/{id}/fail")
-    public ApiResult<Payout> fail(@PathVariable long id, @Valid @RequestBody Reason body) {
-        return ApiResult.success(Payout.from(payouts.fail(id, body.reason())));
+    public ApiResult<Payout> fail(@PathVariable long id, @Valid @RequestBody Reason body,
+            AuthPrincipal principal) {
+        return ApiResult.success(Payout.from(payouts.fail(id, body.reason(), principal.userId())));
     }
 
     public record Paid(@NotBlank String transferReference, @NotBlank String slipImageKey) {

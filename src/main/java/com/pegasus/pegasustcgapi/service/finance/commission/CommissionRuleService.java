@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.finance.commission;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.dto.finance.commission.CommissionRuleRequest;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -8,6 +10,7 @@ import com.pegasus.pegasustcgapi.repository.finance.commission.CommissionRuleRep
 import com.pegasus.pegasustcgapi.repository.finance.commission.CommissionRuleRepository.Detail;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,9 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class CommissionRuleService {
 
     private final CommissionRuleRepository rules;
+    private final AuditLogService audit;
 
-    public CommissionRuleService(CommissionRuleRepository rules) {
+    public CommissionRuleService(CommissionRuleRepository rules, AuditLogService audit) {
         this.rules = rules;
+        this.audit = audit;
     }
 
     public List<Detail> list() {
@@ -32,27 +37,37 @@ public class CommissionRuleService {
     @Transactional
     public Detail create(CommissionRuleRequest request, long adminId) {
         validate(request);
-        return get(rules.insert(request, adminId));
+        Detail created = get(rules.insert(request, adminId));
+        audit.record(adminId, AuditAction.COMMISSION_RULE_CREATED, created.id(),
+                "Created commission rule #" + created.id(), AuditLogService.meta("rule", created));
+        return created;
     }
 
     @Transactional
-    public Detail update(long id, CommissionRuleRequest request) {
-        get(id);
+    public Detail update(long id, CommissionRuleRequest request, long adminId) {
+        Detail before = get(id);
         validate(request);
         rules.update(id, request);
-        return get(id);
+        Detail after = get(id);
+        audit.record(adminId, AuditAction.COMMISSION_RULE_UPDATED, id,
+                "Updated commission rule #" + id, AuditLogService.diff(before, after));
+        return after;
     }
 
     @Transactional
-    public void deactivate(long id) {
+    public void deactivate(long id, long adminId) {
         get(id);
         rules.deactivate(id);
+        audit.record(adminId, AuditAction.COMMISSION_RULE_DEACTIVATED, id,
+                "Deactivated commission rule #" + id, Map.of());
     }
 
     @Transactional
-    public void delete(long id) {
-        get(id);
+    public void delete(long id, long adminId) {
+        Detail doomed = get(id);
         rules.delete(id);
+        audit.record(adminId, AuditAction.COMMISSION_RULE_DELETED, id,
+                "Deleted commission rule #" + id, AuditLogService.meta("rule", doomed));
     }
 
     private void validate(CommissionRuleRequest r) {

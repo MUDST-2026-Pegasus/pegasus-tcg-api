@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.finance.refund;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.finance.escrow.EscrowReleaseService;
 import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
@@ -40,12 +42,14 @@ public class RefundService {
     private final ObjectProvider<OrderLifecycleService> lifecycle;
     private final EscrowReleaseService escrowRelease;
     private final com.pegasus.pegasustcgapi.port.collection.CollectionPort collection;
+    private final AuditLogService audit;
 
     public RefundService(RefundRepository refunds, RefundTransferRepository transfers, PaymentRepository payments,
             EscrowRepository escrow, OrderRepository orders, WalletLedgerService ledger, Clock clock,
             ReturnRepository returns, ObjectProvider<OrderLifecycleService> lifecycle,
             EscrowReleaseService escrowRelease,
-            com.pegasus.pegasustcgapi.port.collection.CollectionPort collection) {
+            com.pegasus.pegasustcgapi.port.collection.CollectionPort collection,
+            AuditLogService audit) {
         this.refunds = refunds;
         this.transfers = transfers;
         this.payments = payments;
@@ -57,6 +61,7 @@ public class RefundService {
         this.lifecycle = lifecycle;
         this.escrowRelease = escrowRelease;
         this.collection = collection;
+        this.audit = audit;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -144,6 +149,10 @@ public class RefundService {
         if (refunds.transition(refundId, "APPROVED", "PROCESSING") != 1) {
             throw new ConflictException(ErrorCode.PAYMENT_STATE);
         }
+        // Never the destination account: the admin typed it to confirm, the row keeps it.
+        audit.record(adminId, AuditAction.REFUND_PROCESSING, refundId,
+                "Started transfer for refund #" + refundId,
+                AuditLogService.meta("orderId", refund.getSalesOrderId(), "amount", refund.getAmount()));
         return refunds.find(refundId).orElseThrow();
     }
 
@@ -162,6 +171,10 @@ public class RefundService {
         if (refunds.transition(refundId, "PROCESSING", "APPROVED") != 1) {
             throw new ConflictException(ErrorCode.PAYMENT_STATE);
         }
+        audit.record(adminId, AuditAction.REFUND_FAILED, refundId,
+                "Transfer failed for refund #" + refundId,
+                AuditLogService.meta("orderId", refund.getSalesOrderId(), "amount", refund.getAmount(),
+                        "reason", reason.trim()));
         return refunds.find(refundId).orElseThrow();
     }
 
@@ -192,7 +205,18 @@ public class RefundService {
      */
     @Transactional
     public RefundRecord processed(long refundId, long adminId, String transferReference) {
-        return processInternal(refundId, adminId, transferReference);
+        // A replay with the same reference changes nothing, so it logs nothing either.
+        boolean alreadyProcessed = refunds.find(refundId)
+                .map(r -> "PROCESSED".equals(r.getStatus()))
+                .orElse(false);
+        RefundRecord done = processInternal(refundId, adminId, transferReference);
+        if (!alreadyProcessed) {
+            audit.record(adminId, AuditAction.REFUND_PROCESSED, refundId,
+                    "Completed refund #" + refundId,
+                    AuditLogService.meta("orderId", done.getSalesOrderId(), "amount", done.getAmount(),
+                            "transferReference", transferReference.trim()));
+        }
+        return done;
     }
 
     /**

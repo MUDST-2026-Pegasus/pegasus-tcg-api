@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.finance.payout;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 
@@ -33,10 +35,12 @@ public class PayoutService {
     private final PlatformSettingService settings;
     private final StorageService storage;
     private final Clock clock;
+    private final AuditLogService audit;
 
     public PayoutService(PayoutRepository payouts, PayoutAccountRepository accounts,
             WalletRepository wallets, WalletLedgerService ledger, SellerPort sellers,
-            PlatformSettingService settings, StorageService storage, Clock clock) {
+            PlatformSettingService settings, StorageService storage, Clock clock,
+            AuditLogService audit) {
         this.payouts = payouts;
         this.accounts = accounts;
         this.wallets = wallets;
@@ -45,6 +49,7 @@ public class PayoutService {
         this.settings = settings;
         this.storage = storage;
         this.clock = clock;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -73,26 +78,34 @@ public class PayoutService {
 
     @Transactional
     public PayoutRecord approve(long id, long adminId) {
-        return transition(id, "REQUESTED", "APPROVED", adminId, null, null, null);
+        PayoutRecord payout = transition(id, "REQUESTED", "APPROVED", adminId, null, null, null);
+        logPayout(adminId, AuditAction.PAYOUT_APPROVED, payout, "Approved", null);
+        return payout;
     }
 
     @Transactional
-    public PayoutRecord processing(long id) {
-        return transition(id, "APPROVED", "PROCESSING", null, null, null, null);
+    public PayoutRecord processing(long id, long adminId) {
+        PayoutRecord payout = transition(id, "APPROVED", "PROCESSING", null, null, null, null);
+        logPayout(adminId, AuditAction.PAYOUT_PROCESSING, payout, "Started transfer for", null);
+        return payout;
     }
 
     @Transactional
-    public PayoutRecord reject(long id, String reason) {
-        return transition(id, "REQUESTED", "REJECTED", null, requiredReason(reason), null, null);
+    public PayoutRecord reject(long id, String reason, long adminId) {
+        PayoutRecord payout = transition(id, "REQUESTED", "REJECTED", null, requiredReason(reason), null, null);
+        logPayout(adminId, AuditAction.PAYOUT_REJECTED, payout, "Rejected", reason);
+        return payout;
     }
 
     @Transactional
-    public PayoutRecord fail(long id, String reason) {
-        return transition(id, "PROCESSING", "FAILED", null, requiredReason(reason), null, null);
+    public PayoutRecord fail(long id, String reason, long adminId) {
+        PayoutRecord payout = transition(id, "PROCESSING", "FAILED", null, requiredReason(reason), null, null);
+        logPayout(adminId, AuditAction.PAYOUT_FAILED, payout, "Marked failed", reason);
+        return payout;
     }
 
     @Transactional
-    public PayoutRecord paid(long id, String transferReference, String slipImageKey) {
+    public PayoutRecord paid(long id, String transferReference, String slipImageKey, long adminId) {
         if (transferReference == null || transferReference.isBlank()
                 || slipImageKey == null || slipImageKey.isBlank()) {
             throw new BadRequestException(ErrorCode.VALIDATION_FAILED);
@@ -109,7 +122,16 @@ public class PayoutService {
             throw new ConflictException(ErrorCode.PAYOUT_STATE);
         }
         payouts.linkPaidOrders(id, payout.getSellerProfileId(), payout.getAmount());
-        return payouts.lock(id).orElseThrow();
+        PayoutRecord paid = payouts.lock(id).orElseThrow();
+        logPayout(adminId, AuditAction.PAYOUT_PAID, paid, "Paid", null);
+        return paid;
+    }
+
+    /** Seller and amount only: the destination account stays on the payout row. */
+    private void logPayout(long adminId, AuditAction action, PayoutRecord payout, String verb, String reason) {
+        audit.record(adminId, action, payout.getId(), verb + " payout #" + payout.getId(),
+                AuditLogService.meta("sellerProfileId", payout.getSellerProfileId(),
+                        "amount", payout.getAmount(), "reason", reason));
     }
 
     private PayoutRecord transition(long id, String expected, String next, Long adminId,

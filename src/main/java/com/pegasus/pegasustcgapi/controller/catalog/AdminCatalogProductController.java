@@ -129,9 +129,11 @@ public class AdminCatalogProductController {
     /** The game and the slug are fixed at creation; everything else is editable. */
     @PutMapping("/products/{productId}")
     public ApiResult<CatalogProduct> updateProduct(
-            @PathVariable long productId, @Valid @RequestBody ProductRequest request) {
+            @PathVariable long productId, @Valid @RequestBody ProductRequest request,
+            AuthPrincipal principal) {
 
-        return ApiResult.success("Product updated", products.update(productId, request.toFields()));
+        return ApiResult.success("Product updated",
+                products.update(productId, request.toFields(), principal.userId()));
     }
 
     /**
@@ -139,8 +141,8 @@ public class AdminCatalogProductController {
      * once a listing, an order or a collection points at it; retire it then.
      */
     @DeleteMapping("/products/{productId}")
-    public ApiResult<Void> deleteProduct(@PathVariable long productId) {
-        products.delete(productId);
+    public ApiResult<Void> deleteProduct(@PathVariable long productId, AuthPrincipal principal) {
+        products.delete(productId, principal.userId());
         return ApiResult.success("Product deleted", null);
     }
 
@@ -154,9 +156,10 @@ public class AdminCatalogProductController {
 
     @PostMapping("/products/{productId}/variants")
     public ResponseEntity<ApiResult<CatalogVariant>> createVariant(
-            @PathVariable long productId, @Valid @RequestBody VariantRequest request) {
+            @PathVariable long productId, @Valid @RequestBody VariantRequest request,
+            AuthPrincipal principal) {
 
-        CatalogVariant created = variants.create(productId, request.toFields());
+        CatalogVariant created = variants.create(productId, request.toFields(), principal.userId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResult.success("Variant added", created));
     }
@@ -165,10 +168,11 @@ public class AdminCatalogProductController {
     public ApiResult<CatalogVariant> updateVariant(
             @PathVariable long productId,
             @PathVariable long variantId,
-            @Valid @RequestBody VariantRequest request) {
+            @Valid @RequestBody VariantRequest request,
+            AuthPrincipal principal) {
 
         return ApiResult.success("Variant updated",
-                variants.update(productId, variantId, request.toFields()));
+                variants.update(productId, variantId, request.toFields(), principal.userId()));
     }
 
     // ---------- images ----------
@@ -180,24 +184,27 @@ public class AdminCatalogProductController {
      */
     @PostMapping("/products/{productId}/images")
     public ResponseEntity<ApiResult<CatalogImageResponse>> addImage(
-            @PathVariable long productId, @Valid @RequestBody CatalogImageRequest request) {
+            @PathVariable long productId, @Valid @RequestBody CatalogImageRequest request,
+            AuthPrincipal principal) {
 
-        CatalogImageResponse created = images.add(productId, request.toFields());
+        CatalogImageResponse created = images.add(productId, request.toFields(), principal.userId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResult.success("Image added", created));
     }
 
     @PutMapping("/products/{productId}/images/{imageId}/primary")
     public ApiResult<CatalogImageResponse> makePrimary(
-            @PathVariable long productId, @PathVariable long imageId) {
+            @PathVariable long productId, @PathVariable long imageId, AuthPrincipal principal) {
 
-        return ApiResult.success("Primary image set", images.makePrimary(productId, imageId));
+        return ApiResult.success("Primary image set",
+                images.makePrimary(productId, imageId, principal.userId()));
     }
 
     /** Removes the row and the object behind it; the next image takes over as primary. */
     @DeleteMapping("/products/{productId}/images/{imageId}")
-    public ApiResult<Void> deleteImage(@PathVariable long productId, @PathVariable long imageId) {
-        images.delete(productId, imageId);
+    public ApiResult<Void> deleteImage(@PathVariable long productId, @PathVariable long imageId,
+            AuthPrincipal principal) {
+        images.delete(productId, imageId, principal.userId());
         return ApiResult.success("Image deleted", null);
     }
 
@@ -212,9 +219,11 @@ public class AdminCatalogProductController {
     /** Replaces the whole list; each effect's place in it is its display order. */
     @PutMapping("/products/{productId}/effects")
     public ApiResult<List<CatalogCardEffectResponse>> replaceEffects(
-            @PathVariable long productId, @Valid @RequestBody CatalogCardEffectsRequest request) {
+            @PathVariable long productId, @Valid @RequestBody CatalogCardEffectsRequest request,
+            AuthPrincipal principal) {
 
         return ApiResult.success("Abilities and attacks saved", effects.replace(productId,
-                request.effects().stream().map(CatalogCardEffectRequest::toFields).toList()));
+                request.effects().stream().map(CatalogCardEffectRequest::toFields).toList(),
+                principal.userId()));
     }
 }

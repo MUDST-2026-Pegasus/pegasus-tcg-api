@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.setting;
 
+import static org.mockito.Mockito.mock;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -45,7 +47,7 @@ class PlatformSettingServiceTest {
 
     @BeforeEach
     void setUp() {
-        settings = new PlatformSettingService(repository, new ObjectMapper());
+        settings = new PlatformSettingService(repository, new ObjectMapper(), mock(AuditLogService.class));
     }
 
     @Nested
