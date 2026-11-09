@@ -17,6 +17,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.pegasus.pegasustcgapi.config.AuthProperties;
 import com.pegasus.pegasustcgapi.dto.auth.AuthResponse;
+import com.pegasus.pegasustcgapi.dto.auth.GoogleLoginRequest;
 import com.pegasus.pegasustcgapi.dto.auth.LoginRequest;
 import com.pegasus.pegasustcgapi.dto.auth.RegisterRequest;
 import com.pegasus.pegasustcgapi.dto.user.UserResponse;
@@ -26,13 +27,17 @@ import com.pegasus.pegasustcgapi.exception.ForbiddenException;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
 import com.pegasus.pegasustcgapi.model.auth.AuthUser;
+import com.pegasus.pegasustcgapi.model.auth.IdentityProvider;
 import com.pegasus.pegasustcgapi.model.auth.IssuedToken;
 import com.pegasus.pegasustcgapi.model.user.RoleCode;
 import com.pegasus.pegasustcgapi.model.auth.StoredToken;
 import com.pegasus.pegasustcgapi.model.auth.TokenPurpose;
+import com.pegasus.pegasustcgapi.model.auth.UserIdentity;
 import com.pegasus.pegasustcgapi.model.user.UserStatus;
+import com.pegasus.pegasustcgapi.repository.auth.UserIdentityRepository;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
 import com.pegasus.pegasustcgapi.security.ClientInfo;
+import com.pegasus.pegasustcgapi.service.auth.GoogleTokenVerifier.GoogleIdentity;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.support.FakePasswordEncoder;
 import java.sql.SQLException;
@@ -77,6 +82,9 @@ class AuthServiceTest {
     private UserRepository users;
 
     @Mock
+    private UserIdentityRepository userIdentities;
+
+    @Mock
     private RoleService roles;
 
     @Mock
@@ -90,6 +98,9 @@ class AuthServiceTest {
 
     @Mock
     private StorageService storageService;
+
+    @Mock
+    private GoogleTokenVerifier googleTokenVerifier;
 
     private Clock clock;
     private AuthService service;
@@ -107,7 +118,9 @@ class AuthServiceTest {
                 LOCKOUT,
                 false);
 
-        service = new AuthService(users, roles, authTokens, jwtService, passwordEncoder, properties, storageService, clock);
+        service = new AuthService(
+                users, userIdentities, roles, authTokens, jwtService,
+                passwordEncoder, properties, storageService, clock, googleTokenVerifier);
     }
 
     @Nested
@@ -281,6 +294,22 @@ class AuthServiceTest {
 
             // The decoy comparison keeps the response time in line with a real account.
             verify(passwordEncoder).matches(eq("guess"), anyString());
+            verifyNoInteractions(authTokens, jwtService);
+        }
+
+        @Test
+        @DisplayName("rejects a Google-only account (passwordHash == null) using decoyHash and returns 401 INVALID_CREDENTIALS")
+        void rejectsPasswordlessAccountWithDecoyHash() {
+            given(users.findByEmail("googleuser@gmail.com")).willReturn(Optional.of(
+                    anActiveUser().withId(USER_ID).withEmail("googleuser@gmail.com").withoutPassword().build()));
+            givenAttempt(1);
+
+            assertThatThrownBy(() -> service.login(new LoginRequest("googleuser@gmail.com", "any-password"), CLIENT))
+                    .isInstanceOfSatisfying(UnauthorizedException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INVALID_CREDENTIALS));
+
+            verify(passwordEncoder).matches(eq("any-password"), anyString());
+            verify(users, never()).recordSuccessfulLogin(anyLong(), any());
             verifyNoInteractions(authTokens, jwtService);
         }
 
@@ -630,6 +659,99 @@ class AuthServiceTest {
             assertThatThrownBy(() -> service.currentUser(USER_ID))
                     .isInstanceOfSatisfying(NotFoundException.class,
                             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.USER_NOT_FOUND));
+        }
+    }
+
+    @Nested
+    @DisplayName("googleSignIn & username generator")
+    class GoogleSignIn {
+
+        @Test
+        @DisplayName("generated usernames match ^[a-z0-9_]{3,50}$, start with user_ and have 6 random [a-z0-9] chars")
+        void generatesValidRandomUsernames() {
+            for (int i = 0; i < 100; i++) {
+                String generated = service.generateUsername();
+                assertThat(generated)
+                        .startsWith("user_")
+                        .matches("^[a-z0-9_]{3,50}$")
+                        .matches("^user_[a-z0-9]{6}$");
+            }
+        }
+
+        @Test
+        @DisplayName("retries with a new random username when uq_user_account_username collides")
+        void retriesWhenGeneratedUsernameCollides() {
+            GoogleIdentity googleUser = new GoogleIdentity("sub-new", "new@gmail.com", true, "   ", null);
+            given(googleTokenVerifier.verify("google-cred")).willReturn(googleUser);
+            given(userIdentities.findByProviderAndSubject(IdentityProvider.GOOGLE, "sub-new"))
+                    .willReturn(Optional.empty());
+            given(users.findByEmail("new@gmail.com")).willReturn(Optional.empty());
+            given(users.existsByEmail("new@gmail.com")).willReturn(false);
+
+            DuplicateKeyException usernameCollision = new DuplicateKeyException(
+                    "duplicate",
+                    new SQLException("duplicate key value violates unique constraint \"uq_user_account_username\""));
+            given(users.insert(any()))
+                    .willThrow(usernameCollision)
+                    .willThrow(usernameCollision)
+                    .willReturn(USER_ID);
+            givenStoredUser(anActiveUser().withId(USER_ID).withoutPassword().build());
+            givenIssuedTokens();
+
+            AuthService.GoogleAuthResult result =
+                    service.loginWithGoogle(new GoogleLoginRequest("google-cred"), CLIENT);
+
+            assertThat(result.created()).isTrue();
+            ArgumentCaptor<UserRepository.NewUser> captor =
+                    ArgumentCaptor.forClass(UserRepository.NewUser.class);
+            verify(users, org.mockito.Mockito.times(3)).insert(captor.capture());
+
+            for (UserRepository.NewUser attempt : captor.getAllValues()) {
+                assertThat(attempt.username()).matches("^user_[a-z0-9]{6}$");
+                assertThat(attempt.displayName())
+                        .as("blank Google name falls back to the generated username")
+                        .isEqualTo(attempt.username());
+                assertThat(attempt.passwordHash()).isNull();
+            }
+        }
+
+        @Test
+        @DisplayName("truncates Google display_name to 100 characters when longer")
+        void truncatesLongDisplayName() {
+            String longName = "A".repeat(150);
+            String resolved = AuthService.resolveDisplayName(longName, "user_abc123");
+            assertThat(resolved).hasSize(100).isEqualTo("A".repeat(100));
+            assertThat(AuthService.resolveDisplayName(null, "user_abc123")).isEqualTo("user_abc123");
+            assertThat(AuthService.resolveDisplayName("   ", "user_abc123")).isEqualTo("user_abc123");
+        }
+
+        @Test
+        @DisplayName("falls back to login when concurrent sign-up hits uq_user_identity_subject")
+        void fallsBackToLoginOnDuplicateIdentitySubjectRace() {
+            GoogleIdentity googleUser = new GoogleIdentity("sub-race", "race@gmail.com", true, "Race User", null);
+            UserIdentity createdByPeer = new UserIdentity(
+                    99L, USER_ID, IdentityProvider.GOOGLE, "sub-race", NOW_AT, NOW_AT);
+            AuthUser stored = anActiveUser().withId(USER_ID).withEmail("race@gmail.com").withoutPassword().build();
+
+            given(googleTokenVerifier.verify("google-cred")).willReturn(googleUser);
+            given(userIdentities.findByProviderAndSubject(IdentityProvider.GOOGLE, "sub-race"))
+                    .willReturn(Optional.empty(), Optional.of(createdByPeer));
+            given(users.findByEmail("race@gmail.com")).willReturn(Optional.empty());
+            given(users.existsByEmail("race@gmail.com")).willReturn(false);
+            given(users.insert(any())).willReturn(USER_ID);
+            given(userIdentities.insert(eq(USER_ID), eq(IdentityProvider.GOOGLE), eq("sub-race"), any()))
+                    .willThrow(new DuplicateKeyException(
+                            "duplicate",
+                            new SQLException("duplicate key value violates unique constraint \"uq_user_identity_subject\"")));
+            givenStoredUser(stored);
+            givenIssuedTokens();
+
+            AuthService.GoogleAuthResult result =
+                    service.loginWithGoogle(new GoogleLoginRequest("google-cred"), CLIENT);
+
+            assertThat(result.created()).isFalse();
+            verify(users).recordSuccessfulLogin(USER_ID, NOW_AT);
+            verify(userIdentities).updateLastLoginAt(99L, NOW_AT);
         }
     }
 

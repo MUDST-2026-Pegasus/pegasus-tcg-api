@@ -4,6 +4,7 @@ import static org.mockito.Mockito.reset;
 
 import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
+import com.pegasus.pegasustcgapi.service.auth.GoogleTokenVerifier;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -76,10 +77,14 @@ public abstract class PostgresIntegrationTest {
     @MockitoSpyBean
     protected InventoryPort inventoryPort;
 
+    /** A spy, so integration tests can stub Google ID token verification without calling Google. */
+    @MockitoSpyBean
+    protected GoogleTokenVerifier googleTokenVerifier;
+
     @BeforeEach
     void resetSharedState() {
         clock.reset();
-        reset(ledgerPort, inventoryPort);
+        reset(ledgerPort, inventoryPort, googleTokenVerifier);
     }
 
     @AfterEach

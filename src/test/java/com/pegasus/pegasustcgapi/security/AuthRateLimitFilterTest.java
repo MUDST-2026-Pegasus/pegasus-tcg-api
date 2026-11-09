@@ -21,8 +21,8 @@ class AuthRateLimitFilterTest {
     @Test
     void theFourthPasswordCheckInAMinuteFromOneAddressIs429WhateverTheAccount() throws Exception {
         assertThat(send(post("/api/v1/auth/login", "203.0.113.5"))).isEqualTo(200);
+        assertThat(send(post("/api/v1/auth/google", "203.0.113.5"))).isEqualTo(200);
         assertThat(send(post("/api/v1/auth/register", "203.0.113.5"))).isEqualTo(200);
-        assertThat(send(post("/api/v1/auth/password/reset", "203.0.113.5"))).isEqualTo(200);
 
         MockHttpServletResponse refused = new MockHttpServletResponse();
         filter.doFilter(post("/api/v1/auth/password/change", "203.0.113.5"), refused, new MockFilterChain());

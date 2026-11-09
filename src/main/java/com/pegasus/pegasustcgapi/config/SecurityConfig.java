@@ -66,6 +66,7 @@ public class SecurityConfig {
     private static final String[] PUBLIC_POST_ENDPOINTS = {
         ApiPaths.AUTH + "/register",
         ApiPaths.AUTH + "/login",
+        ApiPaths.AUTH + "/google",
         ApiPaths.AUTH + "/refresh",
         ApiPaths.AUTH + "/logout",
         ApiPaths.AUTH + "/password/forgot",
