@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.pricing;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.service.pricing.MarketPricingService;
 import com.pegasus.pegasustcgapi.service.pricing.MarketPricingService.RunResult;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Market pricing by hand, for the admin who cannot wait until 03:00. */
+@SecurityRequirement(name = "BearerAuth")
 @RestController
 @RequestMapping(ApiPaths.ADMIN + "/pricing")
 @PreAuthorize("hasRole('ADMIN')")

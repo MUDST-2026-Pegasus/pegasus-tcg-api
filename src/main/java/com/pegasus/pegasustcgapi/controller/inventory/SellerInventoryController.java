@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.inventory;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.inventory.InventoryMovementResponse;
@@ -34,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
  * The signed-in seller's stock as physical cards, wherever they sit — on a
  * listing or in hand — and the ledger of every card in and out.
  */
+@SecurityRequirement(name = "BearerAuth")
 @RestController
 @RequestMapping(ApiPaths.SELLERS_ME)
 public class SellerInventoryController {
