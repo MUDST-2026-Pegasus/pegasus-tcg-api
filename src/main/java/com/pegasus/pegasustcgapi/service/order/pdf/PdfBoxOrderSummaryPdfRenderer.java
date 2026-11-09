@@ -12,8 +12,6 @@ import java.time.format.FormatStyle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
-import java.util.stream.Collectors;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -47,7 +45,6 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
     private static final Color PRIMARY = new Color(0, 105, 168);
     private static final Color INK = new Color(9, 11, 12);
     private static final Color MUTED = new Color(103, 120, 124);
-    private static final Color PANEL = new Color(245, 249, 252);
     private static final Color BORDER = new Color(227, 231, 232);
 
     @Override
@@ -61,10 +58,6 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             drawBuyer(canvas, document);
             drawSellerSections(canvas, document);
             drawTotals(canvas, document);
-            if (document.role() != OrderSummaryPdfRole.BUYER) {
-                drawRoleOverview(canvas, document);
-                drawFullDocumentNote(canvas);
-            }
 
             canvas.close();
             drawFooters(pdf, fonts, document);
@@ -219,47 +212,6 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         canvas.move(height + 8f);
     }
 
-    private void drawRoleOverview(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
-        canvas.ensure(67f);
-        canvas.panel(57f);
-        float titleY = canvas.y() - 16f;
-        String heading;
-        String firstLine;
-        String secondLine;
-        OrderSummaryPdfDocument.Shipping shipping = document.shipping();
-        if (document.role() == OrderSummaryPdfRole.SELLER) {
-            heading = "FULFILLMENT & PAYOUT";
-            String paymentStatus = document.payment() == null ? document.status() : valueOrUnavailable(document.payment().status());
-            firstLine = "Payment " + paymentStatus.toLowerCase(Locale.ROOT) + " · Prepare this order for dispatch";
-            secondLine = "Carrier: " + valueOrUnavailable(shipping == null ? null : shipping.carrierName())
-                    + " · Tracking: " + valueOrUnavailable(shipping == null ? null : shipping.trackingNumber());
-        } else {
-            heading = "RISK & AUDIT";
-            OrderSummaryPdfDocument.Payment payment = document.payment();
-            firstLine = payment == null || !payment.hasAnyValue()
-                    ? "Order status: " + document.status()
-                    : "Payment: " + valueOrUnavailable(payment.method()) + " · " + valueOrUnavailable(payment.status())
-                            + " · " + money(payment.amount(), document.currency());
-            secondLine = statusHistorySummary(document.statusHistory());
-        }
-        canvas.text(heading, MARGIN + 12f, titleY, 9f, canvas.fonts.bold, INK);
-        canvas.text(firstLine, MARGIN + 12f, titleY - 14f, 8.2f, canvas.fonts.regular, MUTED);
-        canvas.text(ellipsis(secondLine, 106), MARGIN + 12f, titleY - 27f, 8.2f, canvas.fonts.regular, MUTED);
-        canvas.move(69f);
-    }
-
-    private void drawFullDocumentNote(Canvas canvas) throws IOException {
-        canvas.ensure(66f);
-        canvas.panel(54f);
-        float y = canvas.y() - 16f;
-        canvas.text("DOCUMENT NOTE", MARGIN + 12f, y, 9f, canvas.fonts.bold, INK);
-        String note = canvas.document.role() == OrderSummaryPdfRole.SELLER
-                ? "Operational copy. Buyer delivery information must only be used to fulfill this order and must not be shared."
-                : "Internal administrative record. Includes account, commission, dispute, and audit information. Do not distribute externally.";
-        canvas.text(note, MARGIN + 12f, y - 15f, 8.1f, canvas.fonts.regular, MUTED);
-        canvas.move(66f);
-    }
-
     private void drawTotalRow(
             Canvas canvas, String label, BigDecimal value, String currency, float labelX, float amountX, float y, boolean emphasize)
             throws IOException {
@@ -294,23 +246,6 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
         return details.isEmpty() ? null : String.join(" · ", details);
     }
 
-    private static String statusHistorySummary(List<OrderSummaryPdfDocument.StatusEvent> history) {
-        if (history.isEmpty()) {
-            return "Status history: No events recorded";
-        }
-        StringBuilder summary = new StringBuilder("Status history: ");
-        for (int index = 0; index < history.size(); index++) {
-            if (index > 0) summary.append(" -> ");
-            summary.append(history.get(index).status());
-        }
-        String auditNotes = history.stream().map(OrderSummaryPdfDocument.StatusEvent::note)
-                .filter(Objects::nonNull).distinct().collect(Collectors.joining(" · "));
-        if (!auditNotes.isBlank()) {
-            summary.append(" · ").append(auditNotes);
-        }
-        return summary.toString();
-    }
-
     private static String money(BigDecimal value, String currency) {
         BigDecimal amount = value == null ? BigDecimal.ZERO : value;
         if ("THB".equals(currency)) {
@@ -333,13 +268,6 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
 
     private static String valueOrUnavailable(String value) {
         return value == null ? "Not available" : value;
-    }
-
-    private static String ellipsis(String value, int maxLength) {
-        if (value == null || value.length() <= maxLength) {
-            return value;
-        }
-        return value.substring(0, maxLength - 1) + "…";
     }
 
     private static String roleCopy(OrderSummaryPdfDocument document) {
@@ -548,19 +476,6 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             content.setNonStrokingColor(color);
             content.addRect(x, y, width, height);
             content.fill();
-        }
-
-        private void panel(float height) throws IOException {
-            panelAt(MARGIN, y, CONTENT_WIDTH, height);
-        }
-
-        private void panelAt(float x, float top, float width, float height) throws IOException {
-            content.setNonStrokingColor(PANEL);
-            roundedRect(x, top, width, height, 6f);
-            content.fill();
-            content.setStrokingColor(BORDER);
-            roundedRect(x, top, width, height, 6f);
-            content.stroke();
         }
 
         private void line(float atY) throws IOException {

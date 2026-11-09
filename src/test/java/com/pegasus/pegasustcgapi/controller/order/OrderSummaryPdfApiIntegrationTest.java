@@ -74,9 +74,16 @@ class OrderSummaryPdfApiIntegrationTest extends PostgresIntegrationTest {
         assertPdf(buyerPdf);
         assertPdf(sellerPdf);
         assertPdf(adminPdf);
-        assertThat(pdfText(buyerPdf)).contains("Buyer copy").doesNotContain("Platform commission", "0812345678");
-        assertThat(pdfText(sellerPdf)).contains("Seller copy", "FULFILLMENT & PAYOUT", "Platform commission");
-        assertThat(pdfText(adminPdf)).contains("Internal admin copy", "RISK & AUDIT");
+        String buyerText = pdfText(buyerPdf);
+        String sellerText = pdfText(sellerPdf);
+        String adminText = pdfText(adminPdf);
+        assertThat(buyerText).contains("Buyer copy").doesNotContain("Platform commission", "0812345678");
+        assertThat(sellerText).contains("Seller copy", "Platform commission");
+        assertThat(adminText).contains("Internal admin copy");
+        for (String text : new String[] {buyerText, sellerText, adminText}) {
+            assertThat(text).contains("PEGASUS")
+                    .doesNotContain("DELIVERY OVERVIEW", "FULFILLMENT & PAYOUT", "RISK & AUDIT", "DOCUMENT NOTE");
+        }
         assertThat(buyerPdf.header("content-disposition").orElse("")).contains("order-summary-" + orderNumber + ".pdf");
     }
 
