@@ -22,6 +22,7 @@ import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionBid;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
+import com.pegasus.pegasustcgapi.model.auction.BidStatus;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.listing.ListingUnit;
 import com.pegasus.pegasustcgapi.model.listing.ListingUnitStatus;
@@ -49,6 +50,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -142,6 +144,9 @@ public class SellerAuctionService {
         var bundle = auctionItemMapper.buildAuctionItems(variantIds, List.of());
         // Same "U-xxxx" code as the detail page and the stock picker [TCG-639]
         Map<Long, UUID> publicUids = units.findPublicUids(rows.stream().map(Auction::listingUnitId).toList());
+        // "ดูคำสั่งซื้อ" opens /seller/orders/{seller_order.id}, not the buyer's sales_order id
+        Map<Long, Long> sellerOrderIds = auctions.findSellerOrderIds(seller.id(), rows.stream()
+                .map(Auction::salesOrderId).filter(Objects::nonNull).toList());
 
         List<SellerAuctionRow> listRows = rows.stream().map(a -> {
             AuctionItem item = bundle.buildAuctionItem(a.catalogVariantId(), a.condition());
@@ -160,7 +165,7 @@ public class SellerAuctionService {
                     a.status(),
                     a.closedOrEndsAt(),
                     deadline,
-                    a.salesOrderId());
+                    a.salesOrderId() == null ? null : sellerOrderIds.get(a.salesOrderId()));
         }).toList();
 
         return new SellerAuctionPage(PageResponse.of(listRows, paging.page(), paging.size(), total), statusCounts, kpis, now);
@@ -382,6 +387,14 @@ public class SellerAuctionService {
         throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "Listing unit identifier is required");
     }
 
+    /** The shop's seller_order id behind this auction's buyer order, for "ดูคำสั่งซื้อ". */
+    private Long sellerOrderId(Auction a, SellerProfile seller) {
+        if (a.salesOrderId() == null) {
+            return null;
+        }
+        return auctions.findSellerOrderIds(seller.id(), List.of(a.salesOrderId())).get(a.salesOrderId());
+    }
+
     private OffsetDateTime resolveDeadline(Auction a) {
         return a.status() == AuctionStatus.AWAITING_PAYMENT ? a.paymentDueAt() : null;
     }
@@ -410,7 +423,8 @@ public class SellerAuctionService {
                 String uname = usernames.get(b.bidderId());
                 String alias = AuctionItemMapper.maskUsername(uname);
                 String initials = AuctionItemMapper.bidderInitials(uname);
-                bids.add(new Bid(alias, initials, false, b.amount(), b.createdAt()));
+                bids.add(new Bid(alias, initials, false, b.amount(), b.createdAt(),
+                        b.status() == BidStatus.CANCELLED));
             }
         }
 
@@ -447,7 +461,7 @@ public class SellerAuctionService {
                 a.firstBidAt(),
                 winnerAlias,
                 a.paymentDueAt(),
-                a.salesOrderId(),
+                sellerOrderId(a, seller),
                 bids,
                 a.status() == AuctionStatus.SUSPENDED ? a.suspendedReason() : null,
                 now);

@@ -153,6 +153,21 @@ public class AuctionRepository {
                 .where(AUCTION.ID.eq(auctionId)).execute();
     }
 
+    /**
+     * The shop's sub-order id for each buyer order, keyed by {@code sales_order.id}. Auctions store the
+     * buyer order, but the seller's order pages are keyed by {@code seller_order.id}.
+     */
+    public Map<Long, Long> findSellerOrderIds(long sellerProfileId, Collection<Long> salesOrderIds) {
+        if (salesOrderIds.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.select(SELLER_ORDER.SALES_ORDER_ID, SELLER_ORDER.ID)
+                .from(SELLER_ORDER)
+                .where(SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId))
+                .and(SELLER_ORDER.SALES_ORDER_ID.in(salesOrderIds))
+                .fetchMap(SELLER_ORDER.SALES_ORDER_ID, SELLER_ORDER.ID);
+    }
+
     public void markSoldForOrder(long auctionId, long orderId) {
         dsl.update(AUCTION).set(AUCTION.STATUS, AuctionStatus.SOLD.name())
                 .set(AUCTION.VERSION, AUCTION.VERSION.plus(1))
@@ -658,8 +673,13 @@ public class AuctionRepository {
     }
 
     public int countBids(long auctionId) {
-        return dsl.fetchCount(AUCTION_BID,
-                AUCTION_BID.AUCTION_ID.eq(auctionId).and(AUCTION_BID.STATUS.eq(BidStatus.ACTIVE.name())));
+        return countBids(auctionId, false);
+    }
+
+    /** Bid count; with {@code includeCancelled} also the bids a suspension cancelled. */
+    public int countBids(long auctionId, boolean includeCancelled) {
+        Condition status = includeCancelled ? DSL.noCondition() : AUCTION_BID.STATUS.eq(BidStatus.ACTIVE.name());
+        return dsl.fetchCount(AUCTION_BID, AUCTION_BID.AUCTION_ID.eq(auctionId).and(status));
     }
 
     /** Whether this user already has an active bid here, for {@code bidder_count}. */
