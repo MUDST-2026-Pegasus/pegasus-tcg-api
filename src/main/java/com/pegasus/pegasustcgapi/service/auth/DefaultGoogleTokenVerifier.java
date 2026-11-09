@@ -100,14 +100,7 @@ public class DefaultGoogleTokenVerifier implements GoogleTokenVerifier {
     }
 
     private static boolean isEmailVerified(Jwt jwt) {
-        Object claim = jwt.getClaims().get("email_verified");
-        if (claim instanceof Boolean b) {
-            return b;
-        }
-        if (claim instanceof String s) {
-            return Boolean.parseBoolean(s);
-        }
-        return false;
+        return Boolean.TRUE.equals(jwt.getClaims().get("email_verified"));
     }
 
     private static OAuth2TokenValidator<Jwt> googleValidator(String clientId, Clock clock) {
@@ -120,7 +113,7 @@ public class DefaultGoogleTokenVerifier implements GoogleTokenVerifier {
                         new OAuth2Error("invalid_token", "Missing exp claim", null));
 
         OAuth2TokenValidator<Jwt> audienceValidator = new JwtClaimValidator<List<String>>(
-                JwtClaimNames.AUD, aud -> aud != null && aud.contains(clientId));
+                JwtClaimNames.AUD, aud -> aud != null && aud.size() == 1 && clientId.equals(aud.get(0)));
 
         OAuth2TokenValidator<Jwt> issuerValidator = token -> {
             String iss = token.getClaimAsString(JwtClaimNames.ISS);

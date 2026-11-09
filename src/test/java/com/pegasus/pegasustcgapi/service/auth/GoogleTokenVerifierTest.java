@@ -143,6 +143,17 @@ class GoogleTokenVerifierTest {
     }
 
     @Test
+    @DisplayName("rejects a token with multiple audiences even when one matches clientId with 401 GOOGLE_TOKEN_INVALID")
+    void rejectsMultipleAudiences() {
+        String multiAudToken = mint(googleEncoder, claims -> claims
+                .audience(List.of(CLIENT_ID, "some-other-client-id.apps.googleusercontent.com")));
+
+        assertThatThrownBy(() -> verifier.verify(multiAudToken))
+                .isInstanceOfSatisfying(UnauthorizedException.class,
+                        e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.GOOGLE_TOKEN_INVALID));
+    }
+
+    @Test
     @DisplayName("rejects a token with wrong issuer with 401 GOOGLE_TOKEN_INVALID")
     void rejectsWrongIssuer() {
         String wrongIssToken = mint(googleEncoder, claims -> claims
@@ -154,12 +165,17 @@ class GoogleTokenVerifierTest {
     }
 
     @Test
-    @DisplayName("rejects a token when email_verified is false with 403 GOOGLE_EMAIL_NOT_VERIFIED")
+    @DisplayName("rejects a token when email_verified is false or non-boolean with 403 GOOGLE_EMAIL_NOT_VERIFIED")
     void rejectsUnverifiedEmail() {
         String unverifiedToken = mint(googleEncoder, claims -> claims
                 .claim("email_verified", false));
+        String stringVerifiedToken = mint(googleEncoder, claims -> claims
+                .claim("email_verified", "true"));
 
         assertThatThrownBy(() -> verifier.verify(unverifiedToken))
+                .isInstanceOfSatisfying(ForbiddenException.class,
+                        e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.GOOGLE_EMAIL_NOT_VERIFIED));
+        assertThatThrownBy(() -> verifier.verify(stringVerifiedToken))
                 .isInstanceOfSatisfying(ForbiddenException.class,
                         e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.GOOGLE_EMAIL_NOT_VERIFIED));
     }
