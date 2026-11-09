@@ -5,6 +5,9 @@ import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.dto.audit.AuditLogResponse;
+import com.pegasus.pegasustcgapi.dto.audit.AuditLogSummaryResponse;
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
+import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.model.audit.AuditAction;
 import com.pegasus.pegasustcgapi.model.audit.AuditLogFilter;
 import com.pegasus.pegasustcgapi.model.audit.AuditTargetType;
@@ -66,5 +69,25 @@ public class AdminAuditLogController {
 
         AuditLogFilter filter = new AuditLogFilter(actorUserId, action, targetType, targetId, from, to, q);
         return ApiResult.success(audit.search(filter, Paging.of(page, size)));
+    }
+
+    @Operation(summary = "Summarise the audit log over a time window",
+            description = "Totals, admin vs system, counts per action and the three most active admins.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Counts for the window"),
+            @ApiResponse(responseCode = "400", description = "Malformed date, or from is not before to"),
+            @ApiResponse(responseCode = "403", description = "Caller is not an admin")
+    })
+    @GetMapping("/summary")
+    public ApiResult<AuditLogSummaryResponse> summary(
+            @Parameter(description = "Inclusive, ISO-8601")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
+            @Parameter(description = "Exclusive, ISO-8601")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to) {
+
+        if (from != null && to != null && !from.isBefore(to)) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "from must be before to");
+        }
+        return ApiResult.success(audit.summary(from, to));
     }
 }

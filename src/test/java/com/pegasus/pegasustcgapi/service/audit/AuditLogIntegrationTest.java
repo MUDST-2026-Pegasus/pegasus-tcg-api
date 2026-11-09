@@ -15,6 +15,8 @@ import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import com.pegasus.pegasustcgapi.service.user.RoleService;
 import com.pegasus.pegasustcgapi.support.ApiClient;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -144,6 +146,55 @@ class AuditLogIntegrationTest extends PostgresIntegrationTest {
 
         AuditLogRecord redacted = rowsFor(AuditAction.SETTING_UPDATED, account).getLast();
         assertThat(redacted.getMetadata().data()).contains("redacted").doesNotContain("before");
+    }
+
+    private void row(OffsetDateTime at, Long actor, AuditAction action) {
+        dsl.insertInto(AUDIT_LOG)
+                .set(AUDIT_LOG.OCCURRED_AT, at)
+                .set(AUDIT_LOG.ACTOR_USER_ID, actor)
+                .set(AUDIT_LOG.ACTION, action.name())
+                .set(AUDIT_LOG.TARGET_TYPE, action.targetType().name())
+                .set(AUDIT_LOG.TARGET_ID, "1")
+                .set(AUDIT_LOG.SUMMARY, "seeded")
+                .execute();
+    }
+
+    @Test
+    @DisplayName("GET /admin/audit-logs/summary counts one window: totals, admin vs system, per action, top admins")
+    void summaryEndpoint() {
+        AuthPrincipal busy = data.admin();
+        AuthPrincipal quiet = data.admin();
+        // A day far in the past that no other test writes to.
+        OffsetDateTime day = OffsetDateTime.of(2001, 2, 3, 0, 0, 0, 0, ZoneOffset.ofHours(7));
+        row(day.plusHours(1), busy.userId(), AuditAction.SETTING_UPDATED);
+        row(day.plusHours(2), busy.userId(), AuditAction.USER_ROLE_GRANTED);
+        row(day.plusHours(3), quiet.userId(), AuditAction.SETTING_UPDATED);
+        row(day.plusHours(4), null, AuditAction.ORDERS_AUTO_RELEASED);
+        row(day.plusDays(1), busy.userId(), AuditAction.SETTING_UPDATED); // outside the window
+
+        ApiClient api = new ApiClient(port);
+        String bearer = data.bearer(busy);
+        String window = "?from=" + day.toInstant() + "&to=" + day.plusDays(1).toInstant();
+
+        ApiClient.Response response = api.get("/api/v1/admin/audit-logs/summary" + window, bearer);
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode summary = response.data();
+        assertThat(summary.path("total").asLong()).isEqualTo(4);
+        assertThat(summary.path("byAdmins").asLong()).isEqualTo(3);
+        assertThat(summary.path("bySystem").asLong()).isEqualTo(1);
+        assertThat(summary.path("byAction").path("SETTING_UPDATED").asLong()).isEqualTo(2);
+        assertThat(summary.path("byAction").path("ORDERS_AUTO_RELEASED").asLong()).isEqualTo(1);
+        JsonNode top = summary.path("topActors");
+        assertThat(top.size()).isEqualTo(2);
+        assertThat(top.get(0).path("userId").asLong()).isEqualTo(busy.userId());
+        assertThat(top.get(0).path("count").asLong()).isEqualTo(2);
+        assertThat(top.get(0).path("username").asString()).isEqualTo(busy.username());
+
+        String backwards = "?from=" + day.plusDays(1).toInstant() + "&to=" + day.toInstant();
+        assertThat(api.get("/api/v1/admin/audit-logs/summary" + backwards, bearer).status()).isEqualTo(400);
+        AuthPrincipal buyer = data.buyerWithoutAddress();
+        assertThat(api.get("/api/v1/admin/audit-logs/summary" + window, data.bearer(buyer)).status())
+                .isEqualTo(403);
     }
 
     @Test

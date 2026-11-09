@@ -74,6 +74,52 @@ public class AuditLogRepository {
                         r.get(IP_TEXT)));
     }
 
+    /** Rows per action in {@code [from, to)}, split by whether a person or the system did it. */
+    public List<ActionCount> countByAction(OffsetDateTime from, OffsetDateTime to) {
+        var a = AUDIT_LOG.as("a");
+        Field<Boolean> bySystem = a.ACTOR_USER_ID.isNull().as("by_system");
+        Field<Integer> count = DSL.count().as("n");
+        return dsl.select(a.ACTION, bySystem, count)
+                .from(a)
+                .where(window(from, to))
+                .groupBy(a.ACTION, a.ACTOR_USER_ID.isNull())
+                .fetch(r -> new ActionCount(r.get(a.ACTION), r.get(bySystem), r.get(count)));
+    }
+
+    /** The people with the most rows in {@code [from, to)}, most first; ties go to the lower id. */
+    public List<ActorCount> topActors(OffsetDateTime from, OffsetDateTime to, int limit) {
+        var a = AUDIT_LOG.as("a");
+        var u = USER_ACCOUNT.as("u");
+        Field<Integer> count = DSL.count().as("n");
+        return dsl.select(a.ACTOR_USER_ID, u.USERNAME, u.DISPLAY_NAME, count)
+                .from(a)
+                .join(u).on(u.ID.eq(a.ACTOR_USER_ID))
+                .where(window(from, to))
+                .groupBy(a.ACTOR_USER_ID, u.USERNAME, u.DISPLAY_NAME)
+                .orderBy(count.desc(), a.ACTOR_USER_ID.asc())
+                .limit(limit)
+                .fetch(r -> new ActorCount(r.get(a.ACTOR_USER_ID), r.get(u.USERNAME),
+                        r.get(u.DISPLAY_NAME), r.get(count)));
+    }
+
+    private static Condition window(OffsetDateTime from, OffsetDateTime to) {
+        var a = AUDIT_LOG.as("a");
+        Condition c = DSL.noCondition();
+        if (from != null) {
+            c = c.and(a.OCCURRED_AT.ge(from));
+        }
+        if (to != null) {
+            c = c.and(a.OCCURRED_AT.lt(to));
+        }
+        return c;
+    }
+
+    public record ActionCount(String action, boolean bySystem, int count) {
+    }
+
+    public record ActorCount(long userId, String username, String displayName, int count) {
+    }
+
     public long count(AuditLogFilter filter) {
         return dsl.fetchCount(AUDIT_LOG.as("a"), condition(filter));
     }
