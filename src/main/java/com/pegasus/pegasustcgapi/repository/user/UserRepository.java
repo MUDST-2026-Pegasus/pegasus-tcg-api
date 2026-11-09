@@ -123,7 +123,7 @@ public class UserRepository {
      * different columns.
      *
      * <p>Recognised keys: {@code displayName}, {@code bio}, {@code phone},
-     * {@code avatarUrl}. A {@code null} value in the map sets the column to
+     * {@code avatarUrl}, {@code bannerUrl}. A {@code null} value in the map sets the column to
      * SQL {@code NULL} (clears the field).
      */
     public void updateProfileSelective(long userId, Map<String, Object> fields) {
@@ -135,6 +135,7 @@ public class UserRepository {
                 case "phone"       -> columns.put(USER_ACCOUNT.PHONE, value);
                 case "phonePublic" -> columns.put(USER_ACCOUNT.PHONE_PUBLIC, value);
                 case "avatarUrl"   -> columns.put(USER_ACCOUNT.AVATAR_URL, value);
+                case "bannerUrl"   -> columns.put(USER_ACCOUNT.BANNER_URL, value);
             }
         });
         if (columns.isEmpty()) return;
@@ -155,6 +156,12 @@ public class UserRepository {
                 .where(USER_ACCOUNT.AVATAR_URL.eq(avatarUrl))
                 .and(USER_ACCOUNT.ID.ne(userId))
                 .and(USER_ACCOUNT.DELETED_AT.isNull()));
+    }
+
+    public boolean bannerKeyUsedByAnother(String bannerUrl, long userId) {
+        return dsl.fetchExists(dsl.selectOne().from(USER_ACCOUNT)
+                .where(USER_ACCOUNT.BANNER_URL.eq(bannerUrl))
+                .and(USER_ACCOUNT.ID.ne(userId)));
     }
 
     public void recordSuccessfulLogin(long userId, OffsetDateTime at) {
@@ -278,7 +285,7 @@ public class UserRepository {
                 r.getLastLoginAt(),
                 r.getLockedUntil(),
                 r.getCreatedAt(),
-                Set.of(), r.getPhonePublic(), r.getEmailVerifiedAt());
+                Set.of(), r.getPhonePublic(), r.getEmailVerifiedAt(), r.getBannerUrl());
     }
 
     /** Fields a registration supplies; everything else comes from column defaults. */

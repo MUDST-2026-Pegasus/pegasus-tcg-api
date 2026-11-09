@@ -32,7 +32,9 @@ public enum UploadPurpose {
     /** Seller's bank book image for verification. */
     SELLER_VERIFICATION("verifications", null, Allowed.IMAGES, 5 * Allowed.MB),
     /** Profile avatar image uploaded by an account. */
-    AVATAR_IMAGE("avatars", null, Allowed.IMAGES, 5 * Allowed.MB);
+    AVATAR_IMAGE("avatars", null, Allowed.IMAGES, 5 * Allowed.MB),
+    /** Seller storefront banner. */
+    SHOP_BANNER("banners", RoleCode.SELLER, Allowed.IMAGES, 5 * Allowed.MB);
 
     /** Enum constants are built before the enum's own statics, so these live here. */
     private static final class Allowed {

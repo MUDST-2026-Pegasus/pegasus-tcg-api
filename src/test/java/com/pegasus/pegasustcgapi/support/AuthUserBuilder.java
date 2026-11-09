@@ -24,6 +24,7 @@ public final class AuthUserBuilder {
     private boolean phonePublic;
     private String phone = "+66812345678";
     private String avatarUrl;
+    private String bannerUrl;
     private UserStatus status = UserStatus.ACTIVE;
     private short failedLoginAttempts;
     private OffsetDateTime lastLoginAt;
@@ -103,6 +104,11 @@ public final class AuthUserBuilder {
         return this;
     }
 
+    public AuthUserBuilder withBannerUrl(String value) {
+        this.bannerUrl = value;
+        return this;
+    }
+
     public AuthUserBuilder withRoles(RoleCode... values) {
         this.roles = Set.of(values);
         return this;
@@ -110,6 +116,6 @@ public final class AuthUserBuilder {
 
     public AuthUser build() {
         return new AuthUser(id, email, username, displayName, passwordHash, bio, phone, avatarUrl,
-                status, failedLoginAttempts, lastLoginAt, lockedUntil, CREATED_AT, roles, phonePublic);
+                status, failedLoginAttempts, lastLoginAt, lockedUntil, CREATED_AT, roles, phonePublic, null, bannerUrl);
     }
 }

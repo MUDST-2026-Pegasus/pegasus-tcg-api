@@ -16,6 +16,7 @@ import com.pegasus.pegasustcgapi.dto.auth.AuthResponse;
 import com.pegasus.pegasustcgapi.dto.auth.ChangePasswordRequest;
 import com.pegasus.pegasustcgapi.dto.auth.ResetPasswordRequest;
 import com.pegasus.pegasustcgapi.dto.auth.TokenResponse;
+import com.pegasus.pegasustcgapi.dto.user.UserResponse;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
 import com.pegasus.pegasustcgapi.model.auth.AuthUser;
@@ -116,6 +117,7 @@ class PasswordServiceTest {
         void changesPassword() {
             AuthUser user = anActiveUser().withId(USER_ID).withPassword("current-password").build();
             given(authService.loadWithRoles(USER_ID)).willReturn(user);
+            given(authService.currentUser(USER_ID)).willReturn(UserResponse.from(user));
             given(authService.startSession(user, CLIENT)).willReturn(FRESH_TOKENS);
 
             AuthResponse response = service.change(

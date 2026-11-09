@@ -132,6 +132,7 @@ public class ListingBrowseService {
                 .filter(user -> user.status() == UserStatus.ACTIVE)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.USER_NOT_FOUND));
         return new PublicProfileResponse(owner.username(), owner.displayName(), cards.signed(owner.avatarUrl()),
+                cards.signed(owner.bannerUrl()),
                 owner.phonePublic() ? owner.phone() : null);
     }
 

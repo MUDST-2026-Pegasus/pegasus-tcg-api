@@ -30,7 +30,16 @@ public record AuthUser(
         OffsetDateTime createdAt,
         Set<RoleCode> roles,
         boolean phonePublic,
-        OffsetDateTime emailVerifiedAt) {
+        OffsetDateTime emailVerifiedAt,
+        String bannerUrl) {
+
+    public AuthUser(long id, String email, String username, String displayName, String passwordHash,
+            String bio, String phone, String avatarUrl, UserStatus status, short failedLoginAttempts,
+            OffsetDateTime lastLoginAt, OffsetDateTime lockedUntil, OffsetDateTime createdAt,
+            Set<RoleCode> roles, boolean phonePublic, OffsetDateTime emailVerifiedAt) {
+        this(id, email, username, displayName, passwordHash, bio, phone, avatarUrl, status,
+                failedLoginAttempts, lastLoginAt, lockedUntil, createdAt, roles, phonePublic, emailVerifiedAt, null);
+    }
 
     public AuthUser(long id, String email, String username, String displayName, String passwordHash,
             String bio, String phone, String avatarUrl, UserStatus status, short failedLoginAttempts,
@@ -54,7 +63,7 @@ public record AuthUser(
 
     public AuthUser withRoles(Set<RoleCode> newRoles) {
         return new AuthUser(id, email, username, displayName, passwordHash, bio, phone, avatarUrl,
-                status, failedLoginAttempts, lastLoginAt, lockedUntil, createdAt, newRoles, phonePublic, emailVerifiedAt);
+                status, failedLoginAttempts, lastLoginAt, lockedUntil, createdAt, newRoles, phonePublic, emailVerifiedAt, bannerUrl);
     }
 
     @Override
