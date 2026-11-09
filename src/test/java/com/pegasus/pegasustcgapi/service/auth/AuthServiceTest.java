@@ -753,6 +753,31 @@ class AuthServiceTest {
             verify(users).recordSuccessfulLogin(USER_ID, NOW_AT);
             verify(userIdentities).updateLastLoginAt(99L, NOW_AT);
         }
+
+        @Test
+        @DisplayName("falls back to login when a concurrent sign-up commits between findByProviderAndSubject and findByEmail")
+        void fallsBackToLoginWhenConcurrentSignUpCommitsBeforeFindByEmail() {
+            GoogleIdentity googleUser = new GoogleIdentity("sub-race-2", "race2@gmail.com", true, "Race User", null);
+            UserIdentity createdByPeer = new UserIdentity(
+                    100L, USER_ID, IdentityProvider.GOOGLE, "sub-race-2", NOW_AT, NOW_AT);
+            AuthUser stored = anActiveUser().withId(USER_ID).withEmail("race2@gmail.com").withoutPassword().build();
+
+            given(googleTokenVerifier.verify("google-cred")).willReturn(googleUser);
+            given(userIdentities.findByProviderAndSubject(IdentityProvider.GOOGLE, "sub-race-2"))
+                    .willReturn(Optional.empty());
+            given(users.findByEmail("race2@gmail.com")).willReturn(Optional.of(stored));
+            given(userIdentities.findByUserIdAndProvider(USER_ID, IdentityProvider.GOOGLE))
+                    .willReturn(Optional.of(createdByPeer));
+            givenStoredUser(stored);
+            givenIssuedTokens();
+
+            AuthService.GoogleAuthResult result =
+                    service.loginWithGoogle(new GoogleLoginRequest("google-cred"), CLIENT);
+
+            assertThat(result.created()).isFalse();
+            verify(users).recordSuccessfulLogin(USER_ID, NOW_AT);
+            verify(userIdentities).updateLastLoginAt(100L, NOW_AT);
+        }
     }
 
     private void givenStoredUser(AuthUser user) {

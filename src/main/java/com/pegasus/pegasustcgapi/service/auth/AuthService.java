@@ -215,6 +215,11 @@ public class AuthService {
         }
 
         if (users.existsByEmail(googleUser.email())) {
+            Optional<UserIdentity> raced =
+                    userIdentities.findByProviderAndSubject(IdentityProvider.GOOGLE, googleUser.subject());
+            if (raced.isPresent()) {
+                return new GoogleAuthResult(loginExistingGoogleIdentity(raced.get(), client), false);
+            }
             throw new ConflictException(ErrorCode.EMAIL_ALREADY_USED);
         }
 
@@ -241,7 +246,12 @@ public class AuthService {
         AuthUser userWithRoles = existingUser.withRoles(roles.rolesOf(existingUser.id()));
         requireGoogleAllowed(userWithRoles);
 
-        if (userIdentities.findByUserIdAndProvider(existingUser.id(), IdentityProvider.GOOGLE).isPresent()) {
+        Optional<UserIdentity> existingGoogleIdentity =
+                userIdentities.findByUserIdAndProvider(existingUser.id(), IdentityProvider.GOOGLE);
+        if (existingGoogleIdentity.isPresent()) {
+            if (existingGoogleIdentity.get().providerSubject().equals(googleUser.subject())) {
+                return loginExistingGoogleIdentity(existingGoogleIdentity.get(), client);
+            }
             throw new ConflictException(ErrorCode.GOOGLE_ALREADY_LINKED);
         }
         if (!isGoogleAuthoritativeEmail(googleUser)) {
@@ -262,12 +272,10 @@ public class AuthService {
                 return new AuthResponse(UserResponse.from(current), tokens);
             });
         } catch (DuplicateKeyException e) {
-            if (isIdentitySubjectConflict(e)) {
-                Optional<UserIdentity> raced = userIdentities.findByProviderAndSubject(
-                        IdentityProvider.GOOGLE, googleUser.subject());
-                if (raced.isPresent()) {
-                    return loginExistingGoogleIdentity(raced.get(), client);
-                }
+            Optional<UserIdentity> raced = userIdentities.findByProviderAndSubject(
+                    IdentityProvider.GOOGLE, googleUser.subject());
+            if (raced.isPresent() && raced.get().userId() == existingUser.id()) {
+                return loginExistingGoogleIdentity(raced.get(), client);
             }
             throw new ConflictException(ErrorCode.GOOGLE_ALREADY_LINKED);
         }

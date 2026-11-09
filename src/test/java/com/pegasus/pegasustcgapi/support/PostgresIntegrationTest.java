@@ -43,7 +43,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
                 "pegasus.sale.refresh-cron=-",
                 "pegasus.payment.mock-enabled=true",
                 // Every test calls from localhost; the cap itself is covered by PromoRateLimitFilterTest.
-                "pegasus.promo.rate-limit-per-minute=1000000"
+                "pegasus.promo.rate-limit-per-minute=1000000",
+                "pegasus.auth.google.client-id="
         })
 @Import(IntegrationTestConfig.class)
 @ActiveProfiles("test") // mock payment is only allowed under local/test (MockPaymentProductionGuard)
