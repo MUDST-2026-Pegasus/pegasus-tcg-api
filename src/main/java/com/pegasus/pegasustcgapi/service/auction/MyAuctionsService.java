@@ -58,7 +58,7 @@ public class MyAuctionsService {
         List<MyAuction> result = rows.stream().map(a -> {
             AuctionViewerState state = stateOf(a, userId, leadingIds.contains(a.id()));
             boolean live = a.status() == AuctionStatus.LIVE;
-            BigDecimal price = !live && a.winningAmount() != null ? a.winningAmount() : a.currentPrice();
+            BigDecimal price = a.closingOrCurrentPrice();
             var option = defaultShipping.get(a.sellerProfileId());
             BigDecimal shipping = option == null ? null : option.feeFor(1, price);
             BigDecimal totalDue = state == AuctionViewerState.WON_AWAITING_PAYMENT && shipping != null

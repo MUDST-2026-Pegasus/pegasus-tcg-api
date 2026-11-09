@@ -190,7 +190,19 @@ public final class AuctionViews {
             Viewer viewer,
             String winnerAlias,
             String suspendReason,
+            Rules rules,
             OffsetDateTime serverTime) {
+    }
+
+    /**
+     * The platform's current auction rules, so the page text matches what the admin set.
+     *
+     * @param paymentHours time a winner has to pay (may be fractional)
+     * @param strikeLimit  unpaid wins before a bidding ban
+     * @param banDays      length of that ban
+     */
+    public record Rules(BigDecimal paymentHours, int strikeLimit, int banDays) {
+        public static final Rules DEFAULTS = new Rules(BigDecimal.valueOf(24), 3, 30);
     }
 
     /** Every bid on one auction, newest first. */

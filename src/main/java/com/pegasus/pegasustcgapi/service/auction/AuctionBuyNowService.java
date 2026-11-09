@@ -28,17 +28,28 @@ public class AuctionBuyNowService {
     private final AuctionEligibilityValidator validator;
     private final Clock clock;
     private final PlatformSettingService settings;
+    private final AuctionShippingFee shippingFee;
 
     @Autowired
     public AuctionBuyNowService(
             AuctionRepository auctions,
             AuctionEligibilityValidator validator,
             Clock clock,
-            PlatformSettingService settings) {
+            PlatformSettingService settings,
+            AuctionShippingFee shippingFee) {
         this.auctions = auctions;
         this.validator = validator;
         this.clock = clock;
         this.settings = settings;
+        this.shippingFee = shippingFee;
+    }
+
+    public AuctionBuyNowService(
+            AuctionRepository auctions,
+            AuctionEligibilityValidator validator,
+            Clock clock,
+            PlatformSettingService settings) {
+        this(auctions, validator, clock, settings, AuctionShippingFee.fixed());
     }
 
     /**
@@ -58,12 +69,13 @@ public class AuctionBuyNowService {
         // 1. Idempotency: if caller already won this auction via buy-now
         if (auction.status() == AuctionStatus.AWAITING_PAYMENT && Objects.equals(auction.winnerId(), userId)) {
             BigDecimal price = auction.winningAmount() != null ? auction.winningAmount() : auction.buyNowPrice();
-            BigDecimal total = price.add(AuctionPolicy.DEFAULT_SHIPPING);
+            BigDecimal shipping = shippingFee.quote(auction.sellerProfileId(), price);
+            BigDecimal total = price.add(shipping);
             return new AuctionWin(
                     auction.id(),
                     auction.auctionNumber(),
                     price,
-                    AuctionPolicy.DEFAULT_SHIPPING,
+                    shipping,
                     total,
                     auction.paymentDueAt(),
                     now);
@@ -100,13 +112,14 @@ public class AuctionBuyNowService {
         }
 
         BigDecimal price = auction.buyNowPrice();
-        BigDecimal total = price.add(AuctionPolicy.DEFAULT_SHIPPING);
+        BigDecimal shipping = shippingFee.quote(auction.sellerProfileId(), price);
+        BigDecimal total = price.add(shipping);
 
         return new AuctionWin(
                 auction.id(),
                 auction.auctionNumber(),
                 price,
-                AuctionPolicy.DEFAULT_SHIPPING,
+                shipping,
                 total,
                 paymentDueAt,
                 now);

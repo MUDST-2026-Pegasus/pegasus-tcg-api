@@ -512,6 +512,7 @@ class AuctionBidServiceTest {
         void placeBid_WhenAlreadyLeading_ThrowsConflict() {
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), new BigDecimal("50.00"), new BigDecimal("1050.00"), 1, NOW.plusHours(2));
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
+            stubEligibleUser(USER_ID);
 
             AuctionBid leadingBid = new AuctionBid(100L, AUCTION_ID, USER_ID, new BigDecimal("1050.00"), BidStatus.ACTIVE, "k1", NOW.minusMinutes(10));
             given(auctions.findBidById(100L)).willReturn(Optional.of(leadingBid));
@@ -519,6 +520,19 @@ class AuctionBidServiceTest {
             assertThatThrownBy(() -> service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1100.00"), null))
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.ALREADY_LEADING));
+
+            verify(auctions, never()).insertBid(anyLong(), anyLong(), any(), any());
+        }
+
+        @Test
+        @DisplayName("placeBid reports AUCTION_CLOSED, not ALREADY_LEADING, when the leader bids after the end")
+        void placeBid_WhenLeaderBidsAfterEnd_ThrowsClosed() {
+            Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), new BigDecimal("50.00"), new BigDecimal("1050.00"), 1, NOW.minusSeconds(1));
+            given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
+
+            assertThatThrownBy(() -> service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1100.00"), null))
+                    .isInstanceOf(ConflictException.class)
+                    .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.AUCTION_CLOSED));
 
             verify(auctions, never()).insertBid(anyLong(), anyLong(), any(), any());
         }
