@@ -90,9 +90,15 @@ public final class AuctionViews {
      *
      * @param bidderInitials two letters for the avatar circle
      * @param mine           whether the caller placed it; always false for a guest
+     * @param cancelled      voided by an admin suspending the auction; kept so the history stays visible
      */
     public record Bid(String bidderAlias, String bidderInitials, boolean mine, BigDecimal amount,
-            OffsetDateTime placedAt) {
+            OffsetDateTime placedAt, boolean cancelled) {
+
+        public Bid(String bidderAlias, String bidderInitials, boolean mine, BigDecimal amount,
+                OffsetDateTime placedAt) {
+            this(bidderAlias, bidderInitials, mine, amount, placedAt, false);
+        }
     }
 
     /**

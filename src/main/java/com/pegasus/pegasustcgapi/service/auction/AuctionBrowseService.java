@@ -19,6 +19,7 @@ import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionBid;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
+import com.pegasus.pegasustcgapi.model.auction.BidStatus;
 import com.pegasus.pegasustcgapi.port.UserVerificationPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
@@ -221,12 +222,16 @@ public class AuctionBrowseService {
     public BidHistory bids(long auctionId, int page, int size, Long currentUserId) {
         OffsetDateTime now = OffsetDateTime.now(clock);
 
-        auctions.findById(auctionId)
+        Auction auction = auctions.findById(auctionId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.AUCTION_NOT_FOUND, "Auction not found: " + auctionId));
 
         Paging paging = Paging.of(page, size);
-        List<AuctionBid> bidRows = auctions.findBids(auctionId, paging.size(), paging.offset());
-        long total = auctions.countBids(auctionId);
+        // A suspension cancels every bid; still show them (marked cancelled) so the history doesn't vanish
+        boolean suspended = auction.status() == AuctionStatus.SUSPENDED;
+        List<AuctionBid> bidRows = suspended
+                ? auctions.findBids(auctionId, true, paging.size(), paging.offset())
+                : auctions.findBids(auctionId, paging.size(), paging.offset());
+        long total = suspended ? auctions.countBids(auctionId, true) : auctions.countBids(auctionId);
 
         List<Bid> bids = new ArrayList<>();
         if (!bidRows.isEmpty()) {
@@ -239,7 +244,8 @@ public class AuctionBrowseService {
                 String alias = isMine ? uname : AuctionItemMapper.maskUsername(uname);
                 String initials = AuctionItemMapper.bidderInitials(uname);
 
-                bids.add(new Bid(alias, initials, isMine, b.amount(), b.createdAt()));
+                bids.add(new Bid(alias, initials, isMine, b.amount(), b.createdAt(),
+                        b.status() == BidStatus.CANCELLED));
             }
         }
 

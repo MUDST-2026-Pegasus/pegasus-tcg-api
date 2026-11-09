@@ -44,7 +44,7 @@ public final class SellerAuctionViews {
      * @param buyNowPrice     null when the seller set none
      * @param buyNowAvailable true only while LIVE with no bids
      * @param deadline        payment due (AWAITING_PAYMENT); else null
-     * @param orderId         set once an order exists, for "ดูคำสั่งซื้อ"
+     * @param orderId         the shop's seller_order id once an order exists, for "ดูคำสั่งซื้อ"
      */
     public record SellerAuctionRow(
             long id,
