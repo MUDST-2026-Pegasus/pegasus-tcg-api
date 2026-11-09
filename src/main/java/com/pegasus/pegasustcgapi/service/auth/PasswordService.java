@@ -76,7 +76,7 @@ public class PasswordService {
     public AuthResponse change(long userId, ChangePasswordRequest request, ClientInfo client) {
         AuthUser user = authService.loadWithRoles(userId);
 
-        if (!passwordEncoder.matches(request.currentPassword(), user.passwordHash())) {
+        if (user.passwordHash() == null || !passwordEncoder.matches(request.currentPassword(), user.passwordHash())) {
             throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS, "Current password is incorrect");
         }
 

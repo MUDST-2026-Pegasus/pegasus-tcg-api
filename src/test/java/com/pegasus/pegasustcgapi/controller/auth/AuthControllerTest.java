@@ -12,10 +12,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import tools.jackson.databind.ObjectMapper;
 import com.pegasus.pegasustcgapi.dto.auth.AuthResponse;
+import com.pegasus.pegasustcgapi.dto.auth.GoogleLoginRequest;
 import com.pegasus.pegasustcgapi.dto.auth.LoginRequest;
 import com.pegasus.pegasustcgapi.dto.auth.RegisterRequest;
 import com.pegasus.pegasustcgapi.dto.auth.TokenResponse;
 import com.pegasus.pegasustcgapi.dto.user.UserResponse;
+import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.ForbiddenException;
@@ -224,6 +226,80 @@ class AuthControllerTest {
             LoginRequest request = new LoginRequest("", "");
 
             mockMvc.perform(post(BASE_URL + "/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.success").value(false))
+                    .andExpect(jsonPath("$.data.code").value(ErrorCode.VALIDATION_FAILED.name()));
+        }
+    }
+
+    @Nested
+    @DisplayName("POST /api/v1/auth/google")
+    class GoogleTests {
+
+        @Test
+        @DisplayName("Positive: Google sign-in for a new user returns 201 Created and sets refresh cookie")
+        void googleNewUserReturns201() throws Exception {
+            GoogleLoginRequest request = new GoogleLoginRequest("valid.google.id.token");
+            AuthResponse authResponse = sampleAuthResponse(21L, "newgoogle@gmail.com", "user_a1b2c3");
+
+            given(authService.loginWithGoogle(any(GoogleLoginRequest.class), any(ClientInfo.class)))
+                    .willReturn(new AuthService.GoogleAuthResult(authResponse, true));
+
+            mockMvc.perform(post(BASE_URL + "/google")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.tokens.accessToken").value("access.jwt.token"))
+                    .andExpect(jsonPath("$.data.tokens.refreshToken").doesNotExist());
+
+            verify(refreshCookie).set(any(), eq("refresh.jwt.token"));
+        }
+
+        @Test
+        @DisplayName("Positive: Google sign-in for an existing user returns 200 OK and sets refresh cookie")
+        void googleExistingUserReturns200() throws Exception {
+            GoogleLoginRequest request = new GoogleLoginRequest("valid.google.id.token");
+            AuthResponse authResponse = sampleAuthResponse(22L, "existing@gmail.com", "user_x9y8z7");
+
+            given(authService.loginWithGoogle(any(GoogleLoginRequest.class), any(ClientInfo.class)))
+                    .willReturn(new AuthService.GoogleAuthResult(authResponse, false));
+
+            mockMvc.perform(post(BASE_URL + "/google")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.tokens.accessToken").value("access.jwt.token"))
+                    .andExpect(jsonPath("$.data.tokens.refreshToken").doesNotExist());
+
+            verify(refreshCookie).set(any(), eq("refresh.jwt.token"));
+        }
+
+        @Test
+        @DisplayName("Negative: Google sign-in returns 503 when client-id is not configured")
+        void googleDisabledReturns503() throws Exception {
+            GoogleLoginRequest request = new GoogleLoginRequest("valid.google.id.token");
+
+            given(authService.loginWithGoogle(any(GoogleLoginRequest.class), any(ClientInfo.class)))
+                    .willThrow(new ApiException(ErrorCode.GOOGLE_SIGNIN_DISABLED));
+
+            mockMvc.perform(post(BASE_URL + "/google")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.success").value(false))
+                    .andExpect(jsonPath("$.data.code").value(ErrorCode.GOOGLE_SIGNIN_DISABLED.name()));
+        }
+
+        @Test
+        @DisplayName("Negative: Google sign-in returns 400 when credential is blank")
+        void googleBlankCredentialReturns400() throws Exception {
+            GoogleLoginRequest request = new GoogleLoginRequest("   ");
+
+            mockMvc.perform(post(BASE_URL + "/google")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isBadRequest())

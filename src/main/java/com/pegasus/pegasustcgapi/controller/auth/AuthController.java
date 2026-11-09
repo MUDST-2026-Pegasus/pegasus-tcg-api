@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.auth;
 
 import com.pegasus.pegasustcgapi.dto.auth.AuthResponse;
+import com.pegasus.pegasustcgapi.dto.auth.GoogleLoginRequest;
 import com.pegasus.pegasustcgapi.dto.auth.LoginRequest;
 import com.pegasus.pegasustcgapi.dto.auth.RegisterRequest;
 import com.pegasus.pegasustcgapi.dto.user.UserResponse;
@@ -70,6 +71,33 @@ public class AuthController {
         AuthResponse response = authService.login(request, ClientInfo.from(http));
         refreshCookie.set(servletResponse, response.tokens().refreshToken());
         return ApiResult.success("Signed in", response);
+    }
+
+    @Operation(summary = "Sign in or register with Google",
+            description = "Verifies a Google ID token, signs in or creates a buyer account, returns an access token, and sets the refresh token in an HttpOnly cookie. Requires an allowed Origin and JSON content type.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Successfully signed in with Google"),
+            @ApiResponse(responseCode = "201", description = "New account created with Google"),
+            @ApiResponse(responseCode = "400", description = "Request payload failed validation"),
+            @ApiResponse(responseCode = "401", description = "Google ID token is invalid or expired"),
+            @ApiResponse(responseCode = "403", description = "Email not verified, role not allowed, account suspended/deactivated, or invalid Origin"),
+            @ApiResponse(responseCode = "409", description = "Email conflict or account cannot be linked to Google"),
+            @ApiResponse(responseCode = "503", description = "Google sign-in is not configured")
+    })
+    @PostMapping("/google")
+    public ResponseEntity<ApiResult<AuthResponse>> google(
+            @Valid @RequestBody GoogleLoginRequest request,
+            HttpServletRequest http,
+            HttpServletResponse servletResponse) {
+
+        AuthService.GoogleAuthResult result = authService.loginWithGoogle(request, ClientInfo.from(http));
+        AuthResponse response = result.response();
+        refreshCookie.set(servletResponse, response.tokens().refreshToken());
+        if (result.created()) {
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(ApiResult.success("Account created", response));
+        }
+        return ResponseEntity.ok(ApiResult.success("Signed in", response));
     }
 
     /** Rotates a refresh token, allowing a short retry if the first response was lost. */

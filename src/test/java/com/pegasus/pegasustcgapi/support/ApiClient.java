@@ -97,7 +97,9 @@ public class ApiClient {
 
     public Response post(String path, String bearer, Object body, Map<String, String> headers) {
         Map<String, String> requestHeaders = new LinkedHashMap<>(headers);
-        if (path.equals("/api/v1/auth/refresh") || path.equals("/api/v1/auth/logout")) {
+        if (path.equals("/api/v1/auth/refresh")
+                || path.equals("/api/v1/auth/logout")
+                || path.equals("/api/v1/auth/google")) {
             requestHeaders.putIfAbsent("Origin", "http://localhost:3000");
             if (body instanceof Map<?, ?> fields && fields.get("refreshToken") instanceof String token) {
                 requestHeaders.put("Cookie", "pegasus_rt=" + token);

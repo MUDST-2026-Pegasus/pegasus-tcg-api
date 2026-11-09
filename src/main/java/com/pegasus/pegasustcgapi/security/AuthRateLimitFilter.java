@@ -26,6 +26,7 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
 
     private static final Set<String> LIMITED_PATHS = Set.of(
             ApiPaths.AUTH + "/login",
+            ApiPaths.AUTH + "/google",
             ApiPaths.AUTH + "/register",
             ApiPaths.AUTH + "/password/reset",
             ApiPaths.AUTH + "/password/change");

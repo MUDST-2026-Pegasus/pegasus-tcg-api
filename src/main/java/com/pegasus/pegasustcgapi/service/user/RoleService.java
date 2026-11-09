@@ -1,8 +1,10 @@
 package com.pegasus.pegasustcgapi.service.user;
 
+import com.pegasus.pegasustcgapi.model.auth.AuthUser;
 import com.pegasus.pegasustcgapi.model.user.RoleCode;
 import com.pegasus.pegasustcgapi.repository.user.RoleRepository;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
+import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.ForbiddenException;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -39,7 +41,10 @@ public class RoleService {
 
     @Transactional
     public Set<RoleCode> grantAsAdmin(long userId, RoleCode code, long actingAdminId) {
-        requireExistingUser(userId);
+        AuthUser user = requireExistingUser(userId);
+        if ((code == RoleCode.ADMIN || code == RoleCode.SUPPORT) && user.passwordHash() == null) {
+            throw new ConflictException(ErrorCode.ROLE_REQUIRES_PASSWORD);
+        }
         roles.grant(userId, roleId(code), actingAdminId);
         return rolesOf(userId);
     }
@@ -56,10 +61,9 @@ public class RoleService {
         return rolesOf(userId);
     }
 
-    private void requireExistingUser(long userId) {
-        if (users.findById(userId).isEmpty()) {
-            throw new NotFoundException(ErrorCode.USER_NOT_FOUND);
-        }
+    private AuthUser requireExistingUser(long userId) {
+        return users.findById(userId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.USER_NOT_FOUND));
     }
 
     /** Roles are seeded by migration, so a miss means the database is behind the code. */

@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.validation.annotation.Validated;
 
 /**
@@ -26,5 +27,38 @@ public record AuthProperties(
         @NotNull Duration passwordResetTtl,
         @Min(1) int maxFailedLogins,
         @NotNull Duration lockoutDuration,
-        boolean devExposeTokens) {
+        boolean devExposeTokens,
+        Google google) {
+
+    @ConstructorBinding
+    public AuthProperties {
+        if (google == null) {
+            google = new Google("");
+        }
+    }
+
+    public AuthProperties(
+            String jwtSecret,
+            String jwtIssuer,
+            Duration accessTokenTtl,
+            Duration refreshTokenTtl,
+            Duration passwordResetTtl,
+            int maxFailedLogins,
+            Duration lockoutDuration,
+            boolean devExposeTokens) {
+        this(jwtSecret, jwtIssuer, accessTokenTtl, refreshTokenTtl, passwordResetTtl,
+                maxFailedLogins, lockoutDuration, devExposeTokens, new Google(""));
+    }
+
+    public String googleClientId() {
+        return google == null || google.clientId() == null ? "" : google.clientId().trim();
+    }
+
+    public record Google(String clientId) {
+        public Google {
+            if (clientId == null) {
+                clientId = "";
+            }
+        }
+    }
 }
