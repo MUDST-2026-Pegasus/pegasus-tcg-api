@@ -190,3 +190,13 @@ jacocoTestReport {
         }))
     }
 }
+
+// ErrorCode → build/i18n/errors/en.json สำหรับ Tolgee namespace `errors` (CI push เข้า Tolgee) [TCG-548]
+tasks.register('exportErrorCatalog', JavaExec) {
+    group = 'i18n'
+    description = 'Writes every ErrorCode and its default message to build/i18n/errors/en.json'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.pegasus.pegasustcgapi.exception.ErrorCatalog'
+    args layout.buildDirectory.file('i18n/errors/en.json').get().asFile.path
+    outputs.file(layout.buildDirectory.file('i18n/errors/en.json'))
+}

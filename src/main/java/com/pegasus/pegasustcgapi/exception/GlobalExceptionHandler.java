@@ -75,7 +75,11 @@ public class GlobalExceptionHandler {
             ConstraintViolationException ex, HttpServletRequest request) {
 
         List<ApiError.FieldViolation> violations = ex.getConstraintViolations().stream()
-                .map(v -> new ApiError.FieldViolation(v.getPropertyPath().toString(), v.getMessage()))
+                .map(v -> new ApiError.FieldViolation(
+                        v.getPropertyPath().toString(),
+                        v.getMessage(),
+                        v.getConstraintDescriptor().getAnnotation().annotationType().getSimpleName(),
+                        constraintParams(v.getConstraintDescriptor().getAttributes())))
                 .toList();
 
         return build(
@@ -115,7 +119,7 @@ public class GlobalExceptionHandler {
             MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
 
         List<ApiError.FieldViolation> violations =
-                List.of(new ApiError.FieldViolation(ex.getName(), "is not a valid value"));
+                List.of(new ApiError.FieldViolation(ex.getName(), "is not a valid value", "typeMismatch", java.util.Map.of()));
 
         return build(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(),
                 request, violations);
@@ -131,7 +135,7 @@ public class GlobalExceptionHandler {
             MissingServletRequestParameterException ex, HttpServletRequest request) {
 
         List<ApiError.FieldViolation> violations =
-                List.of(new ApiError.FieldViolation(ex.getParameterName(), "is required"));
+                List.of(new ApiError.FieldViolation(ex.getParameterName(), "is required", "missingParameter", java.util.Map.of()));
 
         return build(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(),
                 request, violations);
@@ -203,7 +207,23 @@ public class GlobalExceptionHandler {
 
     private static ApiError.FieldViolation toViolation(FieldError error) {
         String message = error.getDefaultMessage() == null ? "is invalid" : error.getDefaultMessage();
-        return new ApiError.FieldViolation(error.getField(), message);
+        java.util.Map<String, Object> params = java.util.Map.of();
+        if (error.contains(jakarta.validation.ConstraintViolation.class)) {
+            jakarta.validation.ConstraintViolation<?> violation = error.unwrap(jakarta.validation.ConstraintViolation.class);
+            params = constraintParams(violation.getConstraintDescriptor().getAttributes());
+        }
+        // Spring's error code for a bean-validation failure is the annotation name, e.g. "NotBlank"
+        return new ApiError.FieldViolation(error.getField(), message, error.getCode(), params);
+    }
+
+    /** Annotation attributes a client can put in a message ({@code min}, {@code max}, {@code value} …). */
+    private static java.util.Map<String, Object> constraintParams(java.util.Map<String, Object> attributes) {
+        java.util.Map<String, Object> params = new java.util.TreeMap<>();
+        attributes.forEach((name, value) -> {
+            if (java.util.Set.of("message", "groups", "payload").contains(name)) return;
+            if (value instanceof Number || value instanceof String || value instanceof Boolean) params.put(name, value);
+        });
+        return params;
     }
 
     private static ResponseEntity<ApiResult<ApiError>> build(
