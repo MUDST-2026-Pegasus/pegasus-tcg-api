@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.auction;
 
+import com.pegasus.pegasustcgapi.common.EmailMask;
+
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.dto.auction.AdminAuctionViews.AdminAction;
@@ -121,6 +123,6 @@ public class AdminAuctionReadService {
     }
 
     static String maskEmail(String email) {
-        return email == null ? null : email.replaceFirst("(?<=.).*(?=@)", "***");
+        return EmailMask.mask(email);
     }
 }

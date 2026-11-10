@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.controller.user;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
+import com.pegasus.pegasustcgapi.common.csv.CsvExport;
 import com.pegasus.pegasustcgapi.dto.user.UpdateUserStatusRequest;
 import com.pegasus.pegasustcgapi.dto.user.UserResponse;
 import com.pegasus.pegasustcgapi.model.user.RoleCode;
@@ -11,11 +12,15 @@ import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.user.AdminUserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -53,6 +58,33 @@ public class AdminUserController {
             @RequestParam(defaultValue = "20") int size) {
 
         return ApiResult.success(service.search(q, role, status, page, size));
+    }
+
+    @Operation(summary = "Export users as CSV",
+            description = "Every user the list would show for the same q, role and status, newest first. "
+                    + "UTF-8 with a BOM; times are Asia/Bangkok. Columns: user_id, username, display_name, "
+                    + "masked_email, roles (semicolon-separated), status, created_at. The full email, "
+                    + "phone, addresses and bank accounts are never exported. At most 20,000 rows.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "CSV downloaded",
+                    content = @Content(mediaType = "text/csv",
+                            schema = @Schema(type = "string", format = "binary")),
+                    headers = @Header(name = "Content-Disposition",
+                            description = "Attachment filename admin-users-{yyyy-mm-dd}.csv (Bangkok date)",
+                            schema = @Schema(type = "string"))),
+            @ApiResponse(responseCode = "400", description = "Unknown role or status, or EXPORT_TOO_LARGE above 20,000 rows"),
+            @ApiResponse(responseCode = "401", description = "Unauthenticated"),
+            @ApiResponse(responseCode = "403", description = "Access denied — caller lacks ADMIN role")
+    })
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(
+            @Parameter(description = "Search text") @RequestParam(required = false) String q,
+            @RequestParam(required = false) RoleCode role,
+            @RequestParam(required = false) UserStatus status,
+            AuthPrincipal principal) {
+
+        CsvExport file = service.export(q, role, status, principal.userId());
+        return file.toResponse();
     }
 
     @Operation(summary = "Get user")

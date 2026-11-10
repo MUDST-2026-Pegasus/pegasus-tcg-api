@@ -3,9 +3,11 @@ package com.pegasus.pegasustcgapi.controller.order;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
+import com.pegasus.pegasustcgapi.common.csv.CsvExport;
 import com.pegasus.pegasustcgapi.dto.order.AdminOrderViews.Board;
 import com.pegasus.pegasustcgapi.dto.order.AdminOrderViews.Detail;
 import com.pegasus.pegasustcgapi.dto.order.AdminOrderViews.Summary;
+import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.order.AdminOrderService;
 import com.pegasus.pegasustcgapi.service.order.pdf.OrderSummaryPdfService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -82,6 +84,39 @@ public class AdminOrderController {
 
         return ApiResult.success(
                 orders.list(status, q, sellerProfileId, buyerId, from, to, sort, page, size));
+    }
+
+    @Operation(summary = "Export sub-orders as CSV",
+            description = "One row per sub-order placed in [from, to), newest first, with the same "
+                    + "status and q filters as the search. UTF-8 with a BOM; times are Asia/Bangkok. "
+                    + "Columns: seller_order_number, order_number, status, seller, buyer, item_count, "
+                    + "grand_total, created_at, paid_at, shipped_at, completed_at, cancelled_at, "
+                    + "tracking_number. At most 20,000 rows.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "CSV downloaded",
+                    content = @Content(mediaType = "text/csv",
+                            schema = @Schema(type = "string", format = "binary")),
+                    headers = @Header(name = "Content-Disposition",
+                            description = "Attachment filename admin-orders-{from}-{to}.csv (Bangkok dates)",
+                            schema = @Schema(type = "string"))),
+            @ApiResponse(responseCode = "400",
+                    description = "from or to missing, to not after from, unknown status, "
+                            + "or EXPORT_TOO_LARGE above 20,000 rows"),
+            @ApiResponse(responseCode = "401", description = "Unauthenticated"),
+            @ApiResponse(responseCode = "403", description = "Authenticated user is not an admin")
+    })
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
+            @RequestParam(required = false) List<String> status,
+            @RequestParam(required = false) String q,
+            AuthPrincipal principal) {
+
+        CsvExport file = orders.export(status, q, from, to, principal.userId());
+        return file.toResponse();
     }
 
     @Operation(summary = "Sub-order detail",
