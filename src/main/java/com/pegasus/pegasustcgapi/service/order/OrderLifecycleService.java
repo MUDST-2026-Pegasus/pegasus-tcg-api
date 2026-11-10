@@ -1,8 +1,6 @@
 package com.pegasus.pegasustcgapi.service.order;
 
-import com.pegasus.pegasustcgapi.service.payment.PaymentService;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
-import com.pegasus.pegasustcgapi.service.promotion.CheckoutPromotionService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 
 import com.pegasus.pegasustcgapi.common.PageResponse;
@@ -11,7 +9,6 @@ import com.pegasus.pegasustcgapi.dto.order.OrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.order.ReorderItemsResponse;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipOrderRequest;
-import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
 import com.pegasus.pegasustcgapi.model.order.SellerOrderStatus;
@@ -20,13 +17,11 @@ import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
-import com.pegasus.pegasustcgapi.service.sale.SaleCheckoutService;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -34,6 +29,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Transactional facade for order queries and lifecycle transitions.
+ *
+ * <p>The collaborators it delegates to are package-private and carry no
+ * transaction of their own: every call reaches them through this class, so the
+ * {@code @Transactional} boundaries below stay the only ones.
  */
 @Service
 public class OrderLifecycleService {
@@ -45,6 +44,11 @@ public class OrderLifecycleService {
     private final OrderFulfillmentService fulfillment;
     private final OrderPaymentLifecycleService paymentLifecycle;
 
+    /**
+     * For unit tests: wires the collaborators by hand, without discount codes or
+     * flash sales. Spring uses the constructor below, fed by
+     * {@link OrderLifecycleConfiguration}; keep the two graphs the same shape.
+     */
     public OrderLifecycleService(
             OrderRepository orderRepository,
             SellerPort sellerPort,
@@ -56,8 +60,8 @@ public class OrderLifecycleService {
             @Autowired(required = false) StorageService storageService,
             AuctionRepository auctionRepository) {
         Clock effectiveClock = clock != null ? clock : Clock.systemUTC();
-        this.settlement = new OrderSettlementService(orderRepository, effectiveClock);
-        this.mapper = new OrderResponseMapper(orderRepository, platformSettingService, storageService);
+        this.settlement = new OrderSettlementService(orderRepository, effectiveClock, null, null);
+        this.mapper = new OrderResponseMapper(orderRepository, platformSettingService, storageService, null);
         OrderTransitionSupport support = new OrderTransitionSupport(orderRepository, sellerPort, platformSettingService, effectiveClock);
         this.queries = new OrderQueryService(support, mapper, storageService);
         this.cancellation = new OrderCancellationService(support, inventoryPort, ledgerPort, settlement, mapper);
@@ -132,13 +136,13 @@ public class OrderLifecycleService {
     // Seller Operations
     // ==========================================
 
-    @Transactional(readOnly = true)
     /**
      * @param status null for every sub-order, or one status to narrow to — a seller
      *               looking at what to pack asks for PAID or PREPARING
      * @throws com.pegasus.pegasustcgapi.exception.BadRequestException when the name
      *         is not a status this build knows
      */
+    @Transactional(readOnly = true)
     public PageResponse<SellerOrderDetailsResponse> listSellerOrders(
             AuthPrincipal principal, String status, int page, int size) {
         return queries.listSellerOrders(principal, status, page, size);
@@ -227,21 +231,6 @@ public class OrderLifecycleService {
     @Transactional(propagation = Propagation.MANDATORY)
     public void rollupSalesOrderStatus(long salesOrderId) {
         settlement.rollupSalesOrderStatus(salesOrderId);
-    }
-
-    @Autowired(required = false)
-    void setSaleCheckout(SaleCheckoutService saleCheckout) {
-        settlement.setSaleCheckout(saleCheckout);
-    }
-
-    /**
-     * Optional so the constructors the unit tests use stay as they are; Spring always
-     * supplies it.
-     */
-    @Autowired(required = false)
-    void setCheckoutPromotions(CheckoutPromotionService checkoutPromotions) {
-        mapper.setCheckoutPromotions(checkoutPromotions);
-        settlement.setCheckoutPromotions(checkoutPromotions);
     }
 
     public OrderDetailsResponse toOrderDetailsResponse(long id) {

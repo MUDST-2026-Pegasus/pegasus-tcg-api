@@ -16,7 +16,6 @@ import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 /** Order transitions executed inside the facade transaction. */
 final class OrderCancellationService {

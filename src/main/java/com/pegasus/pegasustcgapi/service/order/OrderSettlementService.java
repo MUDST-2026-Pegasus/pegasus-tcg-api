@@ -17,19 +17,16 @@ import java.util.stream.Collectors;
 final class OrderSettlementService {
     private final OrderRepository orderRepository;
     private final Clock clock;
-    private SaleCheckoutService saleCheckout;
-    private CheckoutPromotionService checkoutPromotions;
+    /** Null when the service was built without flash sales, as the unit tests do. */
+    private final SaleCheckoutService saleCheckout;
+    /** Null when the service was built without discount codes, as the unit tests do. */
+    private final CheckoutPromotionService checkoutPromotions;
 
-    OrderSettlementService(OrderRepository orderRepository, Clock clock) {
+    OrderSettlementService(OrderRepository orderRepository, Clock clock,
+            SaleCheckoutService saleCheckout, CheckoutPromotionService checkoutPromotions) {
         this.orderRepository = orderRepository;
         this.clock = clock;
-    }
-
-    void setSaleCheckout(SaleCheckoutService saleCheckout) {
         this.saleCheckout = saleCheckout;
-    }
-
-    void setCheckoutPromotions(CheckoutPromotionService checkoutPromotions) {
         this.checkoutPromotions = checkoutPromotions;
     }
 

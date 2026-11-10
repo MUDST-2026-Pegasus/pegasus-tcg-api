@@ -37,15 +37,14 @@ final class OrderResponseMapper {
     private final OrderRepository orderRepository;
     private final PlatformSettingService platformSettingService;
     private final StorageService storageService;
-    private CheckoutPromotionService checkoutPromotions;
+    /** Null when the service was built without discount codes, as the unit tests do. */
+    private final CheckoutPromotionService checkoutPromotions;
 
-    OrderResponseMapper(OrderRepository orderRepository, PlatformSettingService platformSettingService, StorageService storageService) {
+    OrderResponseMapper(OrderRepository orderRepository, PlatformSettingService platformSettingService,
+            StorageService storageService, CheckoutPromotionService checkoutPromotions) {
         this.orderRepository = orderRepository;
         this.platformSettingService = platformSettingService;
         this.storageService = storageService;
-    }
-
-    void setCheckoutPromotions(CheckoutPromotionService checkoutPromotions) {
         this.checkoutPromotions = checkoutPromotions;
     }
 

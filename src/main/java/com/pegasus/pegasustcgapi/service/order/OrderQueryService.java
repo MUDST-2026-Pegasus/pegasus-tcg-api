@@ -26,6 +26,7 @@ import java.util.Objects;
 
 /** Read-only order queries, executed inside the facade transaction. */
 final class OrderQueryService {
+    /** Logged under the facade's name so existing log filters keep matching. */
     private static final Logger log = LoggerFactory.getLogger(OrderLifecycleService.class);
     private final OrderTransitionSupport support;
     private final OrderResponseMapper mapper;

@@ -1,8 +1,6 @@
 package com.pegasus.pegasustcgapi.service.order;
 
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -23,16 +21,17 @@ class AuctionPaymentLifecycleTest {
     @Test void successfulPaymentMarksItsAuctionSold() {
         OrderRepository orders = mock(OrderRepository.class);
         AuctionRepository auctions = mock(AuctionRepository.class);
-        OrderLifecycleService lifecycle = spy(new OrderLifecycleService(orders, mock(SellerPort.class),
+        OrderLifecycleService lifecycle = new OrderLifecycleService(orders, mock(SellerPort.class),
                 mock(PlatformSettingService.class), mock(InventoryPort.class), mock(LedgerPort.class),
-                mock(CollectionPort.class), Clock.systemUTC(), null, auctions));
+                mock(CollectionPort.class), Clock.systemUTC(), null, auctions);
         SalesOrderRecord sale = new SalesOrderRecord();
         sale.setId(100L);
         sale.setAuctionId(5L);
         sale.setStatus("PENDING_PAYMENT");
         when(orders.findSalesOrderById(100L)).thenReturn(Optional.of(sale));
         when(orders.findSellerOrdersBySalesOrderId(100L)).thenReturn(List.of());
-        doNothing().when(lifecycle).rollupSalesOrderStatus(100L);
+        // The rollup is not under test: with no locked parent row it stops at once.
+        when(orders.findSalesOrderByIdForUpdate(100L)).thenReturn(Optional.empty());
 
         lifecycle.markOrderPaidBySystem(100L, 42L);
 
