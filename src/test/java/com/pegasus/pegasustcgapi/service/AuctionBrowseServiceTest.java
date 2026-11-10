@@ -28,8 +28,12 @@ import com.pegasus.pegasustcgapi.model.user.Address;
 import com.pegasus.pegasustcgapi.port.UserVerificationPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
-import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.PublicAuctionQuery;
-import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.SellerInfo;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionBidRepository;
+import com.pegasus.pegasustcgapi.repository.auction.BidderStrikeRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionQueryRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionReferenceQueryRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionQueryRepository.PublicAuctionQuery;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionReferenceQueryRepository.SellerInfo;
 import com.pegasus.pegasustcgapi.repository.catalog.CardSetRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogProductRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogVariantRepository;
@@ -71,6 +75,14 @@ class AuctionBrowseServiceTest {
 
     @Mock
     private AuctionRepository auctions;
+    @Mock
+    private AuctionBidRepository auctionBids;
+    @Mock
+    private BidderStrikeRepository bidderStrikes;
+    @Mock
+    private AuctionQueryRepository auctionQueries;
+    @Mock
+    private AuctionReferenceQueryRepository auctionReferences;
 
     @Mock
     private AddressRepository addresses;
@@ -108,6 +120,10 @@ class AuctionBrowseServiceTest {
                 .thenReturn(3);
         service = new AuctionBrowseService(
                 auctions,
+                auctionBids,
+                bidderStrikes,
+                auctionQueries,
+                auctionReferences,
                 addresses,
                 sellers,
                 userVerification,
@@ -198,13 +214,13 @@ class AuctionBrowseServiceTest {
 
         @Test
         void storefrontPassesSellerUsernameToCatalogQuery() {
-            given(auctions.findPublicCatalog(any(PublicAuctionQuery.class))).willReturn(List.of());
-            given(auctions.publicFilterCounts(any())).willReturn(Map.of());
+            given(auctionQueries.findPublicCatalog(any(PublicAuctionQuery.class))).willReturn(List.of());
+            given(auctionQueries.publicFilterCounts(any())).willReturn(Map.of());
 
             service.list(null, null, null, "tcg_corner", null, null, Sort.ENDING_SOON, 0, 20);
 
             var query = org.mockito.ArgumentCaptor.forClass(PublicAuctionQuery.class);
-            org.mockito.Mockito.verify(auctions).findPublicCatalog(query.capture());
+            org.mockito.Mockito.verify(auctionQueries).findPublicCatalog(query.capture());
             assertThat(query.getValue().sellerUsername()).isEqualTo("tcg_corner");
         }
 
@@ -213,17 +229,17 @@ class AuctionBrowseServiceTest {
         void list_WithFiltersAndSort_ReturnsSummaries() {
             stubCardRendererBatch();
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), 0, new BigDecimal("3000.00"));
-            given(auctions.findPublicCatalog(any(PublicAuctionQuery.class))).willReturn(List.of(auction));
-            given(auctions.countPublicCatalog(any(PublicAuctionQuery.class))).willReturn(1L);
-            given(auctions.findShopNames(Set.of(SELLER_PROFILE_ID))).willReturn(Map.of(SELLER_PROFILE_ID, "Pegasus Shop"));
+            given(auctionQueries.findPublicCatalog(any(PublicAuctionQuery.class))).willReturn(List.of(auction));
+            given(auctionQueries.countPublicCatalog(any(PublicAuctionQuery.class))).willReturn(1L);
+            given(auctionReferences.findShopNames(Set.of(SELLER_PROFILE_ID))).willReturn(Map.of(SELLER_PROFILE_ID, "Pegasus Shop"));
 
             Map<Filter, Long> filterCounts = new EnumMap<>(Filter.class);
             filterCounts.put(Filter.ENDING_SOON, 5L);
             filterCounts.put(Filter.BUY_NOW, 2L);
             filterCounts.put(Filter.NO_BIDS, 3L);
             filterCounts.put(Filter.NEW, 1L);
-            given(auctions.publicFilterCounts(any(OffsetDateTime.class))).willReturn(filterCounts);
-            given(auctions.countLiveAuctions(any(OffsetDateTime.class))).willReturn(10L);
+            given(auctionQueries.publicFilterCounts(any(OffsetDateTime.class))).willReturn(filterCounts);
+            given(auctionQueries.countLiveAuctions(any(OffsetDateTime.class))).willReturn(10L);
 
             AuctionPage page = service.list(Filter.BUY_NOW, GAME_ID, SELLER_PROFILE_ID, VARIANT_ID, "Charizard", Sort.ENDING_SOON, 0, 20);
 
@@ -240,10 +256,10 @@ class AuctionBrowseServiceTest {
         void list_WhenHasBids_BuyNowPriceIsNull() {
             stubCardRendererBatch();
             Auction auctionWithBids = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1050.00"), 1, new BigDecimal("2500.00"));
-            given(auctions.findPublicCatalog(any(PublicAuctionQuery.class))).willReturn(List.of(auctionWithBids));
-            given(auctions.countPublicCatalog(any(PublicAuctionQuery.class))).willReturn(1L);
-            given(auctions.publicFilterCounts(any())).willReturn(Map.of());
-            given(auctions.countLiveAuctions(any())).willReturn(1L);
+            given(auctionQueries.findPublicCatalog(any(PublicAuctionQuery.class))).willReturn(List.of(auctionWithBids));
+            given(auctionQueries.countPublicCatalog(any(PublicAuctionQuery.class))).willReturn(1L);
+            given(auctionQueries.publicFilterCounts(any())).willReturn(Map.of());
+            given(auctionQueries.countLiveAuctions(any())).willReturn(1L);
 
             AuctionPage page = service.list(null, null, null, null, null, Sort.ENDING_SOON, 0, 20);
 
@@ -272,9 +288,9 @@ class AuctionBrowseServiceTest {
             stubCardRenderer();
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), 0, new BigDecimal("2000.00"));
             given(auctions.findById(AUCTION_ID)).willReturn(Optional.of(auction));
-            given(auctions.findSellerInfo(SELLER_PROFILE_ID)).willReturn(Optional.of(new SellerInfo("Card Castle", "castle_owner", new BigDecimal("4.9"))));
-            given(auctions.getSellerCompletedSalesCount(SELLER_PROFILE_ID)).willReturn(45L);
-            given(auctions.findBids(AUCTION_ID, 5, 0)).willReturn(List.of());
+            given(auctionReferences.findSellerInfo(SELLER_PROFILE_ID)).willReturn(Optional.of(new SellerInfo("Card Castle", "castle_owner", new BigDecimal("4.9"))));
+            given(auctionReferences.getSellerCompletedSalesCount(SELLER_PROFILE_ID)).willReturn(45L);
+            given(auctionBids.findBids(AUCTION_ID, 5, 0)).willReturn(List.of());
 
             AuctionDetail detail = service.get(AUCTION_ID, null);
 
@@ -292,9 +308,9 @@ class AuctionBrowseServiceTest {
             stubCardRenderer();
             Auction suspended = sampleAuction(AuctionStatus.SUSPENDED, new BigDecimal("1000.00"), 0, null);
             given(auctions.findById(AUCTION_ID)).willReturn(Optional.of(suspended));
-            given(auctions.findSellerInfo(SELLER_PROFILE_ID)).willReturn(Optional.empty());
-            given(auctions.getSellerCompletedSalesCount(SELLER_PROFILE_ID)).willReturn(0L);
-            given(auctions.findBids(AUCTION_ID, 5, 0)).willReturn(List.of());
+            given(auctionReferences.findSellerInfo(SELLER_PROFILE_ID)).willReturn(Optional.empty());
+            given(auctionReferences.getSellerCompletedSalesCount(SELLER_PROFILE_ID)).willReturn(0L);
+            given(auctionBids.findBids(AUCTION_ID, 5, 0)).willReturn(List.of());
 
             AuctionDetail detail = service.get(AUCTION_ID, null);
 
@@ -324,9 +340,9 @@ class AuctionBrowseServiceTest {
 
             AuctionBid bid1 = new AuctionBid(1L, AUCTION_ID, USER_ID, new BigDecimal("1500.00"), BidStatus.ACTIVE, "key1", NOW.minusMinutes(5));
             AuctionBid bid2 = new AuctionBid(2L, AUCTION_ID, 888L, new BigDecimal("1200.00"), BidStatus.ACTIVE, "key2", NOW.minusMinutes(10));
-            given(auctions.findBids(AUCTION_ID, 20, 0)).willReturn(List.of(bid1, bid2));
-            given(auctions.countBids(AUCTION_ID)).willReturn(2);
-            given(auctions.findUsernames(Set.of(USER_ID, 888L))).willReturn(Map.of(
+            given(auctionBids.findBids(AUCTION_ID, 20, 0)).willReturn(List.of(bid1, bid2));
+            given(auctionBids.countBids(AUCTION_ID)).willReturn(2);
+            given(auctionReferences.findUsernames(Set.of(USER_ID, 888L))).willReturn(Map.of(
                     USER_ID, "natthawut",
                     888L, "somchai"));
 
@@ -409,7 +425,7 @@ class AuctionBrowseServiceTest {
             Address address = sampleAddress(USER_ID);
             given(addresses.findByUserId(USER_ID)).willReturn(List.of(address));
             given(userVerification.isEmailVerified(USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.of(NOW.plusDays(7)));
+            given(bidderStrikes.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.of(NOW.plusDays(7)));
 
             BidEligibility result = service.evaluateBidEligibility(liveAuction, USER_ID, NOW);
             assertThat(result).isEqualTo(BidEligibility.BIDDING_PENALIZED);
@@ -421,8 +437,8 @@ class AuctionBrowseServiceTest {
             Address address = sampleAddress(USER_ID);
             given(addresses.findByUserId(USER_ID)).willReturn(List.of(address));
             given(userVerification.isEmailVerified(USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.empty());
-            given(auctions.countActiveStrikes(USER_ID)).willReturn(3);
+            given(bidderStrikes.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.empty());
+            given(bidderStrikes.countActiveStrikes(USER_ID)).willReturn(3);
 
             BidEligibility result = service.evaluateBidEligibility(liveAuction, USER_ID, NOW);
             assertThat(result).isEqualTo(BidEligibility.BIDDING_PENALIZED);
@@ -434,8 +450,8 @@ class AuctionBrowseServiceTest {
             Address address = sampleAddress(SELLER_USER_ID);
             given(addresses.findByUserId(SELLER_USER_ID)).willReturn(List.of(address));
             given(userVerification.isEmailVerified(SELLER_USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(SELLER_USER_ID, NOW)).willReturn(Optional.empty());
-            given(auctions.countActiveStrikes(SELLER_USER_ID)).willReturn(0);
+            given(bidderStrikes.findActiveBanUntil(SELLER_USER_ID, NOW)).willReturn(Optional.empty());
+            given(bidderStrikes.countActiveStrikes(SELLER_USER_ID)).willReturn(0);
 
             SellerProfile sellerProfile = new SellerProfile(SELLER_PROFILE_ID, SELLER_USER_ID, SellerStatus.VERIFIED, NOW, null, (short) 1, false, true, NOW);
             given(sellers.requireProfile(SELLER_USER_ID)).willReturn(sellerProfile);
@@ -450,8 +466,8 @@ class AuctionBrowseServiceTest {
             Address address = sampleAddress(USER_ID);
             given(addresses.findByUserId(USER_ID)).willReturn(List.of(address));
             given(userVerification.isEmailVerified(USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.empty());
-            given(auctions.countActiveStrikes(USER_ID)).willReturn(0);
+            given(bidderStrikes.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.empty());
+            given(bidderStrikes.countActiveStrikes(USER_ID)).willReturn(0);
             given(sellers.requireProfile(USER_ID)).willThrow(new NotFoundException(ErrorCode.SELLER_NOT_FOUND, "Not a seller"));
 
             BidEligibility result = service.evaluateBidEligibility(liveAuction, USER_ID, NOW);
@@ -477,10 +493,10 @@ class AuctionBrowseServiceTest {
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1500.00"), 2, null);
             given(addresses.findByUserId(USER_ID)).willReturn(List.of());
             given(userVerification.isEmailVerified(USER_ID)).willReturn(false);
-            given(auctions.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.of(NOW.plusDays(3)));
-            given(auctions.findMaxBidByUser(AUCTION_ID, USER_ID)).willReturn(Optional.of(new BigDecimal("1500.00")));
-            given(auctions.hasBid(AUCTION_ID, USER_ID)).willReturn(true);
-            given(auctions.findLeadingBidderId(AUCTION_ID)).willReturn(Optional.of(USER_ID));
+            given(bidderStrikes.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.of(NOW.plusDays(3)));
+            given(auctionBids.findMaxBidByUser(AUCTION_ID, USER_ID)).willReturn(Optional.of(new BigDecimal("1500.00")));
+            given(auctionBids.hasBid(AUCTION_ID, USER_ID)).willReturn(true);
+            given(auctionBids.findLeadingBidderId(AUCTION_ID)).willReturn(Optional.of(USER_ID));
 
             Viewer viewer = service.resolveViewer(auction, USER_ID, NOW);
 
@@ -500,11 +516,11 @@ class AuctionBrowseServiceTest {
             Address address = sampleAddress(USER_ID);
             given(addresses.findByUserId(USER_ID)).willReturn(List.of(address));
             given(userVerification.isEmailVerified(USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.empty());
-            given(auctions.countActiveStrikes(USER_ID)).willReturn(0);
-            given(auctions.findMaxBidByUser(AUCTION_ID, USER_ID)).willReturn(Optional.of(new BigDecimal("1500.00")));
-            given(auctions.hasBid(AUCTION_ID, USER_ID)).willReturn(true);
-            given(auctions.findLeadingBidderId(AUCTION_ID)).willReturn(Optional.of(999L));
+            given(bidderStrikes.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.empty());
+            given(bidderStrikes.countActiveStrikes(USER_ID)).willReturn(0);
+            given(auctionBids.findMaxBidByUser(AUCTION_ID, USER_ID)).willReturn(Optional.of(new BigDecimal("1500.00")));
+            given(auctionBids.hasBid(AUCTION_ID, USER_ID)).willReturn(true);
+            given(auctionBids.findLeadingBidderId(AUCTION_ID)).willReturn(Optional.of(999L));
 
             Viewer viewer = service.resolveViewer(auction, USER_ID, NOW);
 
@@ -555,10 +571,10 @@ class AuctionBrowseServiceTest {
             Address address = sampleAddress(USER_ID);
             given(addresses.findByUserId(USER_ID)).willReturn(List.of(address));
             given(userVerification.isEmailVerified(USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.empty());
-            given(auctions.countActiveStrikes(USER_ID)).willReturn(0);
-            given(auctions.findMaxBidByUser(AUCTION_ID, USER_ID)).willReturn(Optional.of(new BigDecimal("2500.00")));
-            given(auctions.hasBid(AUCTION_ID, USER_ID)).willReturn(true);
+            given(bidderStrikes.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.empty());
+            given(bidderStrikes.countActiveStrikes(USER_ID)).willReturn(0);
+            given(auctionBids.findMaxBidByUser(AUCTION_ID, USER_ID)).willReturn(Optional.of(new BigDecimal("2500.00")));
+            given(auctionBids.hasBid(AUCTION_ID, USER_ID)).willReturn(true);
 
             Viewer viewer = service.resolveViewer(auction, USER_ID, NOW);
 

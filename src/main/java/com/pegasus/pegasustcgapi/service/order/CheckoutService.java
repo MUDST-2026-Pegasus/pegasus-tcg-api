@@ -26,6 +26,9 @@ import com.pegasus.pegasustcgapi.port.pricing.PricingPort;
 import com.pegasus.pegasustcgapi.port.pricing.PricingPort.ListingOffer;
 import com.pegasus.pegasustcgapi.repository.cart.CartRepository;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
 import com.pegasus.pegasustcgapi.repository.seller.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.cart.CartService;
@@ -111,6 +114,9 @@ public class CheckoutService {
             CartRepository cartRepository,
             CartService cartService,
             OrderRepository orderRepository,
+            OrderTransitionRepository orderTransitionRepository,
+            OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             ShippingOptionService shippingOptionService,
@@ -121,7 +127,8 @@ public class CheckoutService {
             ObjectMapper json,
             PlatformTransactionManager transactionManager,
             CheckoutPromotionService checkoutPromotions) {
-        this(cartRepository, cartService, orderRepository, addressService, sellerProfileRepository,
+        this(cartRepository, cartService, orderRepository, orderTransitionRepository, orderQueryRepository,
+                orderReferenceQueryRepository, addressService, sellerProfileRepository,
                 shippingOptionService, storageService, pricingPort, inventoryPort, ledgerPort, json,
                 new TransactionTemplate(Objects.requireNonNull(
                         transactionManager, "a PlatformTransactionManager is required for checkout")),
@@ -132,6 +139,9 @@ public class CheckoutService {
             CartRepository cartRepository,
             CartService cartService,
             OrderRepository orderRepository,
+            OrderTransitionRepository orderTransitionRepository,
+            OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             ShippingOptionService shippingOptionService,
@@ -140,7 +150,8 @@ public class CheckoutService {
             LedgerPort ledgerPort,
             ObjectMapper json,
             PlatformTransactionManager transactionManager) {
-        this(cartRepository, cartService, orderRepository, addressService, sellerProfileRepository,
+        this(cartRepository, cartService, orderRepository, orderTransitionRepository, orderQueryRepository,
+                orderReferenceQueryRepository, addressService, sellerProfileRepository,
                 shippingOptionService, null, pricingPort, inventoryPort, ledgerPort, json, transactionManager,
                 null);
     }
@@ -153,6 +164,9 @@ public class CheckoutService {
             CartRepository cartRepository,
             CartService cartService,
             OrderRepository orderRepository,
+            OrderTransitionRepository orderTransitionRepository,
+            OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             ShippingOptionService shippingOptionService,
@@ -162,7 +176,8 @@ public class CheckoutService {
             LedgerPort ledgerPort,
             ObjectMapper json,
             TransactionTemplate transactionTemplate) {
-        this(cartRepository, cartService, orderRepository, addressService, sellerProfileRepository,
+        this(cartRepository, cartService, orderRepository, orderTransitionRepository, orderQueryRepository,
+                orderReferenceQueryRepository, addressService, sellerProfileRepository,
                 shippingOptionService, storageService, pricingPort, inventoryPort, ledgerPort, json,
                 transactionTemplate, null);
     }
@@ -171,6 +186,9 @@ public class CheckoutService {
             CartRepository cartRepository,
             CartService cartService,
             OrderRepository orderRepository,
+            OrderTransitionRepository orderTransitionRepository,
+            OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             ShippingOptionService shippingOptionService,
@@ -184,9 +202,11 @@ public class CheckoutService {
         this.cartService = cartService;
         this.cartPricing = new CheckoutCartPricingService(cartRepository, addressService, sellerProfileRepository,
                 shippingOptionService, pricingPort, checkoutPromotions);
-        this.responseMapper = new CheckoutResponseMapper(orderRepository, storageService, json);
+        this.responseMapper = new CheckoutResponseMapper(orderRepository, orderQueryRepository,
+                orderReferenceQueryRepository, storageService, json);
         this.reservation = new CheckoutReservationService(inventoryPort, null, checkoutPromotions);
-        this.persistence = new CheckoutOrderPersistenceService(orderRepository, inventoryPort);
+        this.persistence = new CheckoutOrderPersistenceService(orderRepository, orderTransitionRepository,
+                orderReferenceQueryRepository, inventoryPort);
         this.ledgerPort = ledgerPort;
         this.transactionTemplate = transactionTemplate;
     }
@@ -195,6 +215,9 @@ public class CheckoutService {
             CartRepository cartRepository,
             CartService cartService,
             OrderRepository orderRepository,
+            OrderTransitionRepository orderTransitionRepository,
+            OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             ShippingOptionService shippingOptionService,
@@ -203,7 +226,8 @@ public class CheckoutService {
             LedgerPort ledgerPort,
             ObjectMapper json,
             TransactionTemplate transactionTemplate) {
-        this(cartRepository, cartService, orderRepository, addressService, sellerProfileRepository,
+        this(cartRepository, cartService, orderRepository, orderTransitionRepository, orderQueryRepository,
+                orderReferenceQueryRepository, addressService, sellerProfileRepository,
                 shippingOptionService, null, pricingPort, inventoryPort, ledgerPort, json, transactionTemplate);
     }
 

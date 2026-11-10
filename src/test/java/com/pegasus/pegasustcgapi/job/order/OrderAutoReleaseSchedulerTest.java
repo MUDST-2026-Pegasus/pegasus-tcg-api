@@ -16,7 +16,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import java.time.Clock;
 import java.util.List;
@@ -31,7 +31,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class OrderAutoReleaseSchedulerTest {
 
     @Mock
-    private OrderRepository orderRepository;
+    private OrderQueryRepository orderQueryRepository;
 
     @Mock
     private OrderLifecycleService orderLifecycleService;
@@ -41,7 +41,7 @@ class OrderAutoReleaseSchedulerTest {
 
     private OrderAutoReleaseScheduler scheduler(int batchSize) {
         return new OrderAutoReleaseScheduler(
-                orderRepository, orderLifecycleService, jobLock, Clock.systemUTC(), batchSize, null);
+                orderQueryRepository, orderLifecycleService, jobLock, Clock.systemUTC(), batchSize, null);
     }
 
     /** Stands in for winning the lock: the task runs. */
@@ -62,7 +62,7 @@ class OrderAutoReleaseSchedulerTest {
         when(order2.getId()).thenReturn(102L);
 
         lockGranted();
-        when(orderRepository.findOverdueShippedOrders(any(), anyInt())).thenReturn(List.of(order1, order2));
+        when(orderQueryRepository.findOverdueShippedOrders(any(), anyInt())).thenReturn(List.of(order1, order2));
 
         scheduler(10).runAutoRelease();
 
@@ -77,7 +77,7 @@ class OrderAutoReleaseSchedulerTest {
 
         scheduler(10).runAutoRelease();
 
-        verify(orderRepository, never()).findOverdueShippedOrders(any(), anyInt());
+        verify(orderQueryRepository, never()).findOverdueShippedOrders(any(), anyInt());
         verify(orderLifecycleService, never()).autoCompleteSellerOrder(anyLong());
     }
 
@@ -90,7 +90,7 @@ class OrderAutoReleaseSchedulerTest {
         when(second.getId()).thenReturn(202L);
 
         lockGranted();
-        when(orderRepository.findOverdueShippedOrders(any(), anyInt()))
+        when(orderQueryRepository.findOverdueShippedOrders(any(), anyInt()))
                 .thenReturn(List.of(first))
                 .thenReturn(List.of(second))
                 .thenReturn(List.of());

@@ -23,7 +23,9 @@ import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository.ListingSnapshotDetails;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository.ListingSnapshotDetails;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.order.CheckoutService;
 import com.pegasus.pegasustcgapi.service.shipping.ShippingOptionService;
@@ -45,6 +47,8 @@ public class AuctionCheckoutService {
     private final AuctionRepository auctions;
     private final ListingUnitRepository units;
     private final OrderRepository orders;
+    private final OrderTransitionRepository orderTransitions;
+    private final OrderReferenceQueryRepository orderReferences;
     private final CheckoutService checkout;
     private final AddressService addresses;
     private final ShippingOptionService shipping;
@@ -53,11 +57,15 @@ public class AuctionCheckoutService {
     private final Clock clock;
 
     public AuctionCheckoutService(AuctionRepository auctions, ListingUnitRepository units,
-            OrderRepository orders, CheckoutService checkout, AddressService addresses,
+            OrderRepository orders,
+            OrderTransitionRepository orderTransitions,
+            OrderReferenceQueryRepository orderReferences, CheckoutService checkout, AddressService addresses,
             ShippingOptionService shipping, InventoryPort inventory, LedgerPort ledger, Clock clock) {
         this.auctions = auctions;
         this.units = units;
         this.orders = orders;
+        this.orderTransitions = orderTransitions;
+        this.orderReferences = orderReferences;
         this.checkout = checkout;
         this.addresses = addresses;
         this.shipping = shipping;
@@ -114,7 +122,7 @@ public class AuctionCheckoutService {
                 ListingUnitStatus.RESERVED) != 1) {
             throw new ConflictException(ErrorCode.UNIT_NOT_AVAILABLE);
         }
-        ListingSnapshotDetails card = orders.findAuctionCardDetails(auction.listingUnitId())
+        ListingSnapshotDetails card = orderReferences.findAuctionCardDetails(auction.listingUnitId())
                 .orElseThrow(() -> new ConflictException(ErrorCode.UNIT_NOT_AVAILABLE));
         CommissionQuote commission = ledger.quoteCommission(auction.sellerProfileId(), price,
                 List.of(auction.catalogVariantId()));
@@ -136,7 +144,7 @@ public class AuctionCheckoutService {
         SellerOrderRecord seller = orders.insertSellerOrder(sale.getId(), auction.sellerProfileId(),
                 number + "-S" + auction.sellerProfileId(), price, fee, BigDecimal.ZERO, total,
                 commission.ratePercent(), commission.amount(), net, option.id());
-        orders.insertStatusHistory(seller.getId(), null, SellerOrderStatus.PENDING_PAYMENT.name(),
+        orderTransitions.insertStatusHistory(seller.getId(), null, SellerOrderStatus.PENDING_PAYMENT.name(),
                 principal.userId(), "Order placed");
         OrderItemRecord item = orders.insertOrderItem(seller.getId(), card.listingId(),
                 auction.catalogVariantId(), 1, price, price, cost, card.productName(), card.variantLabel(),

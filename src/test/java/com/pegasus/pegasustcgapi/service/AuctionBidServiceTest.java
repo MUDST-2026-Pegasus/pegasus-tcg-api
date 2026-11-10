@@ -27,6 +27,8 @@ import com.pegasus.pegasustcgapi.model.user.Address;
 import com.pegasus.pegasustcgapi.port.UserVerificationPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionBidRepository;
+import com.pegasus.pegasustcgapi.repository.auction.BidderStrikeRepository;
 import com.pegasus.pegasustcgapi.repository.user.AddressRepository;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBidService;
 import com.pegasus.pegasustcgapi.service.auction.AuctionEligibilityValidator;
@@ -62,6 +64,10 @@ class AuctionBidServiceTest {
 
     @Mock
     private AuctionRepository auctions;
+    @Mock
+    private AuctionBidRepository auctionBids;
+    @Mock
+    private BidderStrikeRepository bidderStrikes;
 
     @Mock
     private AddressRepository addresses;
@@ -80,8 +86,8 @@ class AuctionBidServiceTest {
 
     @BeforeEach
     void setUp() {
-        validator = new AuctionEligibilityValidator(addresses, userVerification, auctions, sellers, settings);
-        service = new AuctionBidService(auctions, validator, FIXED_CLOCK, settings);
+        validator = new AuctionEligibilityValidator(addresses, userVerification, bidderStrikes, sellers, settings);
+        service = new AuctionBidService(auctions, auctionBids, validator, FIXED_CLOCK, settings);
         org.mockito.Mockito.lenient().when(settings.getInt(PlatformSettingService.AUCTION_STRIKE_LIMIT)).thenReturn(3);
         org.mockito.Mockito.lenient().when(settings.getSeconds(PlatformSettingService.AUCTION_EXTENSION_SECONDS))
                 .thenReturn(java.time.Duration.ofSeconds(120));
@@ -138,8 +144,8 @@ class AuctionBidServiceTest {
     private void stubEligibleUser(long userId) {
         given(addresses.findByUserId(userId)).willReturn(List.of(sampleAddress(userId)));
         given(userVerification.isEmailVerified(userId)).willReturn(true);
-        given(auctions.findActiveBanUntil(userId, NOW)).willReturn(Optional.empty());
-        given(auctions.countActiveStrikes(userId)).willReturn(0);
+        given(bidderStrikes.findActiveBanUntil(userId, NOW)).willReturn(Optional.empty());
+        given(bidderStrikes.countActiveStrikes(userId)).willReturn(0);
         given(sellers.requireProfile(userId)).willThrow(new NotFoundException(ErrorCode.SELLER_NOT_FOUND, "Not a seller"));
     }
 
@@ -153,7 +159,7 @@ class AuctionBidServiceTest {
             stubEligibleUser(USER_ID);
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), new BigDecimal("50.00"), new BigDecimal("1000.00"), 0, NOW.plusHours(2));
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
-            given(auctions.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1000.00")), any())).willReturn(1L);
+            given(auctionBids.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1000.00")), any())).willReturn(1L);
 
             service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1000.00"), null);
 
@@ -169,7 +175,7 @@ class AuctionBidServiceTest {
                     .isInstanceOf(NotFoundException.class)
                     .satisfies(ex -> assertThat(((NotFoundException) ex).errorCode()).isEqualTo(ErrorCode.AUCTION_NOT_FOUND));
 
-            verify(auctions, never()).insertBid(anyLong(), anyLong(), any(), any());
+            verify(auctionBids, never()).insertBid(anyLong(), anyLong(), any(), any());
         }
 
         @Test
@@ -182,7 +188,7 @@ class AuctionBidServiceTest {
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.AUCTION_CLOSED));
 
-            verify(auctions, never()).insertBid(anyLong(), anyLong(), any(), any());
+            verify(auctionBids, never()).insertBid(anyLong(), anyLong(), any(), any());
         }
 
         @Test
@@ -195,7 +201,7 @@ class AuctionBidServiceTest {
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.AUCTION_CLOSED));
 
-            verify(auctions, never()).insertBid(anyLong(), anyLong(), any(), any());
+            verify(auctionBids, never()).insertBid(anyLong(), anyLong(), any(), any());
         }
     }
 
@@ -237,7 +243,7 @@ class AuctionBidServiceTest {
         void eligibility_ActiveBan_ThrowsForbidden() {
             given(addresses.findByUserId(USER_ID)).willReturn(List.of(sampleAddress(USER_ID)));
             given(userVerification.isEmailVerified(USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.of(NOW.plusDays(7)));
+            given(bidderStrikes.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.of(NOW.plusDays(7)));
 
             assertThatThrownBy(() -> service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1000.00"), null))
                     .isInstanceOf(ForbiddenException.class)
@@ -252,8 +258,8 @@ class AuctionBidServiceTest {
         void eligibility_StrikesBan_ThrowsForbidden() {
             given(addresses.findByUserId(USER_ID)).willReturn(List.of(sampleAddress(USER_ID)));
             given(userVerification.isEmailVerified(USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.empty());
-            given(auctions.countActiveStrikes(USER_ID)).willReturn(3);
+            given(bidderStrikes.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.empty());
+            given(bidderStrikes.countActiveStrikes(USER_ID)).willReturn(3);
 
             assertThatThrownBy(() -> service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1000.00"), null))
                     .isInstanceOf(ForbiddenException.class)
@@ -265,8 +271,8 @@ class AuctionBidServiceTest {
         void eligibility_OwnAuction_ThrowsForbidden() {
             given(addresses.findByUserId(SELLER_USER_ID)).willReturn(List.of(sampleAddress(SELLER_USER_ID)));
             given(userVerification.isEmailVerified(SELLER_USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(SELLER_USER_ID, NOW)).willReturn(Optional.empty());
-            given(auctions.countActiveStrikes(SELLER_USER_ID)).willReturn(0);
+            given(bidderStrikes.findActiveBanUntil(SELLER_USER_ID, NOW)).willReturn(Optional.empty());
+            given(bidderStrikes.countActiveStrikes(SELLER_USER_ID)).willReturn(0);
 
             SellerProfile sellerProfile = new SellerProfile(SELLER_PROFILE_ID, SELLER_USER_ID, SellerStatus.VERIFIED, NOW, null, (short) 1, false, true, NOW);
             given(sellers.requireProfile(SELLER_USER_ID)).willReturn(sellerProfile);
@@ -303,8 +309,8 @@ class AuctionBidServiceTest {
             stubEligibleUser(USER_ID);
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), new BigDecimal("50.00"), new BigDecimal("1000.00"), 0, NOW.plusHours(2));
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
-            given(auctions.hasBid(AUCTION_ID, USER_ID)).willReturn(false);
-            given(auctions.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1000.00")), any())).willReturn(101L);
+            given(auctionBids.hasBid(AUCTION_ID, USER_ID)).willReturn(false);
+            given(auctionBids.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1000.00")), any())).willReturn(101L);
 
             BidPlaced result = service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1000.00"), null);
 
@@ -315,7 +321,7 @@ class AuctionBidServiceTest {
             assertThat(result.leading()).isTrue();
             assertThat(result.extended()).isFalse();
 
-            verify(auctions).recordBid(eq(AUCTION_ID), eq(101L), eq(new BigDecimal("1000.00")), eq(true), eq(NOW), eq(auction.endsAt()), eq(false), eq(NOW));
+            verify(auctionBids).recordBid(eq(AUCTION_ID), eq(101L), eq(new BigDecimal("1000.00")), eq(true), eq(NOW), eq(auction.endsAt()), eq(false), eq(NOW));
         }
 
         @Test
@@ -341,8 +347,8 @@ class AuctionBidServiceTest {
             stubEligibleUser(USER_ID);
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), new BigDecimal("50.00"), new BigDecimal("1200.00"), 3, NOW.plusHours(2));
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
-            given(auctions.hasBid(AUCTION_ID, USER_ID)).willReturn(true);
-            given(auctions.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1300.00")), any())).willReturn(102L);
+            given(auctionBids.hasBid(AUCTION_ID, USER_ID)).willReturn(true);
+            given(auctionBids.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1300.00")), any())).willReturn(102L);
 
             BidPlaced result = service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1300.00"), null);
 
@@ -352,7 +358,7 @@ class AuctionBidServiceTest {
             assertThat(result.bidCount()).isEqualTo(4);
 
             // isNewBidder is false because hasBid was true, firstBidAt is null
-            verify(auctions).recordBid(eq(AUCTION_ID), eq(102L), eq(new BigDecimal("1300.00")), eq(false), eq(null), eq(auction.endsAt()), eq(false), eq(NOW));
+            verify(auctionBids).recordBid(eq(AUCTION_ID), eq(102L), eq(new BigDecimal("1300.00")), eq(false), eq(null), eq(auction.endsAt()), eq(false), eq(NOW));
         }
     }
 
@@ -362,14 +368,14 @@ class AuctionBidServiceTest {
 
         @Test
         void extensionReadsCurrentSetting() {
-            service = new AuctionBidService(auctions, validator, FIXED_CLOCK, settings);
+            service = new AuctionBidService(auctions, auctionBids, validator, FIXED_CLOCK, settings);
             given(settings.getSeconds(PlatformSettingService.AUCTION_EXTENSION_SECONDS))
                     .willReturn(java.time.Duration.ofSeconds(30));
             stubEligibleUser(USER_ID);
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"),
                     new BigDecimal("50.00"), new BigDecimal("1000.00"), 1, NOW.plusSeconds(20));
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
-            given(auctions.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1050.00")), any()))
+            given(auctionBids.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1050.00")), any()))
                     .willReturn(106L);
 
             assertThat(service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1050.00"), null).endsAt())
@@ -383,8 +389,8 @@ class AuctionBidServiceTest {
             OffsetDateTime endsAt119s = NOW.plusSeconds(119);
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), new BigDecimal("50.00"), new BigDecimal("1000.00"), 1, endsAt119s);
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
-            given(auctions.hasBid(AUCTION_ID, USER_ID)).willReturn(false);
-            given(auctions.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1050.00")), any())).willReturn(103L);
+            given(auctionBids.hasBid(AUCTION_ID, USER_ID)).willReturn(false);
+            given(auctionBids.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1050.00")), any())).willReturn(103L);
 
             BidPlaced result = service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1050.00"), null);
 
@@ -392,7 +398,7 @@ class AuctionBidServiceTest {
             OffsetDateTime expectedEndsAt = NOW.plusSeconds(120);
             assertThat(result.endsAt()).isEqualTo(expectedEndsAt);
 
-            verify(auctions).recordBid(eq(AUCTION_ID), eq(103L), eq(new BigDecimal("1050.00")), eq(true), eq(null), eq(expectedEndsAt), eq(true), eq(NOW));
+            verify(auctionBids).recordBid(eq(AUCTION_ID), eq(103L), eq(new BigDecimal("1050.00")), eq(true), eq(null), eq(expectedEndsAt), eq(true), eq(NOW));
         }
 
         @Test
@@ -402,15 +408,15 @@ class AuctionBidServiceTest {
             OffsetDateTime endsAt120s = NOW.plusSeconds(120);
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), new BigDecimal("50.00"), new BigDecimal("1000.00"), 1, endsAt120s);
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
-            given(auctions.hasBid(AUCTION_ID, USER_ID)).willReturn(false);
-            given(auctions.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1050.00")), any())).willReturn(104L);
+            given(auctionBids.hasBid(AUCTION_ID, USER_ID)).willReturn(false);
+            given(auctionBids.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1050.00")), any())).willReturn(104L);
 
             BidPlaced result = service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1050.00"), null);
 
             assertThat(result.extended()).isFalse();
             assertThat(result.endsAt()).isEqualTo(endsAt120s);
 
-            verify(auctions).recordBid(eq(AUCTION_ID), eq(104L), eq(new BigDecimal("1050.00")), eq(true), eq(null), eq(endsAt120s), eq(false), eq(NOW));
+            verify(auctionBids).recordBid(eq(AUCTION_ID), eq(104L), eq(new BigDecimal("1050.00")), eq(true), eq(null), eq(endsAt120s), eq(false), eq(NOW));
         }
 
         @Test
@@ -420,15 +426,15 @@ class AuctionBidServiceTest {
             OffsetDateTime endsAt121s = NOW.plusSeconds(121);
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), new BigDecimal("50.00"), new BigDecimal("1000.00"), 1, endsAt121s);
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
-            given(auctions.hasBid(AUCTION_ID, USER_ID)).willReturn(false);
-            given(auctions.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1050.00")), any())).willReturn(105L);
+            given(auctionBids.hasBid(AUCTION_ID, USER_ID)).willReturn(false);
+            given(auctionBids.insertBid(eq(AUCTION_ID), eq(USER_ID), eq(new BigDecimal("1050.00")), any())).willReturn(105L);
 
             BidPlaced result = service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1050.00"), null);
 
             assertThat(result.extended()).isFalse();
             assertThat(result.endsAt()).isEqualTo(endsAt121s);
 
-            verify(auctions).recordBid(eq(AUCTION_ID), eq(105L), eq(new BigDecimal("1050.00")), eq(true), eq(null), eq(endsAt121s), eq(false), eq(NOW));
+            verify(auctionBids).recordBid(eq(AUCTION_ID), eq(105L), eq(new BigDecimal("1050.00")), eq(true), eq(null), eq(endsAt121s), eq(false), eq(NOW));
         }
     }
 
@@ -445,7 +451,7 @@ class AuctionBidServiceTest {
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
 
             AuctionBid existing = new AuctionBid(100L, AUCTION_ID, USER_ID, new BigDecimal("1200.00"), BidStatus.ACTIVE, IDEM_KEY, NOW.minusMinutes(1));
-            given(auctions.findBidByIdempotencyKey(AUCTION_ID, IDEM_KEY)).willReturn(Optional.of(existing));
+            given(auctionBids.findBidByIdempotencyKey(AUCTION_ID, IDEM_KEY)).willReturn(Optional.of(existing));
 
             BidPlaced result = service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1200.00"), IDEM_KEY);
 
@@ -453,8 +459,8 @@ class AuctionBidServiceTest {
             assertThat(result.leading()).isTrue(); // auction.leadingBidId() is 100L == existing.id()
             assertThat(result.extended()).isFalse();
 
-            verify(auctions, never()).insertBid(anyLong(), anyLong(), any(), any());
-            verify(auctions, never()).recordBid(anyLong(), anyLong(), any(), anyBoolean(), any(), any(), anyBoolean(), any());
+            verify(auctionBids, never()).insertBid(anyLong(), anyLong(), any(), any());
+            verify(auctionBids, never()).recordBid(anyLong(), anyLong(), any(), anyBoolean(), any(), any(), anyBoolean(), any());
         }
 
         @Test
@@ -464,13 +470,13 @@ class AuctionBidServiceTest {
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
 
             AuctionBid existing = new AuctionBid(100L, AUCTION_ID, USER_ID, new BigDecimal("1200.00"), BidStatus.ACTIVE, IDEM_KEY, NOW.minusMinutes(1));
-            given(auctions.findBidByIdempotencyKey(AUCTION_ID, IDEM_KEY)).willReturn(Optional.of(existing));
+            given(auctionBids.findBidByIdempotencyKey(AUCTION_ID, IDEM_KEY)).willReturn(Optional.of(existing));
 
             assertThatThrownBy(() -> service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1300.00"), IDEM_KEY))
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_KEY_CONFLICT));
 
-            verify(auctions, never()).insertBid(anyLong(), anyLong(), any(), any());
+            verify(auctionBids, never()).insertBid(anyLong(), anyLong(), any(), any());
         }
 
         @Test
@@ -480,13 +486,13 @@ class AuctionBidServiceTest {
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
 
             AuctionBid existing = new AuctionBid(100L, AUCTION_ID, 999L, new BigDecimal("1200.00"), BidStatus.ACTIVE, IDEM_KEY, NOW.minusMinutes(1));
-            given(auctions.findBidByIdempotencyKey(AUCTION_ID, IDEM_KEY)).willReturn(Optional.of(existing));
+            given(auctionBids.findBidByIdempotencyKey(AUCTION_ID, IDEM_KEY)).willReturn(Optional.of(existing));
 
             assertThatThrownBy(() -> service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1200.00"), IDEM_KEY))
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_KEY_CONFLICT));
 
-            verify(auctions, never()).insertBid(anyLong(), anyLong(), any(), any());
+            verify(auctionBids, never()).insertBid(anyLong(), anyLong(), any(), any());
         }
 
         @Test
@@ -496,10 +502,10 @@ class AuctionBidServiceTest {
             Auction auction = sampleAuction(AuctionStatus.LIVE, new BigDecimal("1000.00"), new BigDecimal("50.00"), new BigDecimal("1000.00"), 0, NOW.plusHours(2));
             given(auctions.lock(AUCTION_ID)).willReturn(Optional.of(auction));
             // First lookup finds nothing
-            given(auctions.findBidByIdempotencyKey(AUCTION_ID, IDEM_KEY))
+            given(auctionBids.findBidByIdempotencyKey(AUCTION_ID, IDEM_KEY))
                     .willReturn(Optional.empty());
 
-            given(auctions.insertBid(AUCTION_ID, USER_ID, new BigDecimal("1000.00"), IDEM_KEY))
+            given(auctionBids.insertBid(AUCTION_ID, USER_ID, new BigDecimal("1000.00"), IDEM_KEY))
                     .willThrow(new DuplicateKeyException("duplicate key value violates unique constraint"));
 
             assertThatThrownBy(() -> service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1000.00"), IDEM_KEY))
@@ -515,13 +521,13 @@ class AuctionBidServiceTest {
             stubEligibleUser(USER_ID);
 
             AuctionBid leadingBid = new AuctionBid(100L, AUCTION_ID, USER_ID, new BigDecimal("1050.00"), BidStatus.ACTIVE, "k1", NOW.minusMinutes(10));
-            given(auctions.findBidById(100L)).willReturn(Optional.of(leadingBid));
+            given(auctionBids.findBidById(100L)).willReturn(Optional.of(leadingBid));
 
             assertThatThrownBy(() -> service.placeBid(AUCTION_ID, USER_ID, new BigDecimal("1100.00"), null))
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.ALREADY_LEADING));
 
-            verify(auctions, never()).insertBid(anyLong(), anyLong(), any(), any());
+            verify(auctionBids, never()).insertBid(anyLong(), anyLong(), any(), any());
         }
 
         @Test
@@ -534,7 +540,7 @@ class AuctionBidServiceTest {
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.AUCTION_CLOSED));
 
-            verify(auctions, never()).insertBid(anyLong(), anyLong(), any(), any());
+            verify(auctionBids, never()).insertBid(anyLong(), anyLong(), any(), any());
         }
     }
 }

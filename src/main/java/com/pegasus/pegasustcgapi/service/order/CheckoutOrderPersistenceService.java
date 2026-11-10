@@ -12,8 +12,10 @@ import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.port.inventory.InventoryPort.ReservedUnit;
 import com.pegasus.pegasustcgapi.port.pricing.PricingPort.ListingOffer;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository.ListingSnapshotDetails;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository.ListingSnapshotDetails;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository.SaleSnapshot;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.promotion.CheckoutPromotionService;
 import com.pegasus.pegasustcgapi.service.sale.SaleCheckoutService.Hold;
@@ -32,10 +34,15 @@ import org.springframework.stereotype.Service;
 @Service
 class CheckoutOrderPersistenceService {
     private final OrderRepository orderRepository;
+    private final OrderTransitionRepository orderTransitionRepository;
+    private final OrderReferenceQueryRepository orderReferenceQueryRepository;
     private final InventoryPort inventoryPort;
 
-    CheckoutOrderPersistenceService(OrderRepository orderRepository, InventoryPort inventoryPort) {
+    CheckoutOrderPersistenceService(OrderRepository orderRepository, OrderTransitionRepository orderTransitionRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository, InventoryPort inventoryPort) {
         this.orderRepository = orderRepository;
+        this.orderTransitionRepository = orderTransitionRepository;
+        this.orderReferenceQueryRepository = orderReferenceQueryRepository;
         this.inventoryPort = inventoryPort;
     }
 
@@ -83,7 +90,7 @@ class CheckoutOrderPersistenceService {
                 trimmedKey);
 
         // 7. Insert Seller Orders & Order Items & Units
-        Map<Long, ListingSnapshotDetails> snapshotDetails = orderRepository.findListingDetails(listingIds);
+        Map<Long, ListingSnapshotDetails> snapshotDetails = orderReferenceQueryRepository.findListingDetails(listingIds);
         Map<Long, Long> sellerOrderIdBySeller = new LinkedHashMap<>();
         // A listing split over two lines hands each its own cards, in reservation order.
         Map<Long, Integer> unitsTaken = new HashMap<>();
@@ -137,7 +144,7 @@ class CheckoutOrderPersistenceService {
             sellerOrderIdBySeller.put(sc.sellerProfileId(), sellerOrder.getId());
 
             // The state machine starts here, so the audit trail does too [CR-7].
-            orderRepository.insertStatusHistory(
+            orderTransitionRepository.insertStatusHistory(
                     sellerOrder.getId(),
                     null,
                     SellerOrderStatus.PENDING_PAYMENT.name(),

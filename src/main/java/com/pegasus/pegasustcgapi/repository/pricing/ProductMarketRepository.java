@@ -1,6 +1,6 @@
 package com.pegasus.pegasustcgapi.repository.pricing;
 
-import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
+import com.pegasus.pegasustcgapi.repository.listing.ListingConditions;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
@@ -71,7 +71,7 @@ public class ProductMarketRepository {
             return Map.of();
         }
         Field<Long> productId = CATALOG_VARIANT.CATALOG_PRODUCT_ID;
-        Field<BigDecimal> lowest = DSL.min(ListingRepository.EFFECTIVE_PRICE);
+        Field<BigDecimal> lowest = DSL.min(ListingConditions.EFFECTIVE_PRICE);
         Field<Integer> listings = DSL.count();
 
         return dsl.select(productId, lowest, listings)
@@ -79,7 +79,7 @@ public class ProductMarketRepository {
                 .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
                 .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
                 .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
-                .leftJoin(LISTING_SALE_PRICE).on(ListingRepository.salePriceRunning(now))
+                .leftJoin(LISTING_SALE_PRICE).on(ListingConditions.salePriceRunning(now))
                 .where(onSale())
                 .and(inCondition(conditions))
                 .and(productId.in(productIds))
@@ -100,13 +100,13 @@ public class ProductMarketRepository {
     public static Table<?> offers(Set<CardCondition> conditions, OffsetDateTime now) {
         return DSL.select(
                         CATALOG_VARIANT.CATALOG_PRODUCT_ID.as(OFFER_PRODUCT_ID),
-                        DSL.min(ListingRepository.EFFECTIVE_PRICE).as(OFFER_LOWEST_PRICE),
+                        DSL.min(ListingConditions.EFFECTIVE_PRICE).as(OFFER_LOWEST_PRICE),
                         DSL.count().as(OFFER_LISTING_COUNT))
                 .from(LISTING)
                 .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
                 .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
                 .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
-                .leftJoin(LISTING_SALE_PRICE).on(ListingRepository.salePriceRunning(now))
+                .leftJoin(LISTING_SALE_PRICE).on(ListingConditions.salePriceRunning(now))
                 .where(onSale())
                 .and(inCondition(conditions))
                 .groupBy(CATALOG_VARIANT.CATALOG_PRODUCT_ID)
@@ -165,7 +165,7 @@ public class ProductMarketRepository {
 
     /** Same rule as the public market: ACTIVE, stock left, and a seller open for business. */
     private static Condition onSale() {
-        return ListingRepository.sellerOpenForBusiness()
+        return ListingConditions.sellerOpenForBusiness()
                 .and(LISTING.STATUS.eq(ListingStatus.ACTIVE.name()))
                 .and(LISTING.QUANTITY_AVAILABLE.gt(0));
     }

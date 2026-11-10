@@ -6,6 +6,7 @@ import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.BidderStrikeRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
@@ -23,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AdminAuctionService {
     private static final Logger AUDIT = LoggerFactory.getLogger("pegasus.audit.auction");
     private final AuctionRepository auctions;
+    private final BidderStrikeRepository bidderStrikes;
     private final OrderRepository orders;
     private final OrderLifecycleService orderLifecycle;
     private final ListingUnitRepository units;
@@ -30,10 +32,11 @@ public class AdminAuctionService {
     private final UserRepository users;
     private final Clock clock;
 
-    public AdminAuctionService(AuctionRepository auctions, OrderRepository orders,
+    public AdminAuctionService(AuctionRepository auctions, BidderStrikeRepository bidderStrikes, OrderRepository orders,
             OrderLifecycleService orderLifecycle, ListingUnitRepository units,
             InventoryService inventory, UserRepository users, Clock clock) {
         this.auctions = auctions;
+        this.bidderStrikes = bidderStrikes;
         this.orders = orders;
         this.orderLifecycle = orderLifecycle;
         this.units = units;
@@ -77,8 +80,8 @@ public class AdminAuctionService {
     public void liftBan(long userId, long adminId, String reason) {
         String explanation = requiredReason(reason);
         if (users.findById(userId).isEmpty()) throw new NotFoundException(ErrorCode.USER_NOT_FOUND);
-        auctions.lockBidder(userId);
-        auctions.liftBanAndClearStrikes(userId, adminId, explanation, OffsetDateTime.now(clock));
+        bidderStrikes.lockBidder(userId);
+        bidderStrikes.liftBanAndClearStrikes(userId, adminId, explanation, OffsetDateTime.now(clock));
         AUDIT.info("auction.ban.lift user={} by={} reason={}", userId, adminId, explanation);
     }
 

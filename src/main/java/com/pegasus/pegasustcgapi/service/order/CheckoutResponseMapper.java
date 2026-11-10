@@ -11,6 +11,8 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
 import com.pegasus.pegasustcgapi.model.user.Address;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -25,11 +27,17 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 class CheckoutResponseMapper {
     private final OrderRepository orderRepository;
+    private final OrderQueryRepository orderQueryRepository;
+    private final OrderReferenceQueryRepository orderReferenceQueryRepository;
     private final StorageService storageService;
     private final ObjectMapper json;
 
-    CheckoutResponseMapper(OrderRepository orderRepository, @Autowired(required = false) StorageService storageService, ObjectMapper json) {
+    CheckoutResponseMapper(OrderRepository orderRepository, OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
+            @Autowired(required = false) StorageService storageService, ObjectMapper json) {
         this.orderRepository = orderRepository;
+        this.orderQueryRepository = orderQueryRepository;
+        this.orderReferenceQueryRepository = orderReferenceQueryRepository;
         this.storageService = storageService;
         this.json = json != null ? json : new ObjectMapper();
     }
@@ -38,19 +46,19 @@ class CheckoutResponseMapper {
         SalesOrderRecord salesOrder = orderRepository.findSalesOrderById(salesOrderId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
 
-        List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(salesOrderId);
+        List<SellerOrderRecord> sellerOrders = orderQueryRepository.findSellerOrdersBySalesOrderId(salesOrderId);
 
         // Three queries whatever the basket holds: one per level, not one per row.
         List<Long> sellerOrderIds = sellerOrders.stream().map(SellerOrderRecord::getId).toList();
         Map<Long, List<OrderItemRecord>> itemsBySellerOrder =
-                orderRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
+                orderQueryRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
         List<Long> orderItemIds = sellerOrders.stream()
                 .flatMap(so -> itemsBySellerOrder.getOrDefault(so.getId(), List.of()).stream())
                 .map(OrderItemRecord::getId)
                 .toList();
-        Map<Long, List<Long>> unitIdsByItem = orderRepository.findUnitIdsByOrderItemIds(orderItemIds);
+        Map<Long, List<Long>> unitIdsByItem = orderQueryRepository.findUnitIdsByOrderItemIds(orderItemIds);
         List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
-        Map<Long, String> sellerNames = orderRepository.findSellerNamesByProfileIds(profileIds);
+        Map<Long, String> sellerNames = orderReferenceQueryRepository.findSellerNamesByProfileIds(profileIds);
 
         List<SellerOrderResponse> sellerResponses = new ArrayList<>();
         for (SellerOrderRecord so : sellerOrders) {

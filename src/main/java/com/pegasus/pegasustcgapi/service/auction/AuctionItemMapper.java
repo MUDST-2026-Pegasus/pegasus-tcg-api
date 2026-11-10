@@ -7,7 +7,7 @@ import com.pegasus.pegasustcgapi.model.catalog.CardSet;
 import com.pegasus.pegasustcgapi.model.catalog.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.catalog.CatalogVariant;
 import com.pegasus.pegasustcgapi.model.catalog.Game;
-import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CardSetRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogProductRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogVariantRepository;
@@ -30,7 +30,7 @@ public class AuctionItemMapper {
     private final CatalogProductRepository products;
     private final GameRepository games;
     private final CardSetRepository cardSets;
-    private final AuctionRepository auctions;
+    private final AuctionReferenceQueryRepository auctionReferences;
 
     public AuctionItemMapper(
             ListingCardRenderer cards,
@@ -38,13 +38,13 @@ public class AuctionItemMapper {
             CatalogProductRepository products,
             GameRepository games,
             CardSetRepository cardSets,
-            AuctionRepository auctions) {
+            AuctionReferenceQueryRepository auctionReferences) {
         this.cards = cards;
         this.variants = variants;
         this.products = products;
         this.games = games;
         this.cardSets = cardSets;
-        this.auctions = auctions;
+        this.auctionReferences = auctionReferences;
     }
 
     public record AuctionItemBundle(
@@ -115,7 +115,7 @@ public class AuctionItemMapper {
                 : Map.of();
 
         Map<Long, String> shopNameMap = sellerProfileIds != null && !sellerProfileIds.isEmpty()
-                ? auctions.findShopNames(sellerProfileIds)
+                ? auctionReferences.findShopNames(sellerProfileIds)
                 : Map.of();
 
         return new AuctionItemBundle(cardMap, variantMap, productMap, gameMap, setMap, shopNameMap);
@@ -141,7 +141,7 @@ public class AuctionItemMapper {
     }
 
     public String resolveShopName(long sellerProfileId) {
-        return auctions.findShopNames(List.of(sellerProfileId)).getOrDefault(sellerProfileId, "Shop");
+        return auctionReferences.findShopNames(List.of(sellerProfileId)).getOrDefault(sellerProfileId, "Shop");
     }
 
     public static String maskUsername(String username) {

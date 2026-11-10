@@ -7,6 +7,7 @@ import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionBid;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionBidRepository;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -27,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuctionBidService {
 
     private final AuctionRepository auctions;
+    private final AuctionBidRepository auctionBids;
     private final AuctionEligibilityValidator validator;
     private final Clock clock;
     private final PlatformSettingService settings;
@@ -34,10 +36,12 @@ public class AuctionBidService {
     @Autowired
     public AuctionBidService(
             AuctionRepository auctions,
+            AuctionBidRepository auctionBids,
             AuctionEligibilityValidator validator,
             Clock clock,
             PlatformSettingService settings) {
         this.auctions = auctions;
+        this.auctionBids = auctionBids;
         this.validator = validator;
         this.clock = clock;
         this.settings = settings;
@@ -61,7 +65,7 @@ public class AuctionBidService {
 
         // 1. Idempotency check if key provided
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
-            Optional<AuctionBid> existingBid = auctions.findBidByIdempotencyKey(auctionId, idempotencyKey);
+            Optional<AuctionBid> existingBid = auctionBids.findBidByIdempotencyKey(auctionId, idempotencyKey);
             if (existingBid.isPresent()) {
                 AuctionBid existing = existingBid.get();
                 if (existing.bidderId() != userId || existing.amount().compareTo(amount) != 0) {
@@ -87,7 +91,7 @@ public class AuctionBidService {
 
         // Prevent self-outbidding: current leading bidder cannot bid against themselves
         if (auction.leadingBidId() != null) {
-            auctions.findBidById(auction.leadingBidId()).ifPresent(leadingBid -> {
+            auctionBids.findBidById(auction.leadingBidId()).ifPresent(leadingBid -> {
                 if (leadingBid.bidderId() == userId) {
                     throw new ConflictException(ErrorCode.ALREADY_LEADING, "You are already the highest bidder");
                 }
@@ -104,7 +108,7 @@ public class AuctionBidService {
         }
 
         // 4. Check if caller is a new bidder for this auction
-        boolean isNewBidder = !auctions.hasBid(auctionId, userId);
+        boolean isNewBidder = !auctionBids.hasBid(auctionId, userId);
 
         // 5. Read the current anti-sniping window on every bid.
         Duration extension = settings.getSeconds(PlatformSettingService.AUCTION_EXTENSION_SECONDS);
@@ -115,14 +119,14 @@ public class AuctionBidService {
         // 6. Insert new bid record (guarded against duplicate idempotency key)
         long bidId;
         try {
-            bidId = auctions.insertBid(auctionId, userId, amount, idempotencyKey);
+            bidId = auctionBids.insertBid(auctionId, userId, amount, idempotencyKey);
         } catch (DuplicateKeyException e) {
             throw new ConflictException(ErrorCode.IDEMPOTENCY_KEY_CONFLICT, "Duplicate idempotency key");
         }
 
         // 7. Update auction row with the new bid state
         OffsetDateTime firstBidAt = auction.firstBidAt() == null ? now : null;
-        auctions.recordBid(auctionId, bidId, amount, isNewBidder, firstBidAt, newEndsAt, extended, now);
+        auctionBids.recordBid(auctionId, bidId, amount, isNewBidder, firstBidAt, newEndsAt, extended, now);
 
         int newBidCount = auction.bidCount() + 1;
         BigDecimal nextMinBid = amount.add(auction.bidIncrement());

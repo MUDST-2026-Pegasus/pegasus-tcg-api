@@ -18,8 +18,8 @@ import com.pegasus.pegasustcgapi.model.listing.ListingImage;
 import com.pegasus.pegasustcgapi.model.pricing.MarketKey;
 import com.pegasus.pegasustcgapi.model.user.UserStatus;
 import com.pegasus.pegasustcgapi.repository.listing.ListingImageRepository;
-import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
+import com.pegasus.pegasustcgapi.repository.listing.PublicListingQueryRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.PublicListing;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.PublicListingQuery;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
@@ -45,7 +45,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class ListingBrowseService {
 
-    private final ListingRepository listings;
+    private final PublicListingQueryRepository listings;
     private final ListingImageRepository images;
     private final ListingUnitRepository units;
     private final VariantMarketStatRepository stats;
@@ -55,7 +55,7 @@ public class ListingBrowseService {
     private final Clock clock;
 
     public ListingBrowseService(
-            ListingRepository listings,
+            PublicListingQueryRepository listings,
             ListingImageRepository images,
             ListingUnitRepository units,
             VariantMarketStatRepository stats,

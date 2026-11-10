@@ -2,7 +2,7 @@ package com.pegasus.pegasustcgapi.service.pricing;
 
 import com.pegasus.pegasustcgapi.model.listing.Listing;
 import com.pegasus.pegasustcgapi.port.pricing.PricingPort;
-import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
+import com.pegasus.pegasustcgapi.repository.listing.PublicListingQueryRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.Offer;
 import com.pegasus.pegasustcgapi.service.sale.SalePricingService;
 import java.math.BigDecimal;
@@ -22,10 +22,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class PricingService implements PricingPort {
 
-    private final ListingRepository listings;
+    private final PublicListingQueryRepository listings;
     private final SalePricingService salePricing;
 
-    public PricingService(ListingRepository listings, SalePricingService salePricing) {
+    public PricingService(PublicListingQueryRepository listings, SalePricingService salePricing) {
         this.listings = listings;
         this.salePricing = salePricing;
     }

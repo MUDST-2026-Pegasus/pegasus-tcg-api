@@ -44,15 +44,15 @@ final class OrderPaymentLifecycleService {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
 
-        List<SellerOrderRecord> sellerOrders = support.orderRepository.findSellerOrdersBySalesOrderId(salesOrder.getId());
+        List<SellerOrderRecord> sellerOrders = support.orderQueries.findSellerOrdersBySalesOrderId(salesOrder.getId());
         for (SellerOrderRecord so : sellerOrders) {
             if ("PENDING_PAYMENT".equals(so.getStatus())) {
-                support.orderRepository.updateSellerOrderStatus(
+                support.orderTransitions.updateSellerOrderStatus(
                         so.getId(),
                         List.of("PENDING_PAYMENT"),
                         "PAID",
                         null, null, null, null, null, null);
-                support.orderRepository.insertStatusHistory(so.getId(), "PENDING_PAYMENT", "PAID", actorUserId, "Payment completed");
+                support.orderTransitions.insertStatusHistory(so.getId(), "PENDING_PAYMENT", "PAID", actorUserId, "Payment completed");
             }
         }
 
@@ -68,11 +68,11 @@ final class OrderPaymentLifecycleService {
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
         SellerOrderStatus current = SellerOrderStatus.of(order.getStatus());
         if (!current.canMoveTo(target)) throw new ConflictException(ErrorCode.RETURN_STATE);
-        if (support.orderRepository.updateSellerOrderStatus(sellerOrderId, List.of(current.name()), target.name(),
+        if (support.orderTransitions.updateSellerOrderStatus(sellerOrderId, List.of(current.name()), target.name(),
                 null, null, null, target == SellerOrderStatus.COMPLETED ? support.now() : null, null, null) != 1) {
             throw new ConflictException(ErrorCode.RETURN_STATE);
         }
-        support.orderRepository.insertStatusHistory(sellerOrderId, current.name(), target.name(), actorUserId, reason);
+        support.orderTransitions.insertStatusHistory(sellerOrderId, current.name(), target.name(), actorUserId, reason);
         settlement.rollupSalesOrderStatus(order.getSalesOrderId());
     }
 }

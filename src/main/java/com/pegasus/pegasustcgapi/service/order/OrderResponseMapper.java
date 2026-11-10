@@ -19,6 +19,8 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.ShipmentRecord;
 import com.pegasus.pegasustcgapi.model.promotion.Promotion;
 import com.pegasus.pegasustcgapi.model.order.SellerOrderStatus;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.repository.promotion.PromotionRedemptionRepository;
 import com.pegasus.pegasustcgapi.dto.order.SaleDiscount;
 import com.pegasus.pegasustcgapi.storage.StorageService;
@@ -35,14 +37,18 @@ import java.util.Set;
 /** Builds order responses without changing the caller's transaction or query order. */
 final class OrderResponseMapper {
     private final OrderRepository orderRepository;
+    private final OrderQueryRepository orderQueryRepository;
+    private final OrderReferenceQueryRepository orderReferenceQueryRepository;
     private final PlatformSettingService platformSettingService;
     private final StorageService storageService;
     /** Null when the service was built without discount codes, as the unit tests do. */
     private final CheckoutPromotionService checkoutPromotions;
 
-    OrderResponseMapper(OrderRepository orderRepository, PlatformSettingService platformSettingService,
+    OrderResponseMapper(OrderRepository orderRepository, OrderQueryRepository orderQueryRepository, OrderReferenceQueryRepository orderReferenceQueryRepository, PlatformSettingService platformSettingService,
             StorageService storageService, CheckoutPromotionService checkoutPromotions) {
         this.orderRepository = orderRepository;
+        this.orderQueryRepository = orderQueryRepository;
+        this.orderReferenceQueryRepository = orderReferenceQueryRepository;
         this.platformSettingService = platformSettingService;
         this.storageService = storageService;
         this.checkoutPromotions = checkoutPromotions;
@@ -92,15 +98,15 @@ final class OrderResponseMapper {
 
         List<Long> salesOrderIds = salesOrders.stream().map(SalesOrderRecord::getId).toList();
         Map<Long, List<SellerOrderRecord>> sellerOrdersByParent =
-                orderRepository.findSellerOrdersBySalesOrderIds(salesOrderIds);
+                orderQueryRepository.findSellerOrdersBySalesOrderIds(salesOrderIds);
 
         List<SellerOrderRecord> allSellerOrders = salesOrders.stream()
                 .flatMap(so -> sellerOrdersByParent.getOrDefault(so.getId(), List.of()).stream())
                 .toList();
         Map<Long, SellerOrderDetailsResponse> sellerResponsesById = sellerDetailsById(allSellerOrders);
-        Set<Long> underReview = orderRepository.findSalesOrderIdsWithPaymentUnderReview(salesOrderIds);
+        Set<Long> underReview = orderQueryRepository.findSalesOrderIdsWithPaymentUnderReview(salesOrderIds);
         Map<Long, List<PromotionRedemptionRepository.Applied>> appliedBySalesOrder = appliedPromotions(salesOrderIds);
-        Map<Long, String> auctionNumbers = orderRepository.findAuctionNumbers(salesOrders.stream()
+        Map<Long, String> auctionNumbers = orderReferenceQueryRepository.findAuctionNumbers(salesOrders.stream()
                 .map(SalesOrderRecord::getAuctionId).filter(java.util.Objects::nonNull).toList());
         Duration cancelWindow = platformSettingService.getHours(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS);
 
@@ -155,7 +161,7 @@ final class OrderResponseMapper {
     }
 
     public Map<Long, SellerOrderDetailsResponse> toSellerOrderDetailsResponses(List<Long> sellerOrderIds) {
-        return sellerDetailsById(orderRepository.findSellerOrdersByIds(sellerOrderIds));
+        return sellerDetailsById(orderQueryRepository.findSellerOrdersByIds(sellerOrderIds));
     }
 
     Map<Long, SellerOrderDetailsResponse> sellerDetailsById(List<SellerOrderRecord> sellerOrders) {
@@ -165,19 +171,19 @@ final class OrderResponseMapper {
 
         List<Long> sellerOrderIds = sellerOrders.stream().map(SellerOrderRecord::getId).toList();
         Map<Long, List<OrderItemRecord>> itemsBySellerOrder =
-                orderRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
+                orderQueryRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
         List<Long> orderItemIds = sellerOrders.stream()
                 .flatMap(so -> itemsBySellerOrder.getOrDefault(so.getId(), List.of()).stream())
                 .map(OrderItemRecord::getId)
                 .toList();
-        Map<Long, List<Long>> unitIdsByItem = orderRepository.findUnitIdsByOrderItemIds(orderItemIds);
+        Map<Long, List<Long>> unitIdsByItem = orderQueryRepository.findUnitIdsByOrderItemIds(orderItemIds);
         Map<Long, List<ShipmentRecord>> shipmentsBySellerOrder =
-                orderRepository.findShipmentsBySellerOrderIds(sellerOrderIds);
+                orderQueryRepository.findShipmentsBySellerOrderIds(sellerOrderIds);
         Map<Long, List<SellerOrderStatusHistoryRecord>> historyBySellerOrder =
-                orderRepository.findStatusHistoryBySellerOrderIds(sellerOrderIds);
+                orderQueryRepository.findStatusHistoryBySellerOrderIds(sellerOrderIds);
 
         List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
-        Map<Long, OrderRepository.SellerIdentity> sellerIdentities = orderRepository.findSellerIdentitiesByProfileIds(profileIds);
+        Map<Long, OrderReferenceQueryRepository.SellerIdentity> sellerIdentities = orderReferenceQueryRepository.findSellerIdentitiesByProfileIds(profileIds);
         Map<Long, List<PromotionRedemptionRepository.Applied>> appliedBySalesOrder = appliedPromotions(
                 sellerOrders.stream().map(SellerOrderRecord::getSalesOrderId).distinct().toList());
 

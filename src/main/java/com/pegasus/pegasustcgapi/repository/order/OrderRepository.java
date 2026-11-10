@@ -1,60 +1,38 @@
 package com.pegasus.pegasustcgapi.repository.order;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.Auction.AUCTION;
-import static com.pegasus.pegasustcgapi.jooq.tables.CatalogImage.CATALOG_IMAGE;
-import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
-import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
-import static com.pegasus.pegasustcgapi.jooq.tables.CollectionItem.COLLECTION_ITEM;
-import static com.pegasus.pegasustcgapi.jooq.tables.Game.GAME;
-import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
-import static com.pegasus.pegasustcgapi.jooq.tables.ListingUnit.LISTING_UNIT;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItemUnit.ORDER_ITEM_UNIT;
-import static com.pegasus.pegasustcgapi.jooq.tables.Payment.PAYMENT;
-import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
-import static com.pegasus.pegasustcgapi.jooq.tables.ReturnItem.RETURN_ITEM;
-import static com.pegasus.pegasustcgapi.jooq.tables.ReturnRequest.RETURN_REQUEST;
 import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
-import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrderStatusHistory.SELLER_ORDER_STATUS_HISTORY;
-import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerShippingOption.SELLER_SHIPPING_OPTION;
-import static com.pegasus.pegasustcgapi.jooq.tables.Shipment.SHIPMENT;
-import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.OrderItemRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.OrderItemUnitRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
-import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderStatusHistoryRecord;
-import com.pegasus.pegasustcgapi.jooq.tables.records.ShipmentRecord;
-import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.ShippingChoice;
 import java.math.BigDecimal;
 import java.time.Clock;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 import org.jooq.DSLContext;
-import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 /**
- * Persistence repository for sales orders, seller orders, and order items.
+ * Creates sales orders, seller orders and order items, and loads one order by id, by owner,
+ * by idempotency key or under a row lock.
  *
- * <p>The {@code ...ByIds} finders exist so a list of orders costs a fixed number of
- * queries instead of one per row: the caller passes every id it already holds and
- * assembles the result in memory.
+ * <p>Status changes, shipments and history live in {@link OrderTransitionRepository}; lists and
+ * batch reads in {@link OrderQueryRepository}; card and shop lookups in
+ * {@link OrderReferenceQueryRepository}.
  */
 @Repository
 public class OrderRepository {
@@ -70,22 +48,6 @@ public class OrderRepository {
 
     public OrderRepository(DSLContext dsl) {
         this(dsl, Clock.systemUTC());
-    }
-
-    public Map<Long, String> findAuctionNumbers(Collection<Long> auctionIds) {
-        if (auctionIds.isEmpty()) return Map.of();
-        return dsl.select(AUCTION.ID, AUCTION.AUCTION_NUMBER).from(AUCTION)
-                .where(AUCTION.ID.in(auctionIds)).fetchMap(AUCTION.ID, AUCTION.AUCTION_NUMBER);
-    }
-
-    public record ListingSnapshotDetails(
-            Long listingId,
-            long catalogVariantId,
-            String condition,
-            String productName,
-            String variantLabel,
-            String gameName,
-            String imageKey) {
     }
 
     /**
@@ -109,176 +71,10 @@ public class OrderRepository {
                 .fetchOptional();
     }
 
-    public Optional<String> findCurrencyBySalesOrderId(long id) {
-        return dsl.select(SALES_ORDER.CURRENCY)
-                .from(SALES_ORDER)
-                .where(SALES_ORDER.ID.eq(id))
-                .fetchOptional(SALES_ORDER.CURRENCY);
-    }
-
-    public boolean hasPaymentUnderReview(long salesOrderId) {
-        return dsl.fetchExists(dsl.selectOne().from(PAYMENT)
-                .where(PAYMENT.SALES_ORDER_ID.eq(salesOrderId))
-                .and(PAYMENT.STATUS.eq("AWAITING_VERIFICATION")));
-    }
-
-    /** The orders among {@code salesOrderIds} that have a slip waiting for review, in one query. */
-    public Set<Long> findSalesOrderIdsWithPaymentUnderReview(Collection<Long> salesOrderIds) {
-        if (salesOrderIds.isEmpty()) {
-            return Set.of();
-        }
-        return dsl.selectDistinct(PAYMENT.SALES_ORDER_ID).from(PAYMENT)
-                .where(PAYMENT.SALES_ORDER_ID.in(salesOrderIds))
-                .and(PAYMENT.STATUS.eq("AWAITING_VERIFICATION"))
-                .fetchSet(PAYMENT.SALES_ORDER_ID);
-    }
-
     public Optional<SalesOrderRecord> findSalesOrderByIdempotencyKey(String idempotencyKey) {
         return dsl.selectFrom(SALES_ORDER)
                 .where(SALES_ORDER.IDEMPOTENCY_KEY.eq(idempotencyKey))
                 .fetchOptional();
-    }
-
-    public List<SellerOrderRecord> findSellerOrdersBySalesOrderId(long salesOrderId) {
-        return dsl.selectFrom(SELLER_ORDER)
-                .where(SELLER_ORDER.SALES_ORDER_ID.eq(salesOrderId))
-                .orderBy(SELLER_ORDER.ID.asc())
-                .fetch();
-    }
-
-    /** Every sub-order of a page of sales orders, keyed by parent. */
-    public Map<Long, List<SellerOrderRecord>> findSellerOrdersBySalesOrderIds(Collection<Long> salesOrderIds) {
-        if (salesOrderIds.isEmpty()) {
-            return Map.of();
-        }
-        return groupBy(dsl.selectFrom(SELLER_ORDER)
-                .where(SELLER_ORDER.SALES_ORDER_ID.in(salesOrderIds))
-                .orderBy(SELLER_ORDER.ID.asc())
-                .fetch(), SellerOrderRecord::getSalesOrderId);
-    }
-
-    public List<OrderItemRecord> findOrderItemsBySellerOrderId(long sellerOrderId) {
-        return dsl.selectFrom(ORDER_ITEM)
-                .where(ORDER_ITEM.SELLER_ORDER_ID.eq(sellerOrderId))
-                .orderBy(ORDER_ITEM.ID.asc())
-                .fetch();
-    }
-
-    public Map<Long, List<OrderItemRecord>> findOrderItemsBySellerOrderIds(Collection<Long> sellerOrderIds) {
-        if (sellerOrderIds.isEmpty()) {
-            return Map.of();
-        }
-        return groupBy(dsl.selectFrom(ORDER_ITEM)
-                .where(ORDER_ITEM.SELLER_ORDER_ID.in(sellerOrderIds))
-                .orderBy(ORDER_ITEM.ID.asc())
-                .fetch(), OrderItemRecord::getSellerOrderId);
-    }
-
-    public List<Long> findUnitIdsByOrderItemId(long orderItemId) {
-        return dsl.select(ORDER_ITEM_UNIT.LISTING_UNIT_ID)
-                .from(ORDER_ITEM_UNIT)
-                .where(ORDER_ITEM_UNIT.ORDER_ITEM_ID.eq(orderItemId))
-                .orderBy(ORDER_ITEM_UNIT.LISTING_UNIT_ID.asc())
-                .fetch(ORDER_ITEM_UNIT.LISTING_UNIT_ID);
-    }
-
-    public Map<Long, List<Long>> findUnitIdsByOrderItemIds(Collection<Long> orderItemIds) {
-        if (orderItemIds.isEmpty()) {
-            return Map.of();
-        }
-        return dsl.select(ORDER_ITEM_UNIT.ORDER_ITEM_ID, ORDER_ITEM_UNIT.LISTING_UNIT_ID)
-                .from(ORDER_ITEM_UNIT)
-                .where(ORDER_ITEM_UNIT.ORDER_ITEM_ID.in(orderItemIds))
-                .orderBy(ORDER_ITEM_UNIT.ORDER_ITEM_ID.asc(), ORDER_ITEM_UNIT.LISTING_UNIT_ID.asc())
-                .fetchGroups(ORDER_ITEM_UNIT.ORDER_ITEM_ID, ORDER_ITEM_UNIT.LISTING_UNIT_ID);
-    }
-
-    /** One query for a whole sub-order's cards, keyed by the order item they belong to. */
-    public Map<Long, List<Long>> findUnitIdsGroupedBySellerOrderId(long sellerOrderId) {
-        return dsl.select(ORDER_ITEM_UNIT.ORDER_ITEM_ID, ORDER_ITEM_UNIT.LISTING_UNIT_ID)
-                .from(ORDER_ITEM_UNIT)
-                .join(ORDER_ITEM).on(ORDER_ITEM.ID.eq(ORDER_ITEM_UNIT.ORDER_ITEM_ID))
-                .where(ORDER_ITEM.SELLER_ORDER_ID.eq(sellerOrderId))
-                .orderBy(ORDER_ITEM_UNIT.ORDER_ITEM_ID.asc(), ORDER_ITEM_UNIT.LISTING_UNIT_ID.asc())
-                .fetchGroups(ORDER_ITEM_UNIT.ORDER_ITEM_ID, ORDER_ITEM_UNIT.LISTING_UNIT_ID);
-    }
-
-    public Map<Long, ListingSnapshotDetails> findListingDetails(Collection<Long> listingIds) {
-        if (listingIds.isEmpty()) {
-            return Map.of();
-        }
-        return dsl.select(
-                LISTING.ID,
-                LISTING.CATALOG_VARIANT_ID,
-                LISTING.CONDITION_CODE,
-                CATALOG_PRODUCT.NAME,
-                CATALOG_VARIANT.LANGUAGE_CODE,
-                CATALOG_VARIANT.FINISH,
-                CATALOG_VARIANT.EDITION,
-                CATALOG_VARIANT.PRINTING_NOTE,
-                GAME.NAME,
-                CATALOG_IMAGE.IMAGE_KEY)
-                .from(LISTING)
-                .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
-                .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
-                .leftJoin(GAME).on(GAME.ID.eq(CATALOG_PRODUCT.GAME_ID))
-                .leftJoin(CATALOG_IMAGE).on(CATALOG_IMAGE.CATALOG_PRODUCT_ID.eq(CATALOG_PRODUCT.ID)
-                        .and(CATALOG_IMAGE.IS_PRIMARY.isTrue()))
-                .where(LISTING.ID.in(listingIds))
-                .fetchMap(LISTING.ID, r -> {
-                    String languageCode = r.get(CATALOG_VARIANT.LANGUAGE_CODE);
-                    String finish = r.get(CATALOG_VARIANT.FINISH);
-                    String edition = r.get(CATALOG_VARIANT.EDITION);
-                    String printingNote = r.get(CATALOG_VARIANT.PRINTING_NOTE);
-                    StringBuilder label = new StringBuilder(languageCode != null ? languageCode : "EN");
-                    if (finish != null && !"NOT_APPLICABLE".equals(finish)) {
-                        label.append(" / ").append(finish);
-                    }
-                    if (edition != null && !"NOT_APPLICABLE".equals(edition)) {
-                        label.append(" / ").append(edition);
-                    }
-                    if (printingNote != null && !printingNote.isBlank()) {
-                        label.append(" / ").append(printingNote);
-                    }
-                    return new ListingSnapshotDetails(
-                            r.get(LISTING.ID),
-                            r.get(LISTING.CATALOG_VARIANT_ID),
-                            r.get(LISTING.CONDITION_CODE),
-                            r.get(CATALOG_PRODUCT.NAME),
-                            label.toString(),
-                            r.get(GAME.NAME),
-                            r.get(CATALOG_IMAGE.IMAGE_KEY));
-                });
-    }
-
-    /** The same order-item snapshot for a physical card removed from its listing for auction. */
-    public Optional<ListingSnapshotDetails> findAuctionCardDetails(long unitId) {
-        return dsl.select(LISTING_UNIT.LISTING_ID, LISTING_UNIT.CATALOG_VARIANT_ID,
-                        LISTING_UNIT.CONDITION_CODE, CATALOG_PRODUCT.NAME,
-                        CATALOG_VARIANT.LANGUAGE_CODE, CATALOG_VARIANT.FINISH,
-                        CATALOG_VARIANT.EDITION, CATALOG_VARIANT.PRINTING_NOTE,
-                        GAME.NAME, CATALOG_IMAGE.IMAGE_KEY)
-                .from(LISTING_UNIT)
-                .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING_UNIT.CATALOG_VARIANT_ID))
-                .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
-                .leftJoin(GAME).on(GAME.ID.eq(CATALOG_PRODUCT.GAME_ID))
-                .leftJoin(CATALOG_IMAGE).on(CATALOG_IMAGE.CATALOG_PRODUCT_ID.eq(CATALOG_PRODUCT.ID)
-                        .and(CATALOG_IMAGE.IS_PRIMARY.isTrue()))
-                .where(LISTING_UNIT.ID.eq(unitId))
-                .fetchOptional(r -> {
-                    StringBuilder label = new StringBuilder(
-                            r.get(CATALOG_VARIANT.LANGUAGE_CODE) == null ? "EN" : r.get(CATALOG_VARIANT.LANGUAGE_CODE));
-                    for (String part : new String[]{r.get(CATALOG_VARIANT.FINISH),
-                            r.get(CATALOG_VARIANT.EDITION), r.get(CATALOG_VARIANT.PRINTING_NOTE)}) {
-                        if (part != null && !part.isBlank() && !"NOT_APPLICABLE".equals(part)) {
-                            label.append(" / ").append(part);
-                        }
-                    }
-                    return new ListingSnapshotDetails(r.get(LISTING_UNIT.LISTING_ID),
-                            r.get(LISTING_UNIT.CATALOG_VARIANT_ID), r.get(LISTING_UNIT.CONDITION_CODE),
-                            r.get(CATALOG_PRODUCT.NAME), label.toString(), r.get(GAME.NAME),
-                            r.get(CATALOG_IMAGE.IMAGE_KEY));
-                });
     }
 
     public SalesOrderRecord insertSalesOrder(
@@ -539,19 +335,6 @@ public class OrderRepository {
         dsl.batchInsert(records).execute();
     }
 
-    public List<SalesOrderRecord> findSalesOrdersByBuyerId(long buyerId, int limit, int offset) {
-        return dsl.selectFrom(SALES_ORDER)
-                .where(SALES_ORDER.BUYER_ID.eq(buyerId))
-                .orderBy(SALES_ORDER.PLACED_AT.desc(), SALES_ORDER.ID.desc())
-                .limit(limit)
-                .offset(offset)
-                .fetch();
-    }
-
-    public long countSalesOrdersByBuyerId(long buyerId) {
-        return dsl.fetchCount(SALES_ORDER, SALES_ORDER.BUYER_ID.eq(buyerId));
-    }
-
     public Optional<SalesOrderRecord> findSalesOrderByIdAndBuyerId(long id, long buyerId) {
         return dsl.selectFrom(SALES_ORDER)
                 .where(SALES_ORDER.ID.eq(id))
@@ -572,393 +355,10 @@ public class OrderRepository {
                 .fetchOptional();
     }
 
-    /** @param status null for every sub-order, or one status to narrow to */
-    public List<SellerOrderRecord> findSellerOrdersBySellerProfileId(
-            long sellerProfileId, String status, int limit, int offset) {
-        return dsl.selectFrom(SELLER_ORDER)
-                .where(SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId))
-                .and(status == null ? DSL.noCondition() : SELLER_ORDER.STATUS.eq(status))
-                .orderBy(SELLER_ORDER.CREATED_AT.desc(), SELLER_ORDER.ID.desc())
-                .limit(limit)
-                .offset(offset)
-                .fetch();
-    }
-
-    public long countSellerOrdersBySellerProfileId(long sellerProfileId, String status) {
-        return dsl.fetchCount(SELLER_ORDER, SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId)
-                .and(status == null ? DSL.noCondition() : SELLER_ORDER.STATUS.eq(status)));
-    }
-
     public Optional<SellerOrderRecord> findSellerOrderByIdAndSellerProfileId(long id, long sellerProfileId) {
         return dsl.selectFrom(SELLER_ORDER)
                 .where(SELLER_ORDER.ID.eq(id))
                 .and(SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId))
                 .fetchOptional();
-    }
-
-    /** In no particular order; callers that care key the result by id. */
-    public List<SellerOrderRecord> findSellerOrdersByIds(Collection<Long> ids) {
-        if (ids.isEmpty()) {
-            return List.of();
-        }
-        return dsl.selectFrom(SELLER_ORDER)
-                .where(SELLER_ORDER.ID.in(ids))
-                .fetch();
-    }
-
-    /**
-     * PAID to PREPARING, stamping when the seller took it on. The status guard is in
-     * the UPDATE itself, so two tabs accepting at once leave one history row, not two.
-     *
-     * @return rows changed: 0 when the order was no longer PAID
-     */
-    public int markSellerOrderAccepted(long sellerOrderId, OffsetDateTime acceptedAt) {
-        return dsl.update(SELLER_ORDER)
-                .set(SELLER_ORDER.STATUS, "PREPARING")
-                .set(SELLER_ORDER.ACCEPTED_AT, acceptedAt)
-                .set(SELLER_ORDER.UPDATED_AT, OffsetDateTime.now(clock))
-                .where(SELLER_ORDER.ID.eq(sellerOrderId))
-                .and(SELLER_ORDER.STATUS.eq("PAID"))
-                .execute();
-    }
-
-    /**
-     * What the cards cost the seller, from the weighted average frozen on each line
-     * at checkout, so restocking later never changes an old order's profit.
-     */
-    public Map<Long, BigDecimal> findCostTotalsBySellerOrderIds(Collection<Long> sellerOrderIds) {
-        if (sellerOrderIds.isEmpty()) {
-            return Map.of();
-        }
-        Field<BigDecimal> cost = DSL.coalesce(
-                DSL.sum(ORDER_ITEM.UNIT_COST_SNAPSHOT.mul(ORDER_ITEM.QUANTITY)), BigDecimal.ZERO);
-        return dsl.select(ORDER_ITEM.SELLER_ORDER_ID, cost)
-                .from(ORDER_ITEM)
-                .where(ORDER_ITEM.SELLER_ORDER_ID.in(sellerOrderIds))
-                .groupBy(ORDER_ITEM.SELLER_ORDER_ID)
-                .fetchMap(ORDER_ITEM.SELLER_ORDER_ID, r -> r.get(cost));
-    }
-
-    /**
-     * The delivery choice frozen on each order at checkout [TCG-503]. Orders with no
-     * snapshot (placed before it existed and not backfillable) are left out.
-     */
-    public Map<Long, ShippingChoice> findShippingChoicesBySellerOrderIds(Collection<Long> sellerOrderIds) {
-        if (sellerOrderIds.isEmpty()) {
-            return Map.of();
-        }
-        return dsl.select(SELLER_ORDER.ID, SELLER_ORDER.SHIPPING_OPTION_ID, SELLER_ORDER.SHIPPING_OPTION_NAME,
-                        SELLER_ORDER.SHIPPING_CARRIER_CODE, SELLER_ORDER.SHIPPING_FEE,
-                        SELLER_ORDER.SHIPPING_EST_DAYS_MIN, SELLER_ORDER.SHIPPING_EST_DAYS_MAX)
-                .from(SELLER_ORDER)
-                .where(SELLER_ORDER.ID.in(sellerOrderIds))
-                .and(SELLER_ORDER.SHIPPING_OPTION_NAME.isNotNull())
-                .fetchMap(SELLER_ORDER.ID, r -> new ShippingChoice(r.value2(), r.value3(), r.value4(),
-                        r.value5(), r.value6(), r.value7()));
-    }
-
-    /** Orders this buyer paid for at this shop, the one being looked at included. */
-    public long countPaidOrdersOfBuyerAtSeller(long sellerProfileId, long buyerId) {
-        return dsl.fetchCount(dsl.selectOne()
-                .from(SELLER_ORDER)
-                .join(SALES_ORDER).on(SALES_ORDER.ID.eq(SELLER_ORDER.SALES_ORDER_ID))
-                .where(SELLER_ORDER.SELLER_PROFILE_ID.eq(sellerProfileId))
-                .and(SALES_ORDER.BUYER_ID.eq(buyerId))
-                .and(SALES_ORDER.PAID_AT.isNotNull()));
-    }
-
-    public List<Long> findUnitIdsBySellerOrderId(long sellerOrderId) {
-        return dsl.select(ORDER_ITEM_UNIT.LISTING_UNIT_ID)
-                .from(ORDER_ITEM_UNIT)
-                .join(ORDER_ITEM).on(ORDER_ITEM.ID.eq(ORDER_ITEM_UNIT.ORDER_ITEM_ID))
-                .where(ORDER_ITEM.SELLER_ORDER_ID.eq(sellerOrderId))
-                .orderBy(ORDER_ITEM_UNIT.LISTING_UNIT_ID.asc())
-                .fetch(ORDER_ITEM_UNIT.LISTING_UNIT_ID);
-    }
-
-    public List<ShipmentRecord> findShipmentsBySellerOrderId(long sellerOrderId) {
-        return dsl.selectFrom(SHIPMENT)
-                .where(SHIPMENT.SELLER_ORDER_ID.eq(sellerOrderId))
-                .orderBy(SHIPMENT.CREATED_AT.desc())
-                .fetch();
-    }
-
-    public Map<Long, List<ShipmentRecord>> findShipmentsBySellerOrderIds(Collection<Long> sellerOrderIds) {
-        if (sellerOrderIds.isEmpty()) {
-            return Map.of();
-        }
-        return groupBy(dsl.selectFrom(SHIPMENT)
-                .where(SHIPMENT.SELLER_ORDER_ID.in(sellerOrderIds))
-                .orderBy(SHIPMENT.CREATED_AT.desc())
-                .fetch(), ShipmentRecord::getSellerOrderId);
-    }
-
-    public List<SellerOrderStatusHistoryRecord> findStatusHistoryBySellerOrderId(long sellerOrderId) {
-        return dsl.selectFrom(SELLER_ORDER_STATUS_HISTORY)
-                .where(SELLER_ORDER_STATUS_HISTORY.SELLER_ORDER_ID.eq(sellerOrderId))
-                .orderBy(SELLER_ORDER_STATUS_HISTORY.CREATED_AT.asc(), SELLER_ORDER_STATUS_HISTORY.ID.asc())
-                .fetch();
-    }
-
-    public Map<Long, List<SellerOrderStatusHistoryRecord>> findStatusHistoryBySellerOrderIds(
-            Collection<Long> sellerOrderIds) {
-        if (sellerOrderIds.isEmpty()) {
-            return Map.of();
-        }
-        return groupBy(dsl.selectFrom(SELLER_ORDER_STATUS_HISTORY)
-                .where(SELLER_ORDER_STATUS_HISTORY.SELLER_ORDER_ID.in(sellerOrderIds))
-                .orderBy(SELLER_ORDER_STATUS_HISTORY.CREATED_AT.asc(), SELLER_ORDER_STATUS_HISTORY.ID.asc())
-                .fetch(), SellerOrderStatusHistoryRecord::getSellerOrderId);
-    }
-
-    public Map<Long, String> findSellerNamesByProfileIds(Collection<Long> sellerProfileIds) {
-        if (sellerProfileIds.isEmpty()) {
-            return Map.of();
-        }
-        return dsl.select(SELLER_PROFILE.ID, DSL.coalesce(USER_ACCOUNT.DISPLAY_NAME, USER_ACCOUNT.USERNAME))
-                .from(SELLER_PROFILE)
-                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
-                .where(SELLER_PROFILE.ID.in(sellerProfileIds))
-                .fetchMap(SELLER_PROFILE.ID, r -> r.value2());
-    }
-
-    public Map<Long, SellerIdentity> findSellerIdentitiesByProfileIds(Collection<Long> sellerProfileIds) {
-        if (sellerProfileIds.isEmpty()) {
-            return Map.of();
-        }
-        return dsl.select(SELLER_PROFILE.ID, USER_ACCOUNT.USERNAME, USER_ACCOUNT.DISPLAY_NAME)
-                .from(SELLER_PROFILE)
-                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
-                .where(SELLER_PROFILE.ID.in(sellerProfileIds))
-                .fetchMap(SELLER_PROFILE.ID,
-                        row -> new SellerIdentity(row.value2(), row.value3()));
-    }
-
-    public record SellerIdentity(String username, String displayName) {
-    }
-
-    public record ReorderProductMetadata(String productSlug, String rarity) {}
-
-    public Map<Long, ReorderProductMetadata> findReorderProductMetadata(Collection<Long> catalogVariantIds) {
-        if (catalogVariantIds.isEmpty()) {
-            return Map.of();
-        }
-        return dsl.select(CATALOG_VARIANT.ID, CATALOG_PRODUCT.SLUG, CATALOG_PRODUCT.RARITY_CODE)
-                .from(CATALOG_VARIANT)
-                .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
-                .where(CATALOG_VARIANT.ID.in(catalogVariantIds))
-                .fetchMap(CATALOG_VARIANT.ID, r -> new ReorderProductMetadata(
-                        r.get(CATALOG_PRODUCT.SLUG),
-                        r.get(CATALOG_PRODUCT.RARITY_CODE)));
-    }
-
-    public ShipmentRecord insertShipment(
-            long sellerOrderId,
-            String carrierCode,
-            String carrierName,
-            String trackingNumber,
-            String status,
-            OffsetDateTime shippedAt,
-            LocalDate estimatedDeliveryDate,
-            String proofImageKey,
-            long createdBy) {
-
-        return dsl.insertInto(SHIPMENT)
-                .set(SHIPMENT.SELLER_ORDER_ID, sellerOrderId)
-                .set(SHIPMENT.CARRIER_CODE, carrierCode)
-                .set(SHIPMENT.CARRIER_NAME, carrierName)
-                .set(SHIPMENT.TRACKING_NUMBER, trackingNumber)
-                .set(SHIPMENT.STATUS, status != null ? status : "IN_TRANSIT")
-                .set(SHIPMENT.SHIPPED_AT, shippedAt)
-                .set(SHIPMENT.ESTIMATED_DELIVERY_DATE, estimatedDeliveryDate)
-                .set(SHIPMENT.PROOF_IMAGE_KEY, proofImageKey)
-                .set(SHIPMENT.CREATED_BY, createdBy)
-                .returning()
-                .fetchSingle();
-    }
-
-    public SellerOrderStatusHistoryRecord insertStatusHistory(
-            long sellerOrderId,
-            String fromStatus,
-            String toStatus,
-            Long changedBy,
-            String note) {
-
-        return dsl.insertInto(SELLER_ORDER_STATUS_HISTORY)
-                .set(SELLER_ORDER_STATUS_HISTORY.SELLER_ORDER_ID, sellerOrderId)
-                .set(SELLER_ORDER_STATUS_HISTORY.FROM_STATUS, fromStatus)
-                .set(SELLER_ORDER_STATUS_HISTORY.TO_STATUS, toStatus)
-                .set(SELLER_ORDER_STATUS_HISTORY.CHANGED_BY, changedBy)
-                .set(SELLER_ORDER_STATUS_HISTORY.NOTE, note)
-                .returning()
-                .fetchSingle();
-    }
-
-    public int updateSellerOrderStatus(
-            long sellerOrderId,
-            Collection<String> allowedFromStatuses,
-            String newStatus,
-            OffsetDateTime shippedAt,
-            OffsetDateTime deliveredAt,
-            OffsetDateTime autoCompleteAt,
-            OffsetDateTime completedAt,
-            OffsetDateTime cancelledAt,
-            String cancelReason) {
-
-        var step = dsl.update(SELLER_ORDER)
-                .set(SELLER_ORDER.STATUS, newStatus)
-                .set(SELLER_ORDER.UPDATED_AT, OffsetDateTime.now(clock));
-
-        if (shippedAt != null) {
-            step = step.set(SELLER_ORDER.SHIPPED_AT, shippedAt);
-        }
-        if (deliveredAt != null) {
-            step = step.set(SELLER_ORDER.DELIVERED_AT, deliveredAt);
-        }
-        if (autoCompleteAt != null) {
-            step = step.set(SELLER_ORDER.AUTO_COMPLETE_AT, autoCompleteAt);
-        }
-        if (completedAt != null) {
-            step = step.set(SELLER_ORDER.COMPLETED_AT, completedAt);
-        }
-        if (cancelledAt != null) {
-            step = step.set(SELLER_ORDER.CANCELLED_AT, cancelledAt);
-        }
-        if (cancelReason != null) {
-            step = step.set(SELLER_ORDER.CANCEL_REASON, cancelReason);
-        }
-
-        return step.where(SELLER_ORDER.ID.eq(sellerOrderId))
-                .and(SELLER_ORDER.STATUS.in(allowedFromStatuses))
-                .execute();
-    }
-
-    public void updateSalesOrderStatus(
-            long salesOrderId,
-            String newStatus,
-            OffsetDateTime paidAt,
-            OffsetDateTime completedAt,
-            OffsetDateTime cancelledAt) {
-
-        var step = dsl.update(SALES_ORDER)
-                .set(SALES_ORDER.STATUS, newStatus)
-                .set(SALES_ORDER.UPDATED_AT, OffsetDateTime.now(clock));
-
-        if (paidAt != null) {
-            step = step.set(SALES_ORDER.PAID_AT, paidAt);
-        }
-        if (completedAt != null) {
-            step = step.set(SALES_ORDER.COMPLETED_AT, completedAt);
-        }
-        if (cancelledAt != null) {
-            step = step.set(SALES_ORDER.CANCELLED_AT, cancelledAt);
-        }
-
-        step.where(SALES_ORDER.ID.eq(salesOrderId)).execute();
-    }
-
-    /**
-     * A batch of sub-orders whose escrow window has run out. Capped so a scheduler
-     * that missed a day works through the backlog in rounds instead of pulling it
-     * all into one heap.
-     */
-    public List<SellerOrderRecord> findOverdueShippedOrders(OffsetDateTime now, int limit) {
-        return dsl.selectFrom(SELLER_ORDER)
-                .where(SELLER_ORDER.STATUS.in("SHIPPED", "DELIVERED"))
-                .and(SELLER_ORDER.AUTO_COMPLETE_AT.isNotNull())
-                .and(SELLER_ORDER.AUTO_COMPLETE_AT.le(now))
-                .orderBy(SELLER_ORDER.ID.asc())
-                .limit(limit)
-                .fetch();
-    }
-
-    /** {@code fetchGroups} hands back jOOQ's own Result type, so the rows are regrouped here. */
-    private static <R> Map<Long, List<R>> groupBy(List<R> rows, Function<R, Long> key) {
-        Map<Long, List<R>> grouped = new LinkedHashMap<>();
-        for (R row : rows) {
-            grouped.computeIfAbsent(key.apply(row), k -> new ArrayList<>()).add(row);
-        }
-        return grouped;
-    }
-
-    /**
-     * Sub-orders still waiting for a payment that was due before {@code cutoff}.
-     *
-     * <p>Every one of these is holding cards RESERVED, which is why they cannot be
-     * left alone: the seller cannot delist a listing while an order still claims it.
-     */
-    public List<SellerOrderRecord> findExpiredPendingPaymentOrders(OffsetDateTime cutoff, int limit) {
-        return dsl.selectFrom(SELLER_ORDER)
-                .where(SELLER_ORDER.STATUS.eq("PENDING_PAYMENT"))
-                .and(SELLER_ORDER.SALES_ORDER_ID.in(
-                        dsl.select(SALES_ORDER.ID)
-                                .from(SALES_ORDER)
-                                .where(SALES_ORDER.STATUS.eq("PENDING_PAYMENT"))
-                                .and(SALES_ORDER.SOURCE.eq("CART"))
-                                .and(SALES_ORDER.PLACED_AT.lt(cutoff))
-                                .andNotExists(dsl.selectOne().from(PAYMENT)
-                                        .where(PAYMENT.SALES_ORDER_ID.eq(SALES_ORDER.ID))
-                                        .and(PAYMENT.STATUS.in("AWAITING_VERIFICATION", "SUCCEEDED")))))
-                .orderBy(SELLER_ORDER.ID.asc())
-                .limit(limit)
-                .fetch();
-    }
-
-    public int grantPurchasedUnitsToCollection(long buyerUserId, long sellerOrderId) {
-        OffsetDateTime now = OffsetDateTime.now(clock);
-        // A received return can cover only some physical units of an order item.
-        // Use the same lowest-unit-id choice as restockReturn, including when the
-        // seller elected not to restock the returned unit.
-        List<Long> returnedUnits = new ArrayList<>();
-        dsl.select(RETURN_ITEM.ORDER_ITEM_ID, RETURN_ITEM.QUANTITY)
-                .from(RETURN_ITEM)
-                .join(RETURN_REQUEST).on(RETURN_REQUEST.ID.eq(RETURN_ITEM.RETURN_REQUEST_ID))
-                .join(REFUND).on(REFUND.RETURN_REQUEST_ID.eq(RETURN_REQUEST.ID))
-                .where(RETURN_REQUEST.SELLER_ORDER_ID.eq(sellerOrderId))
-                .and(RETURN_REQUEST.RECEIVED_AT.isNotNull())
-                .and(REFUND.STATUS.eq("PROCESSED"))
-                .fetch()
-                .forEach(item -> returnedUnits.addAll(dsl.select(ORDER_ITEM_UNIT.LISTING_UNIT_ID)
-                        .from(ORDER_ITEM_UNIT)
-                        .where(ORDER_ITEM_UNIT.ORDER_ITEM_ID.eq(item.value1()))
-                        .orderBy(ORDER_ITEM_UNIT.LISTING_UNIT_ID.asc())
-                        .limit(item.value2())
-                        .fetch(ORDER_ITEM_UNIT.LISTING_UNIT_ID)));
-        return dsl.insertInto(COLLECTION_ITEM,
-                        COLLECTION_ITEM.USER_ID,
-                        COLLECTION_ITEM.CATALOG_VARIANT_ID,
-                        COLLECTION_ITEM.CONDITION_CODE,
-                        COLLECTION_ITEM.QUANTITY,
-                        COLLECTION_ITEM.SOURCE,
-                        COLLECTION_ITEM.SOURCE_ORDER_ITEM_ID,
-                        COLLECTION_ITEM.SOURCE_LISTING_UNIT_ID,
-                        COLLECTION_ITEM.ACQUIRED_PRICE,
-                        COLLECTION_ITEM.ACQUIRED_AT,
-                        COLLECTION_ITEM.IS_PUBLIC)
-                .select(
-                        dsl.select(
-                                        DSL.val(buyerUserId),
-                                        ORDER_ITEM.CATALOG_VARIANT_ID,
-                                        DSL.coalesce(ORDER_ITEM.CONDITION_SNAPSHOT, "NM"),
-                                        DSL.val(1),
-                                        DSL.val("PURCHASE"),
-                                        ORDER_ITEM.ID,
-                                        ORDER_ITEM_UNIT.LISTING_UNIT_ID,
-                                        ORDER_ITEM.UNIT_PRICE,
-                                        DSL.val(now),
-                                        DSL.val(false))
-                                .from(ORDER_ITEM_UNIT)
-                                .join(ORDER_ITEM).on(ORDER_ITEM.ID.eq(ORDER_ITEM_UNIT.ORDER_ITEM_ID))
-                                .where(ORDER_ITEM.SELLER_ORDER_ID.eq(sellerOrderId))
-                                .and(returnedUnits.isEmpty() ? DSL.trueCondition()
-                                        : ORDER_ITEM_UNIT.LISTING_UNIT_ID.notIn(returnedUnits))
-                                .andNotExists(
-                                        dsl.selectOne()
-                                                .from(COLLECTION_ITEM)
-                                                .where(COLLECTION_ITEM.SOURCE_ORDER_ITEM_ID.eq(ORDER_ITEM.ID))
-                                                .and(COLLECTION_ITEM.SOURCE_LISTING_UNIT_ID.eq(ORDER_ITEM_UNIT.LISTING_UNIT_ID))
-                                )
-                )
-                .execute();
     }
 }

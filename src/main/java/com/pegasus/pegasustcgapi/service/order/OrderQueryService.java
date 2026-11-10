@@ -14,7 +14,7 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
 import com.pegasus.pegasustcgapi.model.order.SellerOrderStatus;
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import org.slf4j.Logger;
@@ -41,13 +41,13 @@ final class OrderQueryService {
     PageResponse<OrderDetailsResponse> listBuyerOrders(AuthPrincipal principal, int page, int size) {
         support.requireAuthenticated(principal);
         Paging paging = Paging.of(page, size);
-        List<SalesOrderRecord> orders = support.orderRepository.findSalesOrdersByBuyerId(
+        List<SalesOrderRecord> orders = support.orderQueries.findSalesOrdersByBuyerId(
                 principal.userId(), paging.size(), paging.offset());
         return PageResponse.of(
                 mapper.toOrderDetailsResponses(orders),
                 paging.page(),
                 paging.size(),
-                support.orderRepository.countSalesOrdersByBuyerId(principal.userId()));
+                support.orderQueries.countSalesOrdersByBuyerId(principal.userId()));
     }
 
     OrderDetailsResponse getBuyerOrder(AuthPrincipal principal, long orderId) {
@@ -74,16 +74,16 @@ final class OrderQueryService {
             throw new BadRequestException(ErrorCode.INVALID_ORDER_STATUS, "Only completed orders can be reordered");
         }
 
-        List<SellerOrderRecord> sellerOrders = support.orderRepository.findSellerOrdersBySalesOrderId(order.getId());
+        List<SellerOrderRecord> sellerOrders = support.orderQueries.findSellerOrdersBySalesOrderId(order.getId());
         if (sellerOrders.isEmpty()) {
             return new ReorderItemsResponse(order.getId(), order.getOrderNumber(), List.of());
         }
 
         List<Long> sellerOrderIds = sellerOrders.stream().map(SellerOrderRecord::getId).toList();
-        Map<Long, List<OrderItemRecord>> itemsBySellerOrder = support.orderRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
+        Map<Long, List<OrderItemRecord>> itemsBySellerOrder = support.orderQueries.findOrderItemsBySellerOrderIds(sellerOrderIds);
 
         List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
-        Map<Long, String> sellerNames = support.orderRepository.findSellerNamesByProfileIds(profileIds);
+        Map<Long, String> sellerNames = support.orderReferences.findSellerNamesByProfileIds(profileIds);
 
         List<OrderItemRecord> allOrderItems = sellerOrders.stream()
                 .filter(so -> so.getStatus() == null || !SellerOrderStatus.CANCELLED.name().equalsIgnoreCase(so.getStatus()))
@@ -96,9 +96,9 @@ final class OrderQueryService {
                 .distinct()
                 .toList();
 
-        Map<Long, OrderRepository.ReorderProductMetadata> metadataMap = variantIds.isEmpty()
+        Map<Long, OrderReferenceQueryRepository.ReorderProductMetadata> metadataMap = variantIds.isEmpty()
                 ? Map.of()
-                : support.orderRepository.findReorderProductMetadata(variantIds);
+                : support.orderReferences.findReorderProductMetadata(variantIds);
 
         List<ReorderItemsResponse.ReorderItemDto> items = new ArrayList<>();
         for (SellerOrderRecord so : sellerOrders) {
@@ -108,7 +108,7 @@ final class OrderQueryService {
             String sellerName = sellerNames.get(so.getSellerProfileId());
             List<OrderItemRecord> orderItems = itemsBySellerOrder.getOrDefault(so.getId(), List.of());
             for (OrderItemRecord oi : orderItems) {
-                OrderRepository.ReorderProductMetadata meta = metadataMap.get(oi.getCatalogVariantId());
+                OrderReferenceQueryRepository.ReorderProductMetadata meta = metadataMap.get(oi.getCatalogVariantId());
                 String productSlug = meta != null ? meta.productSlug() : null;
                 String rarity = meta != null ? meta.rarity() : null;
 
@@ -147,13 +147,13 @@ final class OrderQueryService {
         SellerProfile profile = support.requireSellerProfile(principal.userId());
         String filter = normalizeStatusFilter(status);
         Paging paging = Paging.of(page, size);
-        List<SellerOrderRecord> orders = support.orderRepository.findSellerOrdersBySellerProfileId(
+        List<SellerOrderRecord> orders = support.orderQueries.findSellerOrdersBySellerProfileId(
                 profile.id(), filter, paging.size(), paging.offset());
         return PageResponse.of(
                 List.copyOf(mapper.sellerDetailsById(orders).values()),
                 paging.page(),
                 paging.size(),
-                support.orderRepository.countSellerOrdersBySellerProfileId(profile.id(), filter));
+                support.orderQueries.countSellerOrdersBySellerProfileId(profile.id(), filter));
     }
 
     private static String normalizeStatusFilter(String status) {

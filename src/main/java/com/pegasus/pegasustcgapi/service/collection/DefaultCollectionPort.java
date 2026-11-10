@@ -1,7 +1,7 @@
 package com.pegasus.pegasustcgapi.service.collection;
 
 import com.pegasus.pegasustcgapi.port.collection.CollectionPort;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
 import org.springframework.stereotype.Service;
 
 /**
@@ -10,14 +10,14 @@ import org.springframework.stereotype.Service;
 @Service
 public class DefaultCollectionPort implements CollectionPort {
 
-    private final OrderRepository orderRepository;
+    private final OrderTransitionRepository orderTransitionRepository;
 
-    public DefaultCollectionPort(OrderRepository orderRepository) {
-        this.orderRepository = orderRepository;
+    public DefaultCollectionPort(OrderTransitionRepository orderTransitionRepository) {
+        this.orderTransitionRepository = orderTransitionRepository;
     }
 
     @Override
     public void grant(long buyerUserId, long sellerOrderId) {
-        orderRepository.grantPurchasedUnitsToCollection(buyerUserId, sellerOrderId);
+        orderTransitionRepository.grantPurchasedUnitsToCollection(buyerUserId, sellerOrderId);
     }
 }

@@ -32,6 +32,7 @@ import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.Details;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.Pricing;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.SellerListingQuery;
+import com.pegasus.pegasustcgapi.repository.listing.SellerListingQueryRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.repository.inventory.SellerVariantCostRepository;
 import com.pegasus.pegasustcgapi.storage.StorageService;
@@ -72,6 +73,7 @@ public class ListingService {
 
     private final SellerPort sellers;
     private final ListingRepository listings;
+    private final SellerListingQueryRepository sellerListings;
     private final ListingUnitRepository units;
     private final ListingImageRepository images;
     private final ListingPriceHistoryRepository priceHistory;
@@ -86,6 +88,7 @@ public class ListingService {
     public ListingService(
             SellerPort sellers,
             ListingRepository listings,
+            SellerListingQueryRepository sellerListings,
             ListingUnitRepository units,
             ListingImageRepository images,
             ListingPriceHistoryRepository priceHistory,
@@ -99,6 +102,7 @@ public class ListingService {
 
         this.sellers = sellers;
         this.listings = listings;
+        this.sellerListings = sellerListings;
         this.units = units;
         this.images = images;
         this.priceHistory = priceHistory;
@@ -131,7 +135,7 @@ public class ListingService {
                 search == null || search.isBlank() ? null : search.trim(), parseSort(sort),
                 paging.size(), paging.offset());
 
-        List<Listing> rows = listings.findSellerPage(query);
+        List<Listing> rows = sellerListings.findSellerPage(query);
         Map<Long, ListingCard> cardsByVariant = cards.cards(rows.stream().map(Listing::catalogVariantId).toList());
         Map<Long, String> photoByListing = images.primaryKeysOf(rows.stream().map(Listing::id).toList());
 
@@ -140,7 +144,7 @@ public class ListingService {
                         cards.signed(photoByListing.get(l.id()))))
                 .toList();
 
-        return PageResponse.of(items, paging.page(), paging.size(), listings.countSeller(query));
+        return PageResponse.of(items, paging.page(), paging.size(), sellerListings.countSeller(query));
     }
 
     public SellerListingResponse get(long userId, long listingId) {

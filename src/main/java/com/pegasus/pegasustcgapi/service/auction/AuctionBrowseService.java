@@ -25,8 +25,12 @@ import com.pegasus.pegasustcgapi.model.auction.BidStatus;
 import com.pegasus.pegasustcgapi.port.UserVerificationPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
-import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.ProductAuctionStats;
-import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.PublicAuctionQuery;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionBidRepository;
+import com.pegasus.pegasustcgapi.repository.auction.BidderStrikeRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionQueryRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionReferenceQueryRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionQueryRepository.ProductAuctionStats;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionQueryRepository.PublicAuctionQuery;
 import com.pegasus.pegasustcgapi.repository.catalog.CardSetRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogProductRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogVariantRepository;
@@ -56,6 +60,10 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuctionBrowseService {
 
     private final AuctionRepository auctions;
+    private final AuctionBidRepository auctionBids;
+    private final BidderStrikeRepository bidderStrikes;
+    private final AuctionQueryRepository auctionQueries;
+    private final AuctionReferenceQueryRepository auctionReferences;
     private final AuctionEligibilityValidator validator;
     private final AuctionItemMapper itemMapper;
     private final Clock clock;
@@ -64,18 +72,26 @@ public class AuctionBrowseService {
 
     @Transactional(readOnly = true)
     public ProductAuctionStats productStats(long productId) {
-        return auctions.productStats(productId, OffsetDateTime.now(clock));
+        return auctionQueries.productStats(productId, OffsetDateTime.now(clock));
     }
 
     @Autowired
     public AuctionBrowseService(
             AuctionRepository auctions,
+            AuctionBidRepository auctionBids,
+            BidderStrikeRepository bidderStrikes,
+            AuctionQueryRepository auctionQueries,
+            AuctionReferenceQueryRepository auctionReferences,
             AuctionEligibilityValidator validator,
             AuctionItemMapper itemMapper,
             Clock clock,
             AuctionShippingFee shippingFee,
             PlatformSettingService settings) {
         this.auctions = auctions;
+        this.auctionBids = auctionBids;
+        this.bidderStrikes = bidderStrikes;
+        this.auctionQueries = auctionQueries;
+        this.auctionReferences = auctionReferences;
         this.validator = validator;
         this.itemMapper = itemMapper;
         this.clock = clock;
@@ -85,10 +101,14 @@ public class AuctionBrowseService {
 
     public AuctionBrowseService(
             AuctionRepository auctions,
+            AuctionBidRepository auctionBids,
+            BidderStrikeRepository bidderStrikes,
+            AuctionQueryRepository auctionQueries,
+            AuctionReferenceQueryRepository auctionReferences,
             AuctionEligibilityValidator validator,
             AuctionItemMapper itemMapper,
             Clock clock) {
-        this(auctions, validator, itemMapper, clock, AuctionShippingFee.fixed(), null);
+        this(auctions, auctionBids, bidderStrikes, auctionQueries, auctionReferences, validator, itemMapper, clock, AuctionShippingFee.fixed(), null);
     }
 
     /** The rules shown on the page; the defaults when built without settings (tests). */
@@ -102,6 +122,10 @@ public class AuctionBrowseService {
 
     public AuctionBrowseService(
             AuctionRepository auctions,
+            AuctionBidRepository auctionBids,
+            BidderStrikeRepository bidderStrikes,
+            AuctionQueryRepository auctionQueries,
+            AuctionReferenceQueryRepository auctionReferences,
             AddressRepository addresses,
             SellerPort sellers,
             UserVerificationPort userVerification,
@@ -112,9 +136,9 @@ public class AuctionBrowseService {
             ListingCardRenderer cards,
             Clock clock,
             com.pegasus.pegasustcgapi.service.setting.PlatformSettingService settings) {
-        this(auctions,
-             new AuctionEligibilityValidator(addresses, userVerification, auctions, sellers, settings),
-             new AuctionItemMapper(cards, variants, products, games, cardSets, auctions),
+        this(auctions, auctionBids, bidderStrikes, auctionQueries, auctionReferences,
+             new AuctionEligibilityValidator(addresses, userVerification, bidderStrikes, sellers, settings),
+             new AuctionItemMapper(cards, variants, products, games, cardSets, auctionReferences),
              clock);
     }
 
@@ -162,8 +186,8 @@ public class AuctionBrowseService {
                 paging.offset(),
                 now);
 
-        List<Auction> auctionRows = auctions.findPublicCatalog(query);
-        long total = auctions.countPublicCatalog(query);
+        List<Auction> auctionRows = auctionQueries.findPublicCatalog(query);
+        long total = auctionQueries.countPublicCatalog(query);
 
         Set<Long> variantIds = auctionRows.stream().map(Auction::catalogVariantId).collect(Collectors.toSet());
         Set<Long> sellerIds = auctionRows.stream().map(Auction::sellerProfileId).collect(Collectors.toSet());
@@ -185,8 +209,8 @@ public class AuctionBrowseService {
                     a.endsAt());
         }).toList();
 
-        Map<Filter, Long> filterCounts = auctions.publicFilterCounts(now);
-        long totalLive = auctions.countLiveAuctions(now);
+        Map<Filter, Long> filterCounts = auctionQueries.publicFilterCounts(now);
+        long totalLive = auctionQueries.countLiveAuctions(now);
 
         return new AuctionPage(PageResponse.of(summaries, paging.page(), paging.size(), total), filterCounts, totalLive, now);
     }
@@ -234,7 +258,7 @@ public class AuctionBrowseService {
                 recentBids,
                 viewer,
                 a.winnerId() == null ? null
-                        : AuctionItemMapper.maskUsername(auctions.findUsername(a.winnerId()).orElse(null)),
+                        : AuctionItemMapper.maskUsername(auctionReferences.findUsername(a.winnerId()).orElse(null)),
                 a.status() == AuctionStatus.SUSPENDED ? a.suspendedReason() : null,
                 currentRules(),
                 now);
@@ -255,14 +279,14 @@ public class AuctionBrowseService {
         // A suspension cancels every bid; still show them (marked cancelled) so the history doesn't vanish
         boolean suspended = auction.status() == AuctionStatus.SUSPENDED;
         List<AuctionBid> bidRows = suspended
-                ? auctions.findBids(auctionId, true, paging.size(), paging.offset())
-                : auctions.findBids(auctionId, paging.size(), paging.offset());
-        long total = suspended ? auctions.countBids(auctionId, true) : auctions.countBids(auctionId);
+                ? auctionBids.findBids(auctionId, true, paging.size(), paging.offset())
+                : auctionBids.findBids(auctionId, paging.size(), paging.offset());
+        long total = suspended ? auctionBids.countBids(auctionId, true) : auctionBids.countBids(auctionId);
 
         List<Bid> bids = new ArrayList<>();
         if (!bidRows.isEmpty()) {
             Set<Long> bidderIds = Set.copyOf(bidRows.stream().map(AuctionBid::bidderId).toList());
-            Map<Long, String> usernames = auctions.findUsernames(bidderIds);
+            Map<Long, String> usernames = auctionReferences.findUsernames(bidderIds);
 
             for (AuctionBid b : bidRows) {
                 String uname = usernames.get(b.bidderId());
@@ -293,8 +317,8 @@ public class AuctionBrowseService {
 
         boolean ownAuction = validator.isOwnAuction(a.sellerProfileId(), userId);
         List<ErrorCode> blockers = validator.findBlockers(a, userId, now);
-        Optional<OffsetDateTime> banUntil = auctions.findActiveBanUntil(userId, now);
-        BigDecimal myHighestBid = auctions.findMaxBidByUser(a.id(), userId).orElse(null);
+        Optional<OffsetDateTime> banUntil = bidderStrikes.findActiveBanUntil(userId, now);
+        BigDecimal myHighestBid = auctionBids.findMaxBidByUser(a.id(), userId).orElse(null);
         AuctionViewerState state = resolveViewerState(a, userId);
         OffsetDateTime paymentDueAt = (state == AuctionViewerState.WON_AWAITING_PAYMENT) ? a.paymentDueAt() : null;
 
@@ -311,13 +335,13 @@ public class AuctionBrowseService {
         if (userId == null) {
             return null;
         }
-        boolean hasBid = auctions.hasBid(a.id(), userId);
+        boolean hasBid = auctionBids.hasBid(a.id(), userId);
         if (!hasBid && !Objects.equals(a.winnerId(), userId)) {
             return null;
         }
 
         if (a.status() == AuctionStatus.LIVE) {
-            Optional<Long> leadingBidder = auctions.findLeadingBidderId(a.id());
+            Optional<Long> leadingBidder = auctionBids.findLeadingBidderId(a.id());
             return leadingBidder.map(id -> id.equals(userId) ? AuctionViewerState.LEADING : AuctionViewerState.OUTBID)
                     .orElse(AuctionViewerState.OUTBID);
         }
@@ -331,21 +355,21 @@ public class AuctionBrowseService {
     }
 
     private Seller resolveSeller(long sellerProfileId) {
-        var info = auctions.findSellerInfo(sellerProfileId);
-        String shopName = info.map(AuctionRepository.SellerInfo::shopName).orElse("Shop");
-        String username = info.map(AuctionRepository.SellerInfo::username).orElse("seller");
-        BigDecimal rating = info.map(AuctionRepository.SellerInfo::rating).orElse(null);
-        long soldCount = auctions.getSellerCompletedSalesCount(sellerProfileId);
+        var info = auctionReferences.findSellerInfo(sellerProfileId);
+        String shopName = info.map(AuctionReferenceQueryRepository.SellerInfo::shopName).orElse("Shop");
+        String username = info.map(AuctionReferenceQueryRepository.SellerInfo::username).orElse("seller");
+        BigDecimal rating = info.map(AuctionReferenceQueryRepository.SellerInfo::rating).orElse(null);
+        long soldCount = auctionReferences.getSellerCompletedSalesCount(sellerProfileId);
         return new Seller(sellerProfileId, shopName, username, rating, soldCount);
     }
 
     private List<Bid> resolveRecentBids(long auctionId, int limit, Long currentUserId) {
-        List<AuctionBid> bidRows = auctions.findBids(auctionId, limit, 0);
+        List<AuctionBid> bidRows = auctionBids.findBids(auctionId, limit, 0);
         if (bidRows.isEmpty()) {
             return List.of();
         }
         Set<Long> bidderIds = Set.copyOf(bidRows.stream().map(AuctionBid::bidderId).toList());
-        Map<Long, String> usernames = auctions.findUsernames(bidderIds);
+        Map<Long, String> usernames = auctionReferences.findUsernames(bidderIds);
 
         List<Bid> bids = new ArrayList<>();
         for (AuctionBid b : bidRows) {

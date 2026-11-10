@@ -47,7 +47,7 @@ final class OrderFulfillmentService {
         // round here would let the same id mean a different order on each endpoint.
         SalesOrderRecord salesOrder = support.orderRepository.findSalesOrderByIdAndBuyerId(orderId, principal.userId()).orElse(null);
         if (salesOrder != null) {
-            List<SellerOrderRecord> sellerOrders = support.orderRepository.findSellerOrdersBySalesOrderId(salesOrder.getId());
+            List<SellerOrderRecord> sellerOrders = support.orderQueries.findSellerOrdersBySalesOrderId(salesOrder.getId());
             List<SellerOrderRecord> eligibleOrders = sellerOrders.stream()
                     .filter(so -> OrderTransitionSupport.CONFIRMABLE_STATUSES.contains(so.getStatus()))
                     .toList();
@@ -83,7 +83,7 @@ final class OrderFulfillmentService {
         }
 
         OffsetDateTime now = support.now();
-        int updated = support.orderRepository.updateSellerOrderStatus(
+        int updated = support.orderTransitions.updateSellerOrderStatus(
                 sellerOrder.getId(),
                 OrderTransitionSupport.CONFIRMABLE_STATUSES,
                 "COMPLETED",
@@ -93,7 +93,7 @@ final class OrderFulfillmentService {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
 
-        support.orderRepository.insertStatusHistory(sellerOrder.getId(), sellerOrder.getStatus(), "COMPLETED", buyerUserId, "Buyer confirmed receipt");
+        support.orderTransitions.insertStatusHistory(sellerOrder.getId(), sellerOrder.getStatus(), "COMPLETED", buyerUserId, "Buyer confirmed receipt");
         ledgerPort.release(sellerOrder.getId());
         collectionPort.grant(buyerUserId, sellerOrder.getId());
     }
@@ -112,7 +112,7 @@ final class OrderFulfillmentService {
         OffsetDateTime now = support.now();
         OffsetDateTime autoCompleteAt = now.plus(escrowWindow);
 
-        int updated = support.orderRepository.updateSellerOrderStatus(
+        int updated = support.orderTransitions.updateSellerOrderStatus(
                 sellerOrderId,
                 OrderTransitionSupport.SHIPPABLE_STATUSES,
                 "SHIPPED",
@@ -122,7 +122,7 @@ final class OrderFulfillmentService {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
 
-        support.orderRepository.insertShipment(
+        support.orderTransitions.insertShipment(
                 sellerOrderId,
                 request.carrierCode(),
                 request.carrierName(),
@@ -134,14 +134,14 @@ final class OrderFulfillmentService {
                 principal.userId());
 
         // One query for the whole parcel's cards rather than one per line.
-        Map<Long, List<Long>> unitsByItem = support.orderRepository.findUnitIdsGroupedBySellerOrderId(sellerOrderId);
+        Map<Long, List<Long>> unitsByItem = support.orderQueries.findUnitIdsGroupedBySellerOrderId(sellerOrderId);
         for (Map.Entry<Long, List<Long>> entry : unitsByItem.entrySet()) {
             if (!entry.getValue().isEmpty()) {
                 inventoryPort.commitSale(entry.getKey(), entry.getValue(), principal.userId());
             }
         }
 
-        support.orderRepository.insertStatusHistory(
+        support.orderTransitions.insertStatusHistory(
                 sellerOrderId,
                 sellerOrder.getStatus(),
                 "SHIPPED",
@@ -161,11 +161,11 @@ final class OrderFulfillmentService {
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
 
         if (!SellerOrderStatus.of(sellerOrder.getStatus()).canMoveTo(SellerOrderStatus.PREPARING)
-                || support.orderRepository.markSellerOrderAccepted(sellerOrderId, support.now()) == 0) {
+                || support.orderTransitions.markSellerOrderAccepted(sellerOrderId, support.now()) == 0) {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
 
-        support.orderRepository.insertStatusHistory(
+        support.orderTransitions.insertStatusHistory(
                 sellerOrderId, sellerOrder.getStatus(), "PREPARING", principal.userId(), "Seller accepted the order");
         return mapper.toSellerOrderDetailsResponse(sellerOrderId);
     }
@@ -177,7 +177,7 @@ final class OrderFulfillmentService {
         }
 
         OffsetDateTime now = support.now();
-        int updated = support.orderRepository.updateSellerOrderStatus(
+        int updated = support.orderTransitions.updateSellerOrderStatus(
                 sellerOrderId,
                 OrderTransitionSupport.CONFIRMABLE_STATUSES,
                 "COMPLETED",
@@ -187,7 +187,7 @@ final class OrderFulfillmentService {
             return;
         }
 
-        support.orderRepository.insertStatusHistory(
+        support.orderTransitions.insertStatusHistory(
                 sellerOrderId,
                 so.getStatus(),
                 "COMPLETED",

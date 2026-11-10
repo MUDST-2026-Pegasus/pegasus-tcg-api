@@ -8,7 +8,8 @@ import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.MyTab;
 import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
-import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.BidderStrikeRepository;
+import com.pegasus.pegasustcgapi.repository.auction.MyAuctionQueryRepository;
 import com.pegasus.pegasustcgapi.repository.shipping.ShippingOptionRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -24,15 +25,17 @@ import org.springframework.transaction.annotation.Transactional;
 /** The signed-in buyer's auction history [TCG-623]. */
 @Service
 public class MyAuctionsService {
-    private final AuctionRepository auctions;
+    private final BidderStrikeRepository bidderStrikes;
+    private final MyAuctionQueryRepository myAuctionQueries;
     private final AuctionItemMapper itemMapper;
     private final BidderStrikeService strikes;
     private final ShippingOptionRepository shippingOptions;
     private final Clock clock;
 
-    public MyAuctionsService(AuctionRepository auctions, AuctionItemMapper itemMapper,
+    public MyAuctionsService(BidderStrikeRepository bidderStrikes, MyAuctionQueryRepository myAuctionQueries, AuctionItemMapper itemMapper,
             BidderStrikeService strikes, ShippingOptionRepository shippingOptions, Clock clock) {
-        this.auctions = auctions;
+        this.bidderStrikes = bidderStrikes;
+        this.myAuctionQueries = myAuctionQueries;
         this.itemMapper = itemMapper;
         this.strikes = strikes;
         this.shippingOptions = shippingOptions;
@@ -43,12 +46,12 @@ public class MyAuctionsService {
     public MyAuctionPage list(long userId, MyTab tab, int page, int size) {
         OffsetDateTime now = OffsetDateTime.now(clock);
         Paging paging = Paging.of(page, size);
-        Map<MyTab, Long> counts = auctions.countMyAuctionTabs(userId);
+        Map<MyTab, Long> counts = myAuctionQueries.countMyAuctionTabs(userId);
 
-        List<Auction> rows = auctions.findMyAuctions(userId, tab, paging.size(), paging.offset());
+        List<Auction> rows = myAuctionQueries.findMyAuctions(userId, tab, paging.size(), paging.offset());
         Set<Long> ids = rows.stream().map(Auction::id).collect(Collectors.toSet());
-        Map<Long, BigDecimal> myBids = auctions.findMyHighestBids(userId, ids);
-        Set<Long> leadingIds = auctions.findMyLeadingAuctionIds(userId, ids);
+        Map<Long, BigDecimal> myBids = myAuctionQueries.findMyHighestBids(userId, ids);
+        Set<Long> leadingIds = myAuctionQueries.findMyLeadingAuctionIds(userId, ids);
         var items = itemMapper.buildAuctionItems(
                 rows.stream().map(Auction::catalogVariantId).collect(Collectors.toSet()),
                 rows.stream().map(Auction::sellerProfileId).collect(Collectors.toSet()));
@@ -75,7 +78,7 @@ public class MyAuctionsService {
         }).toList();
         var penalty = strikes.status(userId, now);
         String lastStrikeCardName = penalty.strikeCount() > 0
-                ? auctions.findLastStrikeCardName(userId).orElse(null) : null;
+                ? bidderStrikes.findLastStrikeCardName(userId).orElse(null) : null;
         return new MyAuctionPage(PageResponse.of(result, paging.page(), paging.size(), counts.get(tab)),
                 counts, penalty.strikeCount(), penalty.strikeLimit(), penalty.bannedUntil(), lastStrikeCardName, now);
     }

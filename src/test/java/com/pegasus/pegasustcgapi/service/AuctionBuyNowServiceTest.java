@@ -24,6 +24,7 @@ import com.pegasus.pegasustcgapi.model.user.Address;
 import com.pegasus.pegasustcgapi.port.UserVerificationPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.BidderStrikeRepository;
 import com.pegasus.pegasustcgapi.repository.user.AddressRepository;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBuyNowService;
 import com.pegasus.pegasustcgapi.service.auction.AuctionEligibilityValidator;
@@ -58,6 +59,8 @@ class AuctionBuyNowServiceTest {
 
     @Mock
     private AuctionRepository auctions;
+    @Mock
+    private BidderStrikeRepository bidderStrikes;
 
     @Mock
     private AddressRepository addresses;
@@ -76,7 +79,7 @@ class AuctionBuyNowServiceTest {
 
     @BeforeEach
     void setUp() {
-        validator = new AuctionEligibilityValidator(addresses, userVerification, auctions, sellers, settings);
+        validator = new AuctionEligibilityValidator(addresses, userVerification, bidderStrikes, sellers, settings);
         service = new AuctionBuyNowService(auctions, validator, FIXED_CLOCK, settings);
         org.mockito.Mockito.lenient().when(settings.getInt(PlatformSettingService.AUCTION_STRIKE_LIMIT)).thenReturn(3);
         org.mockito.Mockito.lenient().when(settings.getAuctionPaymentWindow())
@@ -135,8 +138,8 @@ class AuctionBuyNowServiceTest {
     private void stubEligibleUser(long userId) {
         given(addresses.findByUserId(userId)).willReturn(List.of(sampleAddress(userId)));
         given(userVerification.isEmailVerified(userId)).willReturn(true);
-        given(auctions.findActiveBanUntil(userId, NOW)).willReturn(Optional.empty());
-        given(auctions.countActiveStrikes(userId)).willReturn(0);
+        given(bidderStrikes.findActiveBanUntil(userId, NOW)).willReturn(Optional.empty());
+        given(bidderStrikes.countActiveStrikes(userId)).willReturn(0);
         given(sellers.requireProfile(userId)).willThrow(new NotFoundException(ErrorCode.SELLER_NOT_FOUND, "Not a seller"));
     }
 
@@ -280,7 +283,7 @@ class AuctionBuyNowServiceTest {
         void eligibility_ActiveBan() {
             given(addresses.findByUserId(USER_ID)).willReturn(List.of(sampleAddress(USER_ID)));
             given(userVerification.isEmailVerified(USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.of(NOW.plusDays(3)));
+            given(bidderStrikes.findActiveBanUntil(USER_ID, NOW)).willReturn(Optional.of(NOW.plusDays(3)));
 
             assertThatThrownBy(() -> service.buyNow(AUCTION_ID, USER_ID))
                     .isInstanceOf(ForbiddenException.class)
@@ -292,8 +295,8 @@ class AuctionBuyNowServiceTest {
         void eligibility_OwnAuction() {
             given(addresses.findByUserId(SELLER_USER_ID)).willReturn(List.of(sampleAddress(SELLER_USER_ID)));
             given(userVerification.isEmailVerified(SELLER_USER_ID)).willReturn(true);
-            given(auctions.findActiveBanUntil(SELLER_USER_ID, NOW)).willReturn(Optional.empty());
-            given(auctions.countActiveStrikes(SELLER_USER_ID)).willReturn(0);
+            given(bidderStrikes.findActiveBanUntil(SELLER_USER_ID, NOW)).willReturn(Optional.empty());
+            given(bidderStrikes.countActiveStrikes(SELLER_USER_ID)).willReturn(0);
 
             SellerProfile profile = new SellerProfile(SELLER_PROFILE_ID, SELLER_USER_ID, SellerStatus.VERIFIED, NOW, null, (short) 1, false, true, NOW);
             given(sellers.requireProfile(SELLER_USER_ID)).willReturn(profile);

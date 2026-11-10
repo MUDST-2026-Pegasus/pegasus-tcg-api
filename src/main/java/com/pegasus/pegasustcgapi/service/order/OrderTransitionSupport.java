@@ -11,7 +11,10 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
 import com.pegasus.pegasustcgapi.model.order.SellerOrderStatus;
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import java.time.Clock;
 import java.time.Duration;
@@ -21,6 +24,9 @@ import java.util.List;
 /** Shared validation and time source for order transitions. */
 final class OrderTransitionSupport {
     final OrderRepository orderRepository;
+    final OrderTransitionRepository orderTransitions;
+    final OrderQueryRepository orderQueries;
+    final OrderReferenceQueryRepository orderReferences;
     final SellerPort sellerPort;
     final PlatformSettingService platformSettingService;
     final Clock clock;
@@ -28,8 +34,12 @@ final class OrderTransitionSupport {
     static final List<String> CONFIRMABLE_STATUSES = SellerOrderStatus.namesOf(SellerOrderStatus.CONFIRMABLE);
     static final List<String> SHIPPABLE_STATUSES = SellerOrderStatus.namesOf(SellerOrderStatus.SHIPPABLE);
 
-    OrderTransitionSupport(OrderRepository orderRepository, SellerPort sellerPort, PlatformSettingService platformSettingService, Clock clock) {
+    OrderTransitionSupport(OrderRepository orderRepository, OrderTransitionRepository orderTransitions,
+            OrderQueryRepository orderQueries, OrderReferenceQueryRepository orderReferences, SellerPort sellerPort, PlatformSettingService platformSettingService, Clock clock) {
         this.orderRepository = orderRepository;
+        this.orderTransitions = orderTransitions;
+        this.orderQueries = orderQueries;
+        this.orderReferences = orderReferences;
         this.sellerPort = sellerPort;
         this.platformSettingService = platformSettingService;
         this.clock = clock;

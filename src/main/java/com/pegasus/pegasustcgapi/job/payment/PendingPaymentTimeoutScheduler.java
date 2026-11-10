@@ -5,7 +5,7 @@ import com.pegasus.pegasustcgapi.model.audit.AuditAction;
 import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.time.Clock;
@@ -38,7 +38,7 @@ public class PendingPaymentTimeoutScheduler {
     /** Stops a batch that keeps failing from looping forever on the same rows. */
     private static final int MAX_ROUNDS = 50;
 
-    private final OrderRepository orderRepository;
+    private final OrderQueryRepository orderQueryRepository;
     private final OrderLifecycleService orderLifecycleService;
     private final PlatformSettingService platformSettingService;
     private final JobLock jobLock;
@@ -49,14 +49,14 @@ public class PendingPaymentTimeoutScheduler {
 
     @Autowired
     public PendingPaymentTimeoutScheduler(
-            OrderRepository orderRepository,
+            OrderQueryRepository orderQueryRepository,
             OrderLifecycleService orderLifecycleService,
             PlatformSettingService platformSettingService,
             JobLock jobLock,
             Clock clock,
             @Value("${pegasus.order.payment-timeout-batch-size:200}") int batchSize,
             AuditLogService audit) {
-        this.orderRepository = orderRepository;
+        this.orderQueryRepository = orderQueryRepository;
         this.orderLifecycleService = orderLifecycleService;
         this.platformSettingService = platformSettingService;
         this.jobLock = jobLock;
@@ -66,12 +66,12 @@ public class PendingPaymentTimeoutScheduler {
     }
 
     public PendingPaymentTimeoutScheduler(
-            OrderRepository orderRepository,
+            OrderQueryRepository orderQueryRepository,
             OrderLifecycleService orderLifecycleService,
             PlatformSettingService platformSettingService,
             JobLock jobLock,
             Clock clock) {
-        this(orderRepository, orderLifecycleService, platformSettingService, jobLock, clock, 200, null);
+        this(orderQueryRepository, orderLifecycleService, platformSettingService, jobLock, clock, 200, null);
     }
 
     @Scheduled(cron = "${pegasus.order.payment-timeout-cron:0 */5 * * * *}")
@@ -92,7 +92,7 @@ public class PendingPaymentTimeoutScheduler {
         try {
             for (int round = 0; round < MAX_ROUNDS; round++) {
                 List<SellerOrderRecord> expired =
-                        orderRepository.findExpiredPendingPaymentOrders(cutoff, batchSize);
+                        orderQueryRepository.findExpiredPendingPaymentOrders(cutoff, batchSize);
                 if (expired.isEmpty()) {
                     return;
                 }

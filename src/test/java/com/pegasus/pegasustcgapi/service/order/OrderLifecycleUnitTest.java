@@ -37,6 +37,9 @@ import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -67,6 +70,12 @@ class OrderLifecycleUnitTest {
 
     @Mock
     private OrderRepository orderRepository;
+    @Mock
+    private OrderTransitionRepository orderTransitionRepository;
+    @Mock
+    private OrderQueryRepository orderQueryRepository;
+    @Mock
+    private OrderReferenceQueryRepository orderReferenceQueryRepository;
 
     @Mock
     private SellerPort sellerPort;
@@ -150,11 +159,11 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "CANCELLED");
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             service.rollupSalesOrderStatus(1L);
 
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("CANCELLED"), any(), any(), any());
+            verify(orderTransitionRepository).updateSalesOrderStatus(eq(1L), eq("CANCELLED"), any(), any(), any());
         }
 
         @Test
@@ -165,11 +174,11 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "COMPLETED");
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             service.rollupSalesOrderStatus(1L);
 
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("COMPLETED"), any(), any(), any());
+            verify(orderTransitionRepository).updateSalesOrderStatus(eq(1L), eq("COMPLETED"), any(), any(), any());
         }
 
         @Test
@@ -180,11 +189,11 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "SHIPPED");
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             service.rollupSalesOrderStatus(1L);
 
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PARTIALLY_COMPLETED"), any(), any(), any());
+            verify(orderTransitionRepository).updateSalesOrderStatus(eq(1L), eq("PARTIALLY_COMPLETED"), any(), any(), any());
         }
 
         @ParameterizedTest(name = "1 COMPLETED and 1 {0}: nothing left running -> parent status COMPLETED")
@@ -195,13 +204,13 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so2 = mockSellerOrder(12L, 1L, siblingStatus);
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             service.rollupSalesOrderStatus(1L);
 
             // PARTIALLY_COMPLETED is for an order that is still going. Once every
             // sub-order has finished, one of them delivered, the order is done.
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("COMPLETED"), any(), any(), any());
+            verify(orderTransitionRepository).updateSalesOrderStatus(eq(1L), eq("COMPLETED"), any(), any(), any());
         }
 
         @Test
@@ -212,11 +221,11 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "REFUNDED");
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             service.rollupSalesOrderStatus(1L);
 
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("CANCELLED"), any(), any(), any());
+            verify(orderTransitionRepository).updateSalesOrderStatus(eq(1L), eq("CANCELLED"), any(), any(), any());
         }
 
         @Test
@@ -227,11 +236,11 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "PENDING_PAYMENT");
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             service.rollupSalesOrderStatus(1L);
 
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PAID"), any(), any(), any());
+            verify(orderTransitionRepository).updateSalesOrderStatus(eq(1L), eq("PAID"), any(), any(), any());
         }
 
         @Test
@@ -242,11 +251,11 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "REFUNDED");
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             service.rollupSalesOrderStatus(1L);
 
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("REFUNDED"), any(), any(), any());
+            verify(orderTransitionRepository).updateSalesOrderStatus(eq(1L), eq("REFUNDED"), any(), any(), any());
         }
 
         @Test
@@ -257,11 +266,11 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "PENDING_PAYMENT");
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             service.rollupSalesOrderStatus(1L);
 
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PENDING_PAYMENT"), any(), any(), any());
+            verify(orderTransitionRepository).updateSalesOrderStatus(eq(1L), eq("PENDING_PAYMENT"), any(), any(), any());
         }
 
         @ParameterizedTest(name = "1 PENDING_PAYMENT and 1 {0} before payment -> parent stays PENDING_PAYMENT, no paid_at")
@@ -272,13 +281,13 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so2 = mockSellerOrder(12L, 1L, droppedStatus);
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             service.rollupSalesOrderStatus(1L);
 
             // TCG-582: this used to fall through to PAID with paid_at = now, which
             // blocked the buyer from paying and hid the order from the payment timeout.
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PENDING_PAYMENT"), isNull(), any(), any());
+            verify(orderTransitionRepository).updateSalesOrderStatus(eq(1L), eq("PENDING_PAYMENT"), isNull(), any(), any());
         }
 
         @Test
@@ -290,11 +299,11 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so3 = mockSellerOrder(13L, 1L, "REFUNDED");
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2, so3));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2, so3));
 
             service.rollupSalesOrderStatus(1L);
 
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PENDING_PAYMENT"), isNull(), any(), any());
+            verify(orderTransitionRepository).updateSalesOrderStatus(eq(1L), eq("PENDING_PAYMENT"), isNull(), any(), any());
         }
 
         @ParameterizedTest(name = "Active child {0} with CANCELLED sibling -> parent status PAID")
@@ -305,11 +314,11 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so2 = mockSellerOrder(12L, 1L, "CANCELLED");
 
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             service.rollupSalesOrderStatus(1L);
 
-            verify(orderRepository).updateSalesOrderStatus(eq(1L), eq("PAID"), any(), any(), any());
+            verify(orderTransitionRepository).updateSalesOrderStatus(eq(1L), eq("PAID"), any(), any(), any());
         }
     }
 
@@ -322,7 +331,7 @@ class OrderLifecycleUnitTest {
             SalesOrderRecord parent = mockSalesOrder(1L, "PAID");
             OffsetDateTime paidAt = parent.getPaidAt();
             when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(parent));
-            when(orderRepository.findSalesOrderIdsWithPaymentUnderReview(List.of(1L))).thenReturn(Set.of(1L));
+            when(orderQueryRepository.findSalesOrderIdsWithPaymentUnderReview(List.of(1L))).thenReturn(Set.of(1L));
 
             OrderDetailsResponse response = service.getBuyerOrder(buyerPrincipal, 1L);
 
@@ -340,7 +349,7 @@ class OrderLifecycleUnitTest {
             when(parent.getAuctionId()).thenReturn(42L);
             when(orderRepository.findSalesOrderByIdAndBuyerId(3L, buyerPrincipal.userId()))
                     .thenReturn(Optional.of(parent));
-            when(orderRepository.findAuctionNumbers(List.of(42L)))
+            when(orderReferenceQueryRepository.findAuctionNumbers(List.of(42L)))
                     .thenReturn(Map.of(42L, "AUC-2026-0042"));
 
             OrderDetailsResponse response = service.getBuyerOrder(buyerPrincipal, 3L);
@@ -371,14 +380,14 @@ class OrderLifecycleUnitTest {
         void ship_AllowedStatuses_Succeeds(String initialStatus) {
             SellerOrderRecord so = mockSellerOrder(10L, 1L, initialStatus);
             when(orderRepository.findSellerOrderByIdAndSellerProfileId(10L, sellerProfile.id())).thenReturn(Optional.of(so));
-            when(orderRepository.updateSellerOrderStatus(eq(10L), eq(List.of("PAID", "PREPARING")), eq("SHIPPED"), any(), any(), any(), any(), any(), any()))
+            when(orderTransitionRepository.updateSellerOrderStatus(eq(10L), eq(List.of("PAID", "PREPARING")), eq("SHIPPED"), any(), any(), any(), any(), any(), any()))
                     .thenReturn(1);
 
-            when(orderRepository.findUnitIdsGroupedBySellerOrderId(10L)).thenReturn(Map.of(101L, List.of(5001L)));
+            when(orderQueryRepository.findUnitIdsGroupedBySellerOrderId(10L)).thenReturn(Map.of(101L, List.of(5001L)));
 
             SalesOrderRecord parent = mockSalesOrder(1L, "PAID");
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so));
             when(orderRepository.findSellerOrderById(10L)).thenReturn(Optional.of(so));
 
             ShipOrderRequest shipRequest = new ShipOrderRequest("Kerry", "TH12345", "KERRY", "img/proof.jpg", LocalDate.now().plusDays(3));
@@ -386,7 +395,7 @@ class OrderLifecycleUnitTest {
 
             assertThat(response).isNotNull();
             verify(inventoryPort).commitSale(101L, List.of(5001L), sellerPrincipal.userId());
-            verify(orderRepository).insertShipment(eq(10L), eq("KERRY"), eq("Kerry"), eq("TH12345"), eq("IN_TRANSIT"), any(), any(), eq("img/proof.jpg"), eq(sellerPrincipal.userId()));
+            verify(orderTransitionRepository).insertShipment(eq(10L), eq("KERRY"), eq("Kerry"), eq("TH12345"), eq("IN_TRANSIT"), any(), any(), eq("img/proof.jpg"), eq(sellerPrincipal.userId()));
         }
 
         @ParameterizedTest(name = "Invalid ship from {0} throws ConflictException")
@@ -402,7 +411,7 @@ class OrderLifecycleUnitTest {
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.ORDER_STATUS_TRANSITION));
 
             verify(inventoryPort, never()).commitSale(anyLong(), anyCollection(), any());
-            verify(orderRepository, never()).insertShipment(anyLong(), any(), any(), any(), any(), any(), any(), any(), anyLong());
+            verify(orderTransitionRepository, never()).insertShipment(anyLong(), any(), any(), any(), any(), any(), any(), any(), anyLong());
         }
     }
 
@@ -418,10 +427,10 @@ class OrderLifecycleUnitTest {
 
             when(orderRepository.findSellerOrderById(10L)).thenReturn(Optional.of(so));
             when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(parent));
-            when(orderRepository.updateSellerOrderStatus(eq(10L), eq(List.of("SHIPPED", "DELIVERED")), eq("COMPLETED"), any(), any(), any(), any(), any(), any()))
+            when(orderTransitionRepository.updateSellerOrderStatus(eq(10L), eq(List.of("SHIPPED", "DELIVERED")), eq("COMPLETED"), any(), any(), any(), any(), any(), any()))
                     .thenReturn(1);
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so));
             when(orderRepository.findSalesOrderById(1L)).thenReturn(Optional.of(parent));
 
             OrderDetailsResponse response = service.confirmBuyerOrderReceived(buyerPrincipal, 10L);
@@ -492,11 +501,11 @@ class OrderLifecycleUnitTest {
             when(orderRepository.findSalesOrderByIdAndBuyerId(10L, buyerPrincipal.userId())).thenReturn(Optional.empty());
             when(orderRepository.findSellerOrderById(10L)).thenReturn(Optional.of(so));
             when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(parent));
-            when(orderRepository.updateSellerOrderStatus(eq(10L), eq(List.of("PENDING_PAYMENT", "PAID", "PREPARING")), eq("CANCELLED"), any(), any(), any(), any(), any(), anyString()))
+            when(orderTransitionRepository.updateSellerOrderStatus(eq(10L), eq(List.of("PENDING_PAYMENT", "PAID", "PREPARING")), eq("CANCELLED"), any(), any(), any(), any(), any(), anyString()))
                     .thenReturn(1);
-            when(orderRepository.findUnitIdsBySellerOrderId(10L)).thenReturn(List.of(701L));
+            when(orderQueryRepository.findUnitIdsBySellerOrderId(10L)).thenReturn(List.of(701L));
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so));
             when(orderRepository.findSalesOrderById(1L)).thenReturn(Optional.of(parent));
 
             OrderDetailsResponse response = service.cancelBuyerOrder(buyerPrincipal, 10L, new CancelOrderRequest("Reason"));
@@ -530,7 +539,7 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so2 = mockSellerOrder(11L, 1L, childStatus);
 
             when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so1, so2));
 
             assertThatThrownBy(() -> service.cancelBuyerOrder(buyerPrincipal, 1L, new CancelOrderRequest("Reason")))
                     .isInstanceOf(ConflictException.class)
@@ -551,14 +560,14 @@ class OrderLifecycleUnitTest {
             SellerOrderRecord so = mockSellerOrder(10L, 1L, "PENDING_PAYMENT");
 
             when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so));
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
             when(orderRepository.findSalesOrderById(1L)).thenReturn(Optional.of(parent));
 
             OrderDetailsResponse response = service.markOrderPaid(buyerPrincipal, 1L);
 
             assertThat(response).isNotNull();
-            verify(orderRepository).updateSellerOrderStatus(eq(10L), eq(List.of("PENDING_PAYMENT")), eq("PAID"), any(), any(), any(), any(), any(), any());
+            verify(orderTransitionRepository).updateSellerOrderStatus(eq(10L), eq(List.of("PENDING_PAYMENT")), eq("PAID"), any(), any(), any(), any(), any(), any());
         }
 
         @ParameterizedTest(name = "Invalid payment transition when parent is {0} throws ConflictException")
@@ -571,7 +580,7 @@ class OrderLifecycleUnitTest {
                     .isInstanceOf(ConflictException.class)
                     .satisfies(ex -> assertThat(((ConflictException) ex).errorCode()).isEqualTo(ErrorCode.ORDER_STATUS_TRANSITION));
 
-            verify(orderRepository, never()).updateSellerOrderStatus(anyLong(), anyCollection(), any(), any(), any(), any(), any(), any(), any());
+            verify(orderTransitionRepository, never()).updateSellerOrderStatus(anyLong(), anyCollection(), any(), any(), any(), any(), any(), any(), any());
         }
     }
 
@@ -586,11 +595,11 @@ class OrderLifecycleUnitTest {
             SalesOrderRecord parent = mockSalesOrder(1L, "PAID");
 
             when(orderRepository.findSellerOrderById(10L)).thenReturn(Optional.of(so));
-            when(orderRepository.updateSellerOrderStatus(eq(10L), eq(List.of("SHIPPED", "DELIVERED")), eq("COMPLETED"), any(), any(), any(), any(), any(), any()))
+            when(orderTransitionRepository.updateSellerOrderStatus(eq(10L), eq(List.of("SHIPPED", "DELIVERED")), eq("COMPLETED"), any(), any(), any(), any(), any(), any()))
                     .thenReturn(1);
             when(orderRepository.findSalesOrderById(1L)).thenReturn(Optional.of(parent));
             when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(parent));
-            when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(so));
 
             service.autoCompleteSellerOrder(10L);
 
@@ -606,7 +615,7 @@ class OrderLifecycleUnitTest {
 
             service.autoCompleteSellerOrder(10L);
 
-            verify(orderRepository, never()).updateSellerOrderStatus(anyLong(), anyCollection(), any(), any(), any(), any(), any(), any(), any());
+            verify(orderTransitionRepository, never()).updateSellerOrderStatus(anyLong(), anyCollection(), any(), any(), any(), any(), any(), any(), any());
             verify(ledgerPort, never()).release(anyLong());
             verify(collectionPort, never()).grant(anyLong(), anyLong());
         }
@@ -698,7 +707,7 @@ class OrderLifecycleUnitTest {
             when(so.getSalesOrderId()).thenReturn(orderId);
             when(so.getSellerProfileId()).thenReturn(sellerProfileId);
             when(so.getStatus()).thenReturn("COMPLETED");
-            when(orderRepository.findSellerOrdersBySalesOrderId(orderId)).thenReturn(List.of(so));
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(orderId)).thenReturn(List.of(so));
 
             OrderItemRecord item = mock(OrderItemRecord.class);
             when(item.getId()).thenReturn(orderItemId);
@@ -711,14 +720,14 @@ class OrderLifecycleUnitTest {
             when(item.getQuantity()).thenReturn(2);
             when(item.getImageKeySnapshot()).thenReturn("cards/charizard.png");
 
-            when(orderRepository.findOrderItemsBySellerOrderIds(List.of(sellerOrderId)))
+            when(orderQueryRepository.findOrderItemsBySellerOrderIds(List.of(sellerOrderId)))
                     .thenReturn(Map.of(sellerOrderId, List.of(item)));
 
-            when(orderRepository.findSellerNamesByProfileIds(List.of(sellerProfileId)))
+            when(orderReferenceQueryRepository.findSellerNamesByProfileIds(List.of(sellerProfileId)))
                     .thenReturn(Map.of(sellerProfileId, "Card Kingdom"));
 
-            when(orderRepository.findReorderProductMetadata(List.of(variantId)))
-                    .thenReturn(Map.of(variantId, new OrderRepository.ReorderProductMetadata("charizard-ex-151", "SAR")));
+            when(orderReferenceQueryRepository.findReorderProductMetadata(List.of(variantId)))
+                    .thenReturn(Map.of(variantId, new OrderReferenceQueryRepository.ReorderProductMetadata("charizard-ex-151", "SAR")));
 
             ReorderItemsResponse response = service.getReorderItems(buyerPrincipal, orderId);
 
@@ -761,7 +770,7 @@ class OrderLifecycleUnitTest {
             when(soCancelled.getSellerProfileId()).thenReturn(20L);
             when(soCancelled.getStatus()).thenReturn("CANCELLED");
 
-            when(orderRepository.findSellerOrdersBySalesOrderId(orderId))
+            when(orderQueryRepository.findSellerOrdersBySalesOrderId(orderId))
                     .thenReturn(List.of(soActive, soCancelled));
 
             OrderItemRecord activeItem = mock(OrderItemRecord.class);
@@ -776,12 +785,12 @@ class OrderLifecycleUnitTest {
             when(cancelledItem.getCatalogVariantId()).thenReturn(20L);
             when(cancelledItem.getProductNameSnapshot()).thenReturn("Cancelled Card");
 
-            when(orderRepository.findOrderItemsBySellerOrderIds(List.of(activeSellerOrderId, cancelledSellerOrderId)))
+            when(orderQueryRepository.findOrderItemsBySellerOrderIds(List.of(activeSellerOrderId, cancelledSellerOrderId)))
                     .thenReturn(Map.of(
                             activeSellerOrderId, List.of(activeItem),
                             cancelledSellerOrderId, List.of(cancelledItem)));
 
-            when(orderRepository.findSellerNamesByProfileIds(any()))
+            when(orderReferenceQueryRepository.findSellerNamesByProfileIds(any()))
                     .thenReturn(Map.of(10L, "Active Seller", 20L, "Cancelled Seller"));
 
             ReorderItemsResponse response = service.getReorderItems(orderId, buyerPrincipal.userId());
