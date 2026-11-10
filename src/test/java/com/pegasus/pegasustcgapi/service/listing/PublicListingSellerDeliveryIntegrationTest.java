@@ -9,8 +9,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pegasus.pegasustcgapi.dto.listing.PublicListingResponse;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
-import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.PublicListingQuery;
+import com.pegasus.pegasustcgapi.repository.listing.PublicListingQueryRepository;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import com.pegasus.pegasustcgapi.support.TestData.Seller;
 import java.math.BigDecimal;
@@ -94,7 +94,7 @@ class PublicListingSellerDeliveryIntegrationTest extends PostgresIntegrationTest
                 new DefaultExecuteListenerProvider(new DefaultExecuteListener() {
                     @Override public void executeStart(org.jooq.ExecuteContext context) { reads.incrementAndGet(); }
                 })));
-        ListingRepository repository = new ListingRepository(counted);
+        PublicListingQueryRepository repository = new PublicListingQueryRepository(counted);
         PublicListingQuery one = new PublicListingQuery(null, null, card.productId(), null, null,
                 null, null, PublicListingQuery.Sort.PRICE_ASC, 1, 0);
         assertThat(repository.findPublicPage(one)).hasSize(1);

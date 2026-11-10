@@ -113,7 +113,7 @@ public class AdminCardListingRepository {
     }
 
     public AdminCardListingSummary summary(long productId) {
-        Condition purchasable = ListingRepository.purchasableNow();
+        Condition purchasable = ListingConditions.purchasableNow();
         Field<Integer> listingCount = DSL.count().as("listing_count");
         Field<Integer> shopCount = DSL.countDistinct(LISTING.SELLER_PROFILE_ID).as("shop_count");
         Field<Integer> available = sum(LISTING.QUANTITY_AVAILABLE, purchasable).as("available");
@@ -127,7 +127,7 @@ public class AdminCardListingRepository {
         Field<Integer> blockedListings = DSL.count().filterWhere(LISTING.STATUS.eq(ListingStatus.BLOCKED.name()))
                 .as("blocked_listings");
         Field<Integer> closedShop = sum(LISTING.QUANTITY_AVAILABLE, LISTING.STATUS.eq(ListingStatus.ACTIVE.name())
-                .andNot(ListingRepository.sellerProfileOpenForBusiness())).as("closed_shop");
+                .andNot(ListingConditions.sellerProfileOpenForBusiness())).as("closed_shop");
 
         Record r = dsl.select(listingCount, shopCount, available, availableShops, reserved, paused, blocked,
                         blockedListings, closedShop)
@@ -144,7 +144,7 @@ public class AdminCardListingRepository {
         if (productIds.isEmpty()) {
             return Map.of();
         }
-        Condition purchasable = ListingRepository.purchasableNow();
+        Condition purchasable = ListingConditions.purchasableNow();
         Field<Integer> sellers = DSL.countDistinct(LISTING.SELLER_PROFILE_ID).filterWhere(purchasable).as("sellers");
         Field<Integer> available = sum(LISTING.QUANTITY_AVAILABLE, purchasable).as("available");
         Field<Integer> blocked = DSL.count().filterWhere(LISTING.STATUS.eq(ListingStatus.BLOCKED.name()))
@@ -234,7 +234,7 @@ public class AdminCardListingRepository {
         return dsl.select(fields)
                 .from(joined())
                 .leftJoin(SELLER_RATING_SUMMARY).on(SELLER_RATING_SUMMARY.SELLER_PROFILE_ID.eq(SELLER_PROFILE.ID))
-                .leftJoin(LISTING_SALE_PRICE).on(ListingRepository.salePriceRunning(now));
+                .leftJoin(LISTING_SALE_PRICE).on(ListingConditions.salePriceRunning(now));
     }
 
     private static Condition conditions(Query query) {

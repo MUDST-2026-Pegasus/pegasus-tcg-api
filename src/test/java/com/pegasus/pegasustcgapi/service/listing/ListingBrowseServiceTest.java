@@ -9,7 +9,7 @@ import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.model.user.UserStatus;
 import com.pegasus.pegasustcgapi.repository.listing.ListingImageRepository;
-import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
+import com.pegasus.pegasustcgapi.repository.listing.PublicListingQueryRepository;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
 import com.pegasus.pegasustcgapi.repository.pricing.VariantMarketStatRepository;
 import java.util.Optional;
@@ -21,7 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class ListingBrowseServiceTest {
-    @Mock ListingRepository listings;
+    @Mock PublicListingQueryRepository listings;
     @Mock ListingImageRepository images;
     @Mock VariantMarketStatRepository stats;
     @Mock UserRepository users;

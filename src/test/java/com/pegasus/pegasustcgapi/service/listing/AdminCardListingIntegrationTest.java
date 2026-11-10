@@ -12,7 +12,7 @@ import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
 import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.port.inventory.InventoryPort.ReservedUnit;
-import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
+import com.pegasus.pegasustcgapi.repository.listing.PublicListingQueryRepository;
 import com.pegasus.pegasustcgapi.support.ApiClient;
 import com.pegasus.pegasustcgapi.support.ApiClient.Response;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
@@ -36,7 +36,7 @@ class AdminCardListingIntegrationTest extends PostgresIntegrationTest {
     private static final Map<String, String> REASON = Map.of("reason", "สงสัยการ์ดปลอม");
 
     @Autowired private InventoryPort inventory;
-    @Autowired private ListingRepository listings;
+    @Autowired private PublicListingQueryRepository listings;
     @Autowired private ListingService sellerListings;
 
     private ApiClient api;

@@ -1,6 +1,6 @@
 package com.pegasus.pegasustcgapi.repository.catalog;
 
-import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
+import com.pegasus.pegasustcgapi.repository.listing.ListingConditions;
 import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogCategory.CATALOG_CATEGORY;
@@ -226,8 +226,8 @@ public class CatalogProductRepository {
     private static Condition saleStatusMatches(AdminSaleStatus status) {
         return switch (status) {
             case ALL -> DSL.noCondition();
-            case HAS_SELLER -> DSL.exists(listingsOfThisProduct(ListingRepository.purchasableNow()));
-            case NO_SELLER -> DSL.notExists(listingsOfThisProduct(ListingRepository.purchasableNow()));
+            case HAS_SELLER -> DSL.exists(listingsOfThisProduct(ListingConditions.purchasableNow()));
+            case NO_SELLER -> DSL.notExists(listingsOfThisProduct(ListingConditions.purchasableNow()));
             case HAS_BLOCKED -> DSL.exists(listingsOfThisProduct(LISTING.STATUS.eq(ListingStatus.BLOCKED.name())));
         };
     }
