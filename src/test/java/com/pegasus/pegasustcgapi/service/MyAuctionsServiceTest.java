@@ -10,7 +10,8 @@ import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
-import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.BidderStrikeRepository;
+import com.pegasus.pegasustcgapi.repository.auction.MyAuctionQueryRepository;
 import com.pegasus.pegasustcgapi.repository.shipping.ShippingOptionRepository;
 import com.pegasus.pegasustcgapi.model.shipping.ShippingOption;
 import com.pegasus.pegasustcgapi.service.auction.AuctionItemMapper;
@@ -37,7 +38,8 @@ class MyAuctionsServiceTest {
     private static final OffsetDateTime NOW = OffsetDateTime.parse("2026-11-05T12:00:00Z");
     private static final BigDecimal PRICE = new BigDecimal("1000.00");
 
-    @Mock AuctionRepository auctions;
+    @Mock BidderStrikeRepository bidderStrikes;
+    @Mock MyAuctionQueryRepository myAuctionQueries;
     @Mock AuctionItemMapper itemMapper;
     @Mock BidderStrikeService strikes;
     @Mock ShippingOptionRepository shippingOptions;
@@ -45,9 +47,9 @@ class MyAuctionsServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new MyAuctionsService(auctions, itemMapper, strikes, shippingOptions,
+        service = new MyAuctionsService(bidderStrikes, myAuctionQueries, itemMapper, strikes, shippingOptions,
                 Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC));
-        org.mockito.Mockito.lenient().when(auctions.countMyAuctionTabs(BUYER)).thenReturn(Map.of(
+        org.mockito.Mockito.lenient().when(myAuctionQueries.countMyAuctionTabs(BUYER)).thenReturn(Map.of(
                 MyTab.ALL, 12L, MyTab.BIDDING, 3L, MyTab.TO_PAY, 2L,
                 MyTab.WON, 4L, MyTab.LOST, 3L));
         org.mockito.Mockito.lenient().when(shippingOptions.findDefaultActiveBySellerIds(Set.of(10L)))
@@ -63,14 +65,14 @@ class MyAuctionsServiceTest {
                 auction(3, AuctionStatus.AWAITING_PAYMENT, BUYER, 0),
                 auction(4, AuctionStatus.SOLD, BUYER, 0),
                 auction(5, AuctionStatus.UNSOLD, BUYER, 0));
-        when(auctions.findMyAuctions(BUYER, MyTab.ALL, 20, 0)).thenReturn(rows);
-        when(auctions.findMyHighestBids(BUYER, Set.of(1L, 2L, 3L, 4L, 5L)))
+        when(myAuctionQueries.findMyAuctions(BUYER, MyTab.ALL, 20, 0)).thenReturn(rows);
+        when(myAuctionQueries.findMyHighestBids(BUYER, Set.of(1L, 2L, 3L, 4L, 5L)))
                 .thenReturn(Map.of(1L, PRICE, 2L, PRICE, 3L, PRICE, 4L, PRICE, 5L, PRICE));
-        when(auctions.findMyLeadingAuctionIds(BUYER, Set.of(1L, 2L, 3L, 4L, 5L)))
+        when(myAuctionQueries.findMyLeadingAuctionIds(BUYER, Set.of(1L, 2L, 3L, 4L, 5L)))
                 .thenReturn(Set.of(1L));
         stubItems();
         when(strikes.status(BUYER, NOW)).thenReturn(new BidderStrikeService.PenaltyStatus(2, 3, NOW.plusDays(7)));
-        when(auctions.findLastStrikeCardName(BUYER)).thenReturn(Optional.of("Charizard"));
+        when(bidderStrikes.findLastStrikeCardName(BUYER)).thenReturn(Optional.of("Charizard"));
 
         var result = service.list(BUYER, MyTab.ALL, 0, 20);
 
@@ -90,12 +92,12 @@ class MyAuctionsServiceTest {
 
     @Test
     void passesBuyerAndTabToRepositoryAndReturnsAllTabCounts() {
-        when(auctions.findMyAuctions(BUYER, MyTab.TO_PAY, 10, 10)).thenReturn(List.of());
+        when(myAuctionQueries.findMyAuctions(BUYER, MyTab.TO_PAY, 10, 10)).thenReturn(List.of());
         when(strikes.status(BUYER, NOW)).thenReturn(new BidderStrikeService.PenaltyStatus(0, 3, null));
 
         var result = service.list(BUYER, MyTab.TO_PAY, 1, 10);
 
-        verify(auctions).findMyAuctions(BUYER, MyTab.TO_PAY, 10, 10);
+        verify(myAuctionQueries).findMyAuctions(BUYER, MyTab.TO_PAY, 10, 10);
         assertThat(result.page().totalItems()).isEqualTo(2);
         assertThat(result.tabCounts()).containsEntry(MyTab.ALL, 12L).containsEntry(MyTab.BIDDING, 3L)
                 .containsEntry(MyTab.TO_PAY, 2L).containsEntry(MyTab.WON, 4L).containsEntry(MyTab.LOST, 3L);
@@ -105,7 +107,7 @@ class MyAuctionsServiceTest {
     @Test
     void buyNowWinnerUsesWinningAmountEvenWithoutBid() {
         var row = auction(7, AuctionStatus.AWAITING_PAYMENT, BUYER, 0);
-        when(auctions.findMyAuctions(BUYER, MyTab.TO_PAY, 20, 0)).thenReturn(List.of(row));
+        when(myAuctionQueries.findMyAuctions(BUYER, MyTab.TO_PAY, 20, 0)).thenReturn(List.of(row));
         stubItems();
         when(strikes.status(BUYER, NOW)).thenReturn(new BidderStrikeService.PenaltyStatus(0, 3, null));
 

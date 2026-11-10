@@ -32,8 +32,11 @@ import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
 import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort.CommissionQuote;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionBidRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionQueryRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.NewAuction;
-import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.SellerAuctionFilter;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionQueryRepository.SellerAuctionFilter;
 import com.pegasus.pegasustcgapi.repository.catalog.CardSetRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogProductRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogVariantRepository;
@@ -65,6 +68,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class SellerAuctionService {
 
     private final AuctionRepository auctions;
+    private final AuctionBidRepository auctionBids;
+    private final AuctionQueryRepository auctionQueries;
+    private final AuctionReferenceQueryRepository auctionReferences;
     private final ListingUnitRepository units;
     private final InventoryService inventoryService;
     private final SellerPort sellers;
@@ -76,6 +82,9 @@ public class SellerAuctionService {
     @Autowired
     public SellerAuctionService(
             AuctionRepository auctions,
+            AuctionBidRepository auctionBids,
+            AuctionQueryRepository auctionQueries,
+            AuctionReferenceQueryRepository auctionReferences,
             ListingUnitRepository units,
             InventoryService inventoryService,
             SellerPort sellers,
@@ -84,6 +93,9 @@ public class SellerAuctionService {
             Clock clock,
             PlatformSettingService settings) {
         this.auctions = auctions;
+        this.auctionBids = auctionBids;
+        this.auctionQueries = auctionQueries;
+        this.auctionReferences = auctionReferences;
         this.units = units;
         this.inventoryService = inventoryService;
         this.sellers = sellers;
@@ -95,6 +107,9 @@ public class SellerAuctionService {
 
     public SellerAuctionService(
             AuctionRepository auctions,
+            AuctionBidRepository auctionBids,
+            AuctionQueryRepository auctionQueries,
+            AuctionReferenceQueryRepository auctionReferences,
             ListingUnitRepository units,
             InventoryService inventoryService,
             SellerPort sellers,
@@ -106,8 +121,8 @@ public class SellerAuctionService {
             ListingCardRenderer cards,
             Clock clock,
             PlatformSettingService settings) {
-        this(auctions, units, inventoryService, sellers, ledgerPort,
-                new AuctionItemMapper(cards, variants, products, games, cardSets, auctions),
+        this(auctions, auctionBids, auctionQueries, auctionReferences, units, inventoryService, sellers, ledgerPort,
+                new AuctionItemMapper(cards, variants, products, games, cardSets, auctionReferences),
                 clock, settings);
     }
 
@@ -133,19 +148,19 @@ public class SellerAuctionService {
         Paging paging = Paging.of(page, size);
 
         SellerAuctionFilter filter = new SellerAuctionFilter(seller.id(), status, q, paging.size(), paging.offset());
-        List<Auction> rows = auctions.findBySeller(filter);
-        long total = auctions.countBySeller(seller.id(), status, q);
+        List<Auction> rows = auctionQueries.findBySeller(filter);
+        long total = auctionQueries.countBySeller(seller.id(), status, q);
 
         OffsetDateTime now = OffsetDateTime.now(clock);
-        Map<AuctionStatus, Long> statusCounts = auctions.statusCounts(seller.id());
-        Kpis kpis = auctions.calculateKpis(seller.id(), now);
+        Map<AuctionStatus, Long> statusCounts = auctionQueries.statusCounts(seller.id());
+        Kpis kpis = auctionQueries.calculateKpis(seller.id(), now);
 
         Set<Long> variantIds = rows.stream().map(Auction::catalogVariantId).collect(Collectors.toSet());
         var bundle = auctionItemMapper.buildAuctionItems(variantIds, List.of());
         // Same "U-xxxx" code as the detail page and the stock picker [TCG-639]
         Map<Long, UUID> publicUids = units.findPublicUids(rows.stream().map(Auction::listingUnitId).toList());
         // "ดูคำสั่งซื้อ" opens /seller/orders/{seller_order.id}, not the buyer's sales_order id
-        Map<Long, Long> sellerOrderIds = auctions.findSellerOrderIds(seller.id(), rows.stream()
+        Map<Long, Long> sellerOrderIds = auctionQueries.findSellerOrderIds(seller.id(), rows.stream()
                 .map(Auction::salesOrderId).filter(Objects::nonNull).toList());
 
         List<SellerAuctionRow> listRows = rows.stream().map(a -> {
@@ -186,14 +201,14 @@ public class SellerAuctionService {
         Set<Long> unitIds = unitRows.stream().map(ListingUnit::id).collect(Collectors.toSet());
 
         var bundle = auctionItemMapper.buildAuctionItems(variantIds, List.of());
-        Map<Long, String> heldAuctions = auctions.findHeldAuctionNumbers(unitIds);
+        Map<Long, String> heldAuctions = auctionReferences.findHeldAuctionNumbers(unitIds);
         Map<Long, String> heldOrders = units.findHeldOrderNumbers(unitIds);
-        Map<AuctionRepository.VariantConditionKey, MarketGuide> marketGuides = auctions.findMarketGuides(variantIds);
+        Map<AuctionReferenceQueryRepository.VariantConditionKey, MarketGuide> marketGuides = auctionReferences.findMarketGuides(variantIds);
 
         List<EligibleUnit> eligible = unitRows.stream().map(u -> {
             AuctionItem item = bundle.buildAuctionItem(u.catalogVariantId(), u.condition());
             String unitLabel = formatUnitLabel(u.publicUid(), u.id());
-            MarketGuide market = marketGuides.get(new AuctionRepository.VariantConditionKey(u.catalogVariantId(), u.condition().name()));
+            MarketGuide market = marketGuides.get(new AuctionReferenceQueryRepository.VariantConditionKey(u.catalogVariantId(), u.condition().name()));
 
             UnitAvailability availability;
             String heldBy = null;
@@ -397,7 +412,7 @@ public class SellerAuctionService {
         if (a.salesOrderId() == null) {
             return null;
         }
-        return auctions.findSellerOrderIds(seller.id(), List.of(a.salesOrderId())).get(a.salesOrderId());
+        return auctionQueries.findSellerOrderIds(seller.id(), List.of(a.salesOrderId())).get(a.salesOrderId());
     }
 
     private OffsetDateTime resolveDeadline(Auction a) {
@@ -418,11 +433,11 @@ public class SellerAuctionService {
         BigDecimal estimatedPayout = price.subtract(commissionFee);
 
         // Bids with masked bidder aliases; a suspension cancels every bid, the seller still sees them
-        List<AuctionBid> bidRows = auctions.findBids(a.id(), a.status() == AuctionStatus.SUSPENDED, 50, 0);
+        List<AuctionBid> bidRows = auctionBids.findBids(a.id(), a.status() == AuctionStatus.SUSPENDED, 50, 0);
         List<Bid> bids = new ArrayList<>();
         if (!bidRows.isEmpty()) {
             Set<Long> userIds = Set.copyOf(bidRows.stream().map(AuctionBid::bidderId).toList());
-            Map<Long, String> usernames = auctions.findUsernames(userIds);
+            Map<Long, String> usernames = auctionReferences.findUsernames(userIds);
 
             for (AuctionBid b : bidRows) {
                 String uname = usernames.get(b.bidderId());
@@ -436,7 +451,7 @@ public class SellerAuctionService {
         // Winner alias if auction ended with winner
         String winnerAlias = null;
         if (a.winnerId() != null) {
-            String uname = auctions.findUsername(a.winnerId()).orElse(null);
+            String uname = auctionReferences.findUsername(a.winnerId()).orElse(null);
             winnerAlias = AuctionItemMapper.maskUsername(uname);
         }
 

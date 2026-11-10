@@ -30,6 +30,9 @@ import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
 import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort.CommissionQuote;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionBidRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionQueryRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.NewAuction;
 import com.pegasus.pegasustcgapi.repository.catalog.CardSetRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogProductRepository;
@@ -72,6 +75,12 @@ class SellerAuctionServiceTest {
 
     @Mock
     private AuctionRepository auctions;
+    @Mock
+    private AuctionBidRepository auctionBids;
+    @Mock
+    private AuctionQueryRepository auctionQueries;
+    @Mock
+    private AuctionReferenceQueryRepository auctionReferences;
 
     @Mock
     private ListingUnitRepository units;
@@ -112,6 +121,9 @@ class SellerAuctionServiceTest {
     void setUp() {
         service = new SellerAuctionService(
                 auctions,
+                auctionBids,
+                auctionQueries,
+                auctionReferences,
                 units,
                 inventoryService,
                 sellers,
@@ -251,9 +263,10 @@ class SellerAuctionServiceTest {
 
         @Test
         void durationLimitsReadCurrentSettings() {
-            service = new SellerAuctionService(auctions, units, inventoryService, sellers,
+            service = new SellerAuctionService(auctions, auctionBids, auctionQueries, auctionReferences,
+                    units, inventoryService, sellers,
                     ledgerPort, new com.pegasus.pegasustcgapi.service.auction.AuctionItemMapper(
-                            cards, variants, products, games, cardSets, auctions), FIXED_CLOCK, settings);
+                            cards, variants, products, games, cardSets, auctionReferences), FIXED_CLOCK, settings);
             given(settings.getMinutes(PlatformSettingService.AUCTION_MIN_DURATION_MINUTES))
                     .willReturn(Duration.ofMinutes(5));
             given(settings.getDays(PlatformSettingService.AUCTION_MAX_DURATION_DAYS))

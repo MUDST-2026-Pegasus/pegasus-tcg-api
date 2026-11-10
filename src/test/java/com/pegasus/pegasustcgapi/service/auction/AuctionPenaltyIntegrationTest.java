@@ -8,7 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pegasus.pegasustcgapi.dto.auction.AdminAuctionViews.BanTab;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
-import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.BidderStrikeRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import com.pegasus.pegasustcgapi.support.TestData.Seller;
@@ -21,7 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 /** Strike counting must agree between bidding enforcement and the admin banned-bidder page. */
 class AuctionPenaltyIntegrationTest extends PostgresIntegrationTest {
 
-    @Autowired AuctionRepository auctions;
+    @Autowired BidderStrikeRepository bidderStrikes;
     @Autowired AdminAuctionReadService adminReads;
 
     private Seller seller;
@@ -50,7 +50,7 @@ class AuctionPenaltyIntegrationTest extends PostgresIntegrationTest {
         strike(buyer, now.minusDays(3), null);
         strike(buyer, now.minusDays(2), null);
 
-        assertThat(auctions.countActiveStrikes(buyer.userId())).isEqualTo(2);
+        assertThat(bidderStrikes.countActiveStrikes(buyer.userId())).isEqualTo(2);
         assertThat(adminReads.bannedBidder(buyer.userId()).strikeCount()).isEqualTo(2);
     }
 
@@ -62,7 +62,7 @@ class AuctionPenaltyIntegrationTest extends PostgresIntegrationTest {
         strike(buyer, now.minusDays(41), null);
         ban(buyer, now.minusDays(40), now.minusDays(10), null);
 
-        assertThat(auctions.countActiveStrikes(buyer.userId())).isZero();
+        assertThat(bidderStrikes.countActiveStrikes(buyer.userId())).isZero();
         var bidder = adminReads.bannedBidder(buyer.userId());
         assertThat(bidder.strikeCount()).isZero();
         assertThat(bidder.bannedUntil()).isNull();

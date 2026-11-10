@@ -11,7 +11,7 @@ import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
 import com.pegasus.pegasustcgapi.port.UserVerificationPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
-import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.BidderStrikeRepository;
 import com.pegasus.pegasustcgapi.repository.user.AddressRepository;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.time.OffsetDateTime;
@@ -30,7 +30,7 @@ public class AuctionEligibilityValidator {
 
     private final AddressRepository addresses;
     private final UserVerificationPort userVerification;
-    private final AuctionRepository auctions;
+    private final BidderStrikeRepository bidderStrikes;
     private final SellerPort sellers;
     private final PlatformSettingService settings;
 
@@ -38,12 +38,12 @@ public class AuctionEligibilityValidator {
     public AuctionEligibilityValidator(
             AddressRepository addresses,
             UserVerificationPort userVerification,
-            AuctionRepository auctions,
+            BidderStrikeRepository bidderStrikes,
             SellerPort sellers,
             PlatformSettingService settings) {
         this.addresses = addresses;
         this.userVerification = userVerification;
-        this.auctions = auctions;
+        this.bidderStrikes = bidderStrikes;
         this.sellers = sellers;
         this.settings = settings;
     }
@@ -69,7 +69,7 @@ public class AuctionEligibilityValidator {
             throw new ForbiddenException(ErrorCode.EMAIL_NOT_VERIFIED, "Email verification is required to place a bid");
         }
 
-        Optional<OffsetDateTime> banUntil = auctions.findActiveBanUntil(userId, now);
+        Optional<OffsetDateTime> banUntil = bidderStrikes.findActiveBanUntil(userId, now);
         if (banUntil.isPresent()) {
             throw new ForbiddenException(
                     ErrorCode.BIDDING_BANNED,
@@ -77,7 +77,7 @@ public class AuctionEligibilityValidator {
                     Map.of("bannedUntil", banUntil.get()));
         }
 
-        if (auctions.countActiveStrikes(userId) >= strikeLimit()) {
+        if (bidderStrikes.countActiveStrikes(userId) >= strikeLimit()) {
             throw new ForbiddenException(ErrorCode.BIDDING_BANNED, "User is banned from bidding due to unpaid wins");
         }
 
@@ -102,7 +102,7 @@ public class AuctionEligibilityValidator {
             return BidEligibility.EMAIL_NOT_VERIFIED;
         }
 
-        if (auctions.findActiveBanUntil(userId, now).isPresent() || auctions.countActiveStrikes(userId) >= strikeLimit()) {
+        if (bidderStrikes.findActiveBanUntil(userId, now).isPresent() || bidderStrikes.countActiveStrikes(userId) >= strikeLimit()) {
             return BidEligibility.BIDDING_PENALIZED;
         }
 
@@ -127,7 +127,7 @@ public class AuctionEligibilityValidator {
         if (!userVerification.isEmailVerified(userId)) {
             blockers.add(ErrorCode.EMAIL_NOT_VERIFIED);
         }
-        if (auctions.findActiveBanUntil(userId, now).isPresent() || auctions.countActiveStrikes(userId) >= strikeLimit()) {
+        if (bidderStrikes.findActiveBanUntil(userId, now).isPresent() || bidderStrikes.countActiveStrikes(userId) >= strikeLimit()) {
             blockers.add(ErrorCode.BIDDING_BANNED);
         }
         return blockers;

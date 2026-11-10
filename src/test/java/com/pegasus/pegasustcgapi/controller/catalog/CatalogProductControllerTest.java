@@ -15,7 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.CatalogImageResponse;
-import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository.ProductAuctionStats;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionQueryRepository.ProductAuctionStats;
 import com.pegasus.pegasustcgapi.service.auction.AuctionBrowseService;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductSummaryResponse;
 import com.pegasus.pegasustcgapi.exception.ApiException;

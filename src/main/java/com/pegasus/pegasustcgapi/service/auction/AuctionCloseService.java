@@ -4,6 +4,7 @@ import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.model.auction.AuctionBid;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionBidRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.service.inventory.InventoryService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
@@ -25,6 +26,7 @@ public class AuctionCloseService {
     private static final Logger log = LoggerFactory.getLogger(AuctionCloseService.class);
 
     private final AuctionRepository auctions;
+    private final AuctionBidRepository auctionBids;
     private final ListingUnitRepository units;
     private final InventoryService inventoryService;
     private final PlatformSettingService settings;
@@ -32,10 +34,12 @@ public class AuctionCloseService {
     @Autowired
     public AuctionCloseService(
             AuctionRepository auctions,
+            AuctionBidRepository auctionBids,
             ListingUnitRepository units,
             InventoryService inventoryService,
             PlatformSettingService settings) {
         this.auctions = auctions;
+        this.auctionBids = auctionBids;
         this.units = units;
         this.inventoryService = inventoryService;
         this.settings = settings;
@@ -72,12 +76,12 @@ public class AuctionCloseService {
     private boolean closeWithWinner(Auction auction, OffsetDateTime now) {
         Long winnerId = null;
         if (auction.leadingBidId() != null) {
-            winnerId = auctions.findBidById(auction.leadingBidId())
+            winnerId = auctionBids.findBidById(auction.leadingBidId())
                     .map(AuctionBid::bidderId)
                     .orElse(null);
         }
         if (winnerId == null) {
-            winnerId = auctions.findLeadingBidderId(auction.id()).orElse(null);
+            winnerId = auctionBids.findLeadingBidderId(auction.id()).orElse(null);
         }
 
         if (winnerId == null) {

@@ -221,8 +221,8 @@ public class AdminAuctionRepository {
     private static Table<?> bidders(Condition where, OffsetDateTime now) {
         Field<Integer> strikes = DSL.field(DSL.selectCount().from(BIDDER_STRIKE)
                 .where(BIDDER_STRIKE.USER_ID.eq(USER_ACCOUNT.ID))
-                .and(AuctionRepository.countableStrike(now))).as(STRIKES);
-        // Same rule as AuctionRepository.findActiveBanUntil.
+                .and(BidderStrikeRepository.countableStrike(now))).as(STRIKES);
+        // Same rule as BidderStrikeRepository.findActiveBanUntil.
         Field<OffsetDateTime> bannedUntil = DSL.field(DSL.select(DSL.max(BIDDING_BAN.BANNED_UNTIL))
                 .from(BIDDING_BAN)
                 .where(BIDDING_BAN.USER_ID.eq(USER_ACCOUNT.ID))

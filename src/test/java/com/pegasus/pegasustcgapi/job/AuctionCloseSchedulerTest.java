@@ -20,6 +20,7 @@ import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.listing.ListingUnit;
 import com.pegasus.pegasustcgapi.model.listing.ListingUnitStatus;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionBidRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.service.auction.AuctionCloseService;
 import com.pegasus.pegasustcgapi.service.inventory.InventoryService;
@@ -56,6 +57,8 @@ class AuctionCloseSchedulerTest {
 
     @Mock
     private AuctionRepository auctions;
+    @Mock
+    private AuctionBidRepository auctionBids;
 
     @Mock
     private ListingUnitRepository units;
@@ -76,7 +79,7 @@ class AuctionCloseSchedulerTest {
 
     @BeforeEach
     void setUp() {
-        realCloseService = new AuctionCloseService(auctions, units, inventoryService, settings);
+        realCloseService = new AuctionCloseService(auctions, auctionBids, units, inventoryService, settings);
         org.mockito.Mockito.lenient().when(settings.getAuctionPaymentWindow())
                 .thenReturn(java.time.Duration.ofHours(24));
     }
@@ -209,12 +212,12 @@ class AuctionCloseSchedulerTest {
 
         @Test
         void winnerDeadlineUsesCurrentPaymentSetting() {
-            realCloseService = new AuctionCloseService(auctions, units, inventoryService, settings);
+            realCloseService = new AuctionCloseService(auctions, auctionBids, units, inventoryService, settings);
             long auctionId = 506L;
             Auction auction = sampleAuction(auctionId, AuctionStatus.LIVE, 1,
                     new BigDecimal("1100.00"), NOW.minusSeconds(1), LEADING_BID_ID);
             given(auctions.lock(auctionId)).willReturn(Optional.of(auction));
-            given(auctions.findBidById(LEADING_BID_ID)).willReturn(Optional.of(
+            given(auctionBids.findBidById(LEADING_BID_ID)).willReturn(Optional.of(
                     new AuctionBid(LEADING_BID_ID, auctionId, WINNER_ID,
                             new BigDecimal("1100.00"), BidStatus.ACTIVE, null, NOW.minusMinutes(1))));
             given(settings.getAuctionPaymentWindow()).willReturn(java.time.Duration.ofSeconds(36));
@@ -233,7 +236,7 @@ class AuctionCloseSchedulerTest {
             given(auctions.lock(auctionId)).willReturn(Optional.of(auction));
 
             AuctionBid leadingBid = new AuctionBid(LEADING_BID_ID, auctionId, WINNER_ID, new BigDecimal("1800.00"), BidStatus.ACTIVE, "key-1", NOW.minusMinutes(30));
-            given(auctions.findBidById(LEADING_BID_ID)).willReturn(Optional.of(leadingBid));
+            given(auctionBids.findBidById(LEADING_BID_ID)).willReturn(Optional.of(leadingBid));
 
             OffsetDateTime expectedPaymentDueAt = NOW.plusHours(24);
             given(auctions.recordAuctionWon(auctionId, WINNER_ID, new BigDecimal("1800.00"), NOW, expectedPaymentDueAt)).willReturn(true);
@@ -299,7 +302,7 @@ class AuctionCloseSchedulerTest {
             long auctionId = 505L;
             Auction auction = sampleAuction(auctionId, AuctionStatus.LIVE, 2, new BigDecimal("1500.00"), NOW.minusSeconds(10), LEADING_BID_ID);
             given(auctions.lock(auctionId)).willReturn(Optional.of(auction));
-            given(auctions.findBidById(LEADING_BID_ID)).willReturn(Optional.empty());
+            given(auctionBids.findBidById(LEADING_BID_ID)).willReturn(Optional.empty());
             given(auctions.recordAuctionSuspended(eq(auctionId), anyString(), eq(NOW))).willReturn(true);
 
             boolean progress = realCloseService.closeAuction(auctionId, NOW);
