@@ -50,14 +50,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -75,7 +73,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class OrderLifecycleService {
 
-    private SaleCheckoutService saleCheckout;
+    private final OrderSettlementService settlement;
 
     private static final Logger log = LoggerFactory.getLogger(OrderLifecycleService.class);
 
@@ -122,6 +120,7 @@ public class OrderLifecycleService {
         this.clock = clock != null ? clock : Clock.systemUTC();
         this.storageService = storageService;
         this.auctionRepository = auctionRepository;
+        this.settlement = new OrderSettlementService(orderRepository, this.clock);
     }
 
     // ==========================================
@@ -790,90 +789,12 @@ public class OrderLifecycleService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void rollupSalesOrderStatus(long salesOrderId) {
-        SalesOrderRecord salesOrder = orderRepository.findSalesOrderByIdForUpdate(salesOrderId).orElse(null);
-        if (salesOrder == null) {
-            return;
-        }
-
-        List<SellerOrderRecord> children = orderRepository.findSellerOrdersBySalesOrderId(salesOrderId);
-        if (children.isEmpty()) {
-            return;
-        }
-
-        Set<SellerOrderStatus> statuses = children.stream()
-                .map(child -> SellerOrderStatus.of(child.getStatus()))
-                .collect(Collectors.toSet());
-
-        String newStatus;
-        OffsetDateTime completedAt = salesOrder.getCompletedAt();
-        OffsetDateTime cancelledAt = salesOrder.getCancelledAt();
-        OffsetDateTime paidAt = salesOrder.getPaidAt();
-        OffsetDateTime now = now();
-
-        boolean allTerminal = statuses.stream().allMatch(SellerOrderStatus::terminal);
-        boolean anyCompleted = statuses.contains(SellerOrderStatus.COMPLETED);
-
-        if (statuses.equals(Set.of(SellerOrderStatus.CANCELLED))) {
-            newStatus = "CANCELLED";
-            if (cancelledAt == null) {
-                cancelledAt = now;
-            }
-        } else if (statuses.equals(Set.of(SellerOrderStatus.REFUNDED))) {
-            newStatus = "REFUNDED";
-        } else if (allTerminal && anyCompleted) {
-            // Every sub-order has finished and at least one of them was delivered, so
-            // the order as a whole is done — a sibling that was cancelled does not
-            // leave it hanging at PARTIALLY_COMPLETED for good.
-            newStatus = "COMPLETED";
-            if (completedAt == null) {
-                completedAt = now;
-            }
-        } else if (anyCompleted) {
-            newStatus = "PARTIALLY_COMPLETED";
-        } else if (allTerminal) {
-            // Nothing completed and nothing is still running: a mix of cancellations
-            // and refunds. Not a row in the spec's table, and PAID would be plainly
-            // wrong for an order where every part was called off.
-            newStatus = statuses.contains(SellerOrderStatus.CANCELLED) ? "CANCELLED" : "REFUNDED";
-            if ("CANCELLED".equals(newStatus) && cancelledAt == null) {
-                cancelledAt = now;
-            }
-        } else if (stillUnpaid(statuses)) {
-            // A shop that cancelled before payment drops out; the buyer still owes
-            // for the rest. Calling this PAID would block the payment and the timeout.
-            newStatus = "PENDING_PAYMENT";
-        } else {
-            // Somewhere between paid and delivered: the buyer has paid, and the parent
-            // stays PAID while the sellers pack and post.
-            newStatus = "PAID";
-            if (paidAt == null) {
-                paidAt = now;
-            }
-        }
-
-        orderRepository.updateSalesOrderStatus(salesOrderId, newStatus, paidAt, completedAt, cancelledAt);
-        settlePromotions(salesOrderId, newStatus, paidAt, children);
-        settleSales(paidAt, children);
+        settlement.rollupSalesOrderStatus(salesOrderId);
     }
 
-    /**
-     * Flash quota and campaign budget follow the money the way codes do [TCG-680]:
-     * a part of the order cancelled or timed out before payment gives them back;
-     * once paid they stay spent, whatever happens after.
-     */
-    private void settleSales(OffsetDateTime paidAt, List<SellerOrderRecord> children) {
-        if (saleCheckout == null || paidAt != null) {
-            return;
-        }
-        children.stream()
-                .filter(child -> SellerOrderStatus.of(child.getStatus()) == SellerOrderStatus.CANCELLED)
-                .forEach(child -> saleCheckout.release(child.getId()));
-    }
-
-    /** Optional like {@link #setCheckoutPromotions}; Spring always supplies it. */
     @Autowired(required = false)
     void setSaleCheckout(SaleCheckoutService saleCheckout) {
-        this.saleCheckout = saleCheckout;
+        settlement.setSaleCheckout(saleCheckout);
     }
 
     /** Codes still on these orders; none when the service was built without discount codes. */
@@ -907,42 +828,13 @@ public class OrderLifecycleService {
     }
 
     /**
-     * Discount code uses follow the money [TCG-569]: spent once the order is paid, given
-     * back when it is called off unpaid. A shop that drops out before payment gives its
-     * own code back at once. Cancelling after payment gives nothing back.
-     */
-    private void settlePromotions(long salesOrderId, String newStatus, OffsetDateTime paidAt,
-            List<SellerOrderRecord> children) {
-        if (checkoutPromotions == null) {
-            return;
-        }
-        if (paidAt != null) {
-            checkoutPromotions.consume(salesOrderId);
-            return;
-        }
-        if ("CANCELLED".equals(newStatus)) {
-            checkoutPromotions.release(salesOrderId);
-            return;
-        }
-        children.stream()
-                .filter(child -> SellerOrderStatus.of(child.getStatus()) == SellerOrderStatus.CANCELLED)
-                .forEach(child -> checkoutPromotions.releaseSellerOrder(child.getId()));
-    }
-
-    /**
      * Optional so the constructors the unit tests use stay as they are; Spring always
      * supplies it.
      */
     @Autowired(required = false)
     void setCheckoutPromotions(CheckoutPromotionService checkoutPromotions) {
         this.checkoutPromotions = checkoutPromotions;
-    }
-
-    /** True when every sub-order that is not cancelled or refunded is still waiting for payment. */
-    private static boolean stillUnpaid(Set<SellerOrderStatus> statuses) {
-        Set<SellerOrderStatus> live = EnumSet.copyOf(statuses);
-        live.removeAll(EnumSet.of(SellerOrderStatus.CANCELLED, SellerOrderStatus.REFUNDED));
-        return live.equals(EnumSet.of(SellerOrderStatus.PENDING_PAYMENT));
+        settlement.setCheckoutPromotions(checkoutPromotions);
     }
 
     // ==========================================
