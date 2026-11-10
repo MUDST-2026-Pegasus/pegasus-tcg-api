@@ -70,23 +70,20 @@ public final class WeeklyStockProfitViews {
             BigDecimal gmv,
             BigDecimal commission,
             BigDecimal netProfit,
-            String status,
-            String statusLabel) {}
+            String status) {}
 
     /** @param productType SINGLE_CARD, SEALED or OTHER */
     public record GameTypeBreakdownRow(
             String game,
             String gameSlug,
             String productType,
-            String productTypeLabel,
             long initialStock,
             long soldCount,
             long remainingStock,
             BigDecimal gmv,
             BigDecimal commission,
             BigDecimal netProfit,
-            String status,
-            String statusLabel) {}
+            String status) {}
 
     public record BreakdownTotals(
             long initialStock,

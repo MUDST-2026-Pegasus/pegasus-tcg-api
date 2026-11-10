@@ -223,8 +223,7 @@ public class AdminWeeklyStockProfitService {
                         stat.gmv(),
                         stat.commission(),
                         stat.profit(),
-                        status,
-                        statusLabel(status)));
+                        status));
             }
         } else if (!fallbackBreakdown.isEmpty()) {
             int count = fallbackBreakdown.size();
@@ -250,8 +249,7 @@ public class AdminWeeklyStockProfitService {
                         rowGmv,
                         rowCommission,
                         rowProfit,
-                        status,
-                        statusLabel(status)));
+                        status));
             }
         }
         rows.sort(Comparator.comparing(BreakdownRow::gmv, Comparator.reverseOrder())
@@ -275,18 +273,10 @@ public class AdminWeeklyStockProfitService {
                     String status = classifyStockStatus(initial, stat.soldCount(), stat.remainingStock(),
                             thresholds.lowStockThreshold(), thresholds.fastMovingPercent());
                     return new GameTypeBreakdownRow(stat.name(), stat.slug(), stat.productType(),
-                            productTypeLabel(stat.productType()), initial, stat.soldCount(), stat.remainingStock(),
-                            stat.gmv(), stat.commission(), stat.profit(), status, statusLabel(status));
+                            initial, stat.soldCount(), stat.remainingStock(),
+                            stat.gmv(), stat.commission(), stat.profit(), status);
                 })
                 .toList();
-    }
-
-    private static String productTypeLabel(String productType) {
-        return switch (productType) {
-            case "SINGLE_CARD" -> "การ์ดเดี่ยว";
-            case "SEALED" -> "กล่อง/ซองสุ่ม";
-            default -> "อื่น ๆ";
-        };
     }
 
     private static BreakdownTotals buildBreakdownTotals(
@@ -386,14 +376,6 @@ public class AdminWeeklyStockProfitService {
             return "FAST_MOVING";
         }
         return "NORMAL";
-    }
-
-    public static String statusLabel(String status) {
-        return switch (status) {
-            case "LOW_STOCK" -> "สต็อกต่ำ";
-            case "FAST_MOVING" -> "สต็อกหมุนเวียนเร็ว";
-            default -> "ปกติ";
-        };
     }
 
     public static boolean isWithinBangkokWeek(OffsetDateTime timestamp, LocalDate mondayStart) {

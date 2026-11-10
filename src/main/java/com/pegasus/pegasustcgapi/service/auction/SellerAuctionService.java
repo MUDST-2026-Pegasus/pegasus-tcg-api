@@ -204,12 +204,12 @@ public class SellerAuctionService {
                 case ON_AUCTION -> {
                     availability = UnitAvailability.IN_AUCTION;
                     String heldNum = heldAuctions.get(u.id());
-                    heldBy = heldNum != null ? "#" + heldNum : "อยู่ในประมูล";
+                    heldBy = heldNum != null ? "#" + heldNum : null;
                 }
                 case RESERVED -> {
                     availability = UnitAvailability.RESERVED;
                     String heldNum = heldOrders.get(u.id());
-                    heldBy = heldNum != null ? "#" + heldNum : "จองในคำสั่งซื้อ";
+                    heldBy = heldNum != null ? "#" + heldNum : null;
                 }
                 default -> availability = UnitAvailability.RESERVED;
             }
