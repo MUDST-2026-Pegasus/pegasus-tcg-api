@@ -28,7 +28,8 @@ class OrderLifecycleConfiguration {
     }
 
     @Bean
-    OrderSettlementService orderSettlementService(OrderRepository orders, OrderTransitionRepository orderTransitions, OrderQueryRepository orderQueries, OrderReferenceQueryRepository orderReferences, Clock clock,
+    OrderSettlementService orderSettlementService(OrderRepository orders, OrderTransitionRepository orderTransitions,
+            OrderQueryRepository orderQueries, Clock clock,
             ObjectProvider<SaleCheckoutService> saleCheckout,
             ObjectProvider<CheckoutPromotionService> checkoutPromotions) {
         return new OrderSettlementService(orders, orderTransitions, orderQueries, clock,
@@ -36,7 +37,8 @@ class OrderLifecycleConfiguration {
     }
 
     @Bean
-    OrderResponseMapper orderResponseMapper(OrderRepository orders, OrderTransitionRepository orderTransitions, OrderQueryRepository orderQueries, OrderReferenceQueryRepository orderReferences, PlatformSettingService settings,
+    OrderResponseMapper orderResponseMapper(OrderRepository orders, OrderQueryRepository orderQueries,
+            OrderReferenceQueryRepository orderReferences, PlatformSettingService settings,
             @Autowired(required = false) StorageService storage,
             ObjectProvider<CheckoutPromotionService> checkoutPromotions) {
         return new OrderResponseMapper(orders, orderQueries, orderReferences, settings, storage, checkoutPromotions.getIfAvailable());
