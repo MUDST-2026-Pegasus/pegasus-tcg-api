@@ -11,8 +11,8 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
-class CheckoutPricingGoldenCaptureTest {
-    @Test void capture() {
+class CheckoutPricingCalculatorTest {
+    @Test void matchesGoldenValuesFromLegacyPromotionCalculation() {
         String[][] cases = {
             {"100.00", "0", "0", "0", "0", "0"},
             {"100.00", "0", "10", "0", "0", "0"},
@@ -59,7 +59,28 @@ class CheckoutPricingGoldenCaptureTest {
             String actual = result.sellers().stream()
                     .map(s -> s.itemsSubtotal() + "," + s.shippingFee() + "," + s.sellerDiscount() + "," + s.platformDiscount() + "," + s.grandTotal())
                     .toList() + " total=" + result.grandTotal();
-            assertThat(actual).as("case %s", i).isEqualTo(expected[i]);
+            assertThat(actual).as("legacy case %s", i).isEqualTo(expected[i]);
+            var prices = result.sellers().stream().map(s -> CheckoutPricingCalculator.seller(
+                    s.itemsSubtotal(), s.shippingFee(), s.sellerDiscount(), s.platformDiscount(),
+                    BigDecimal.ZERO, BigDecimal.ZERO)).toList();
+            var totals = CheckoutPricingCalculator.totals(prices);
+            String calculated = prices.stream().map(s -> s.subtotal() + "," + s.shipping() + ","
+                    + s.sellerDiscount() + "," + s.platformDiscount() + "," + s.grandTotal()).toList()
+                    + " total=" + totals.grandTotal();
+            assertThat(calculated).as("calculator case %s", i).isEqualTo(expected[i]);
         }
     }
+    @Test void saleSubsidyAndCommissionMatchPreRefactorCheckout() {
+        // Values characterized by SaleCheckoutIntegrationTest on the original implementation.
+        var platformSale = CheckoutPricingCalculator.seller(new BigDecimal("800"), BigDecimal.ZERO,
+                new BigDecimal("50"), new BigDecimal("75"), new BigDecimal("200"), new BigDecimal("47.50"));
+        assertThat(platformSale.grandTotal()).isEqualByComparingTo("675");
+        assertThat(platformSale.commissionBase()).isEqualByComparingTo("950");
+        assertThat(platformSale.netAmount()).isEqualByComparingTo("902.50");
+        var sellerSale = CheckoutPricingCalculator.seller(new BigDecimal("800"), BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("40"));
+        assertThat(sellerSale.commissionBase()).isEqualByComparingTo("800");
+        assertThat(sellerSale.netAmount()).isEqualByComparingTo("760");
+    }
+
 }
