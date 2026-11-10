@@ -73,8 +73,9 @@ jobs:
           build-mode: manual
           config-file: ./.github/codeql/codeql-config.yml
 
+      # CodeQL traces javac: a cached compileJava (org.gradle.caching=true) leaves it nothing to extract
       - name: Build for analysis
-        run: ./gradlew build -x test --no-daemon
+        run: ./gradlew build -x test --no-daemon --no-build-cache --rerun-tasks
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
