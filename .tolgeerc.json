@@ -1,6 +1,7 @@
 {
   "$schema": "https://docs.tolgee.io/cli-schema.json",
-  "projectId": 36508,
+  "apiUrl": "https://pegasus-tolgee.thanaboat.com",
+  "projectId": 2,
   "format": "JSON_TOLGEE",
   "push": {
     "forceMode": "KEEP",
