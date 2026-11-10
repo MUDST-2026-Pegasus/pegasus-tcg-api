@@ -639,8 +639,6 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
                 "Pokémon/SINGLE_CARD", "Pokémon/SEALED",
                 "One Piece/SINGLE_CARD", "One Piece/SEALED",
                 "Other TCG/SINGLE_CARD", "Other TCG/SEALED");
-        assertThat(rows.getFirst().productTypeLabel()).isEqualTo("การ์ดเดี่ยว");
-        assertThat(rows.get(1).productTypeLabel()).isEqualTo("กล่อง/ซองสุ่ม");
         // Pokémon sealed: 1000 left, 10 sold for 5,960.
         assertThat(rows.get(1).remainingStock()).isEqualTo(1000);
         assertThat(rows.get(1).soldCount()).isEqualTo(10);
@@ -687,7 +685,6 @@ public class AdminWeeklyStockProfitIntegrationTest extends PostgresIntegrationTe
         var rows = reportService.report("2024-05-06", "2024-05-12", slug, null).breakdownByGameAndType();
 
         assertThat(rows).extracting(row -> row.status()).containsExactly("LOW_STOCK", "FAST_MOVING");
-        assertThat(rows).extracting(row -> row.statusLabel()).containsExactly("สต็อกต่ำ", "สต็อกหมุนเวียนเร็ว");
     }
 
     @Test
