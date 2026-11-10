@@ -342,6 +342,30 @@ class CheckoutPromotionIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void buyerCancellationReleasesCodesOnceAndSameBuyerCanUseThemAgain() {
+        AuthPrincipal buyer = buyerWithFigmaCart();
+        CheckoutResponse first = checkout.checkout(buyer, key(), null, request(pegasus10,
+                Map.of(minmin.profileId(), minmin50), new BigDecimal("3025.00")));
+        assertThat(redemptionStatuses(first.orderId())).containsOnly("RESERVED").hasSize(2);
+        assertThat(promotions.findByCode(pegasus10).orElseThrow().usedCount()).isEqualTo(1);
+        assertThat(promotions.findByCode(minmin50).orElseThrow().usedCount()).isEqualTo(1);
+
+        lifecycle.cancelBuyerOrder(buyer, first.orderId(), null);
+        lifecycle.cancelBuyerOrder(buyer, first.orderId(), null);
+
+        assertThat(redemptionStatuses(first.orderId())).containsOnly("RELEASED").hasSize(2);
+        assertThat(promotions.findByCode(pegasus10).orElseThrow().usedCount()).isZero();
+        assertThat(promotions.findByCode(minmin50).orElseThrow().usedCount()).isZero();
+        CheckoutResponse second = checkout.checkout(refill(buyer), key(), null, request(pegasus10,
+                Map.of(minmin.profileId(), minmin50), new BigDecimal("3025.00")));
+        assertThat(second.orderId()).isNotEqualTo(first.orderId());
+        assertThat(second.grandTotal()).isEqualByComparingTo("3025.00");
+        assertThat(redemptionStatuses(second.orderId())).containsOnly("RESERVED").hasSize(2);
+        assertThat(promotions.findByCode(pegasus10).orElseThrow().usedCount()).isEqualTo(1);
+        assertThat(promotions.findByCode(minmin50).orElseThrow().usedCount()).isEqualTo(1);
+    }
+
+    @Test
     void everyCheckoutErrorCodeIsReportedPerCode() {
         AuthPrincipal buyer = buyerWithFigmaCart();
         OffsetDateTime now = OffsetDateTime.now(clock);

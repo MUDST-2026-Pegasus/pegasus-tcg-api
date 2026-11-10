@@ -138,6 +138,20 @@ class InventoryServiceTest {
     }
 
     @Test
+    void mixedSaleBatchRejectsEveryCardBeforeWritingStockOrLedger() {
+        given(units.lockByIds(List.of(1L, 2L))).willReturn(List.of(
+                card(1L, 7001L, ListingUnitStatus.RESERVED),
+                card(2L, 7001L, ListingUnitStatus.SOLD)));
+
+        assertThatThrownBy(() -> service.commitSale(8001L, List.of(1L, 2L), 91L))
+                .extracting(InventoryServiceTest::codeOf)
+                .isEqualTo(ErrorCode.LISTING_UNIT_STATE);
+
+        verify(units, never()).markSold(any(), any());
+        verifyNoInteractions(ledger);
+    }
+
+    @Test
     @DisplayName("releasing skips cards that are no longer held, so a second release is harmless")
     void releaseSkipsCardsNoLongerHeld() {
         given(units.lockByIds(List.of(1L, 2L))).willReturn(List.of(
