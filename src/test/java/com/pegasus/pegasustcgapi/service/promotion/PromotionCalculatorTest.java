@@ -208,6 +208,24 @@ class PromotionCalculatorTest {
     }
 
     @Test
+    void platformMinimumIsInclusiveAfterShopDiscounts() {
+        Promotion exact = PromotionFixture.platform("EXACT").fixed("100").minSpend("3180.00").build();
+        Promotion oneSatangShort = PromotionFixture.platform("SHORT").fixed("100").minSpend("3180.01").build();
+
+        Result accepted = PromotionCalculator.calculate(PRM_O1, List.of(MINMIN50, exact));
+        assertThat(accepted.codes().get(1).applied()).isTrue();
+        assertThat(accepted.discountTotal()).isEqualByComparingTo("150.00");
+        assertThat(accepted.grandTotal()).isEqualByComparingTo("3125.00");
+        assertLinesAddUpToSellerDiscounts(accepted, PRM_O1.lines());
+
+        Result rejected = PromotionCalculator.calculate(PRM_O1, List.of(MINMIN50, oneSatangShort));
+        assertThat(rejected.codes().get(1).error()).isEqualTo(ErrorCode.PROMO_MIN_SPEND_NOT_MET);
+        assertThat(rejected.codes().get(1).shortfall()).isEqualByComparingTo("0.01");
+        assertThat(rejected.discountTotal()).isEqualByComparingTo("50.00");
+        assertThat(rejected.grandTotal()).isEqualByComparingTo("3225.00");
+    }
+
+    @Test
     void oneCodeForPegasusAndOnePerShopInTheBasket() {
         Promotion strangerShop = PromotionFixture.seller("OTHER50", 33).fixed("50").build();
         Promotion secondMinmin = PromotionFixture.seller("MINMIN20", MINMIN).fixed("20").build();
