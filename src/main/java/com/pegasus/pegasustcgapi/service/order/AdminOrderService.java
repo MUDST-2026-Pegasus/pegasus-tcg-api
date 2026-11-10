@@ -4,6 +4,7 @@ import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
+import com.pegasus.pegasustcgapi.common.csv.CsvExport;
 import com.pegasus.pegasustcgapi.dto.order.AdminOrderViews.Alerts;
 import com.pegasus.pegasustcgapi.dto.order.AdminOrderViews.Board;
 import com.pegasus.pegasustcgapi.dto.order.AdminOrderViews.Column;
@@ -22,12 +23,16 @@ import com.pegasus.pegasustcgapi.repository.order.AdminOrderRepository.OrderCont
 import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +47,14 @@ public class AdminOrderService {
 
     public static final int DEFAULT_PER_COLUMN = 3;
     public static final int MAX_PER_COLUMN = 20;
+
+    private static final Logger log = LoggerFactory.getLogger(AdminOrderService.class);
+    private static final ZoneId ZONE = ZoneId.of("Asia/Bangkok");
+    private static final DateTimeFormatter EXPORT_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String[] EXPORT_COLUMNS = {
+            "seller_order_number", "order_number", "status", "seller", "buyer", "item_count",
+            "grand_total", "created_at", "paid_at", "shipped_at", "completed_at", "cancelled_at",
+            "tracking_number"};
 
     private final AdminOrderRepository orders;
     private final OrderLifecycleService lifecycle;
@@ -121,6 +134,48 @@ public class AdminOrderService {
 
         List<Summary> items = orders.findPage(query).stream().map(Summary::from).toList();
         return PageResponse.of(items, paging.page(), paging.size(), orders.count(query));
+    }
+
+    /**
+     * Every sub-order placed in [from, to) that {@link #list} would show for the same
+     * status and search, newest first, as one CSV. Times are in Asia/Bangkok.
+     *
+     * @throws BadRequestException EXPORT_TOO_LARGE above {@link CsvExport#MAX_ROWS} rows,
+     *                             before any row is read
+     */
+    @Transactional(readOnly = true)
+    public CsvExport export(
+            List<String> statuses, String search, OffsetDateTime from, OffsetDateTime to, long adminId) {
+
+        if (from == null || to == null || !to.isAfter(from)) {
+            throw new BadRequestException(ErrorCode.VALIDATION_FAILED, "from and to are required and to must be after from");
+        }
+        String text = search == null || search.isBlank() ? null : search.trim();
+        List<String> parsed = parseStatuses(statuses);
+        AdminOrderQuery query = new AdminOrderQuery(parsed, null, null, from, to, text,
+                AdminOrderQuery.Sort.NEWEST, CsvExport.MAX_ROWS, 0);
+        long rows = orders.count(query);
+        CsvExport.checkRowCount(rows);
+
+        CsvExport.Builder csv = CsvExport.builder(EXPORT_COLUMNS);
+        for (AdminOrderRow row : orders.findPage(query)) {
+            csv.row(row.sellerOrderNumber(), row.orderNumber(), row.status(), row.sellerUsername(),
+                    row.buyerUsername(), row.itemCount(), row.grandTotal(), exportTime(row.createdAt()),
+                    exportTime(row.paidAt()), exportTime(row.shippedAt()), exportTime(row.completedAt()),
+                    exportTime(row.cancelledAt()), row.trackingNumber());
+        }
+        // The search text can be a username or an order number, so only whether there was one is logged.
+        log.info("Admin {} exported {} sub-orders (from={}, to={}, status={}, search={})",
+                adminId, rows, from, to, parsed, text != null);
+
+        // to is exclusive, so the file is named after the last day it covers.
+        String filename = "admin-orders-" + from.atZoneSameInstant(ZONE).toLocalDate()
+                + "-" + to.minusNanos(1).atZoneSameInstant(ZONE).toLocalDate() + ".csv";
+        return csv.build(filename);
+    }
+
+    private static String exportTime(OffsetDateTime time) {
+        return time == null ? null : time.atZoneSameInstant(ZONE).format(EXPORT_TIME);
     }
 
     @Transactional(readOnly = true)

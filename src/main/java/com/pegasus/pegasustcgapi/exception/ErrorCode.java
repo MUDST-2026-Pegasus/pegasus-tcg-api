@@ -154,6 +154,7 @@ public enum ErrorCode {
     AUCTION_END_TOO_SOON(HttpStatus.BAD_REQUEST, "The closing time must be at least 1 hour from now"),
     AUCTION_END_TOO_FAR(HttpStatus.BAD_REQUEST, "The closing time must be within 30 days from now"),
     BUY_NOW_BELOW_START(HttpStatus.BAD_REQUEST, "The buy-now price must be higher than the starting price"),
+    EXPORT_TOO_LARGE(HttpStatus.BAD_REQUEST, "Too many rows to export in one file; narrow the filters"),
 
     UNSUPPORTED_FILE_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "File type is not allowed for this upload"),
     FILE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "File is larger than this upload allows"),
