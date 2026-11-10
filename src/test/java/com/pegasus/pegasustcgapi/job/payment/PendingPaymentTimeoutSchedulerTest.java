@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.job.payment;
 
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.job.JobLock;
 
 import com.pegasus.pegasustcgapi.job.JobLock;
@@ -16,7 +17,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import java.time.Clock;
@@ -39,7 +40,7 @@ class PendingPaymentTimeoutSchedulerTest {
     private static final Instant NOW = Instant.parse("2026-09-20T12:00:00Z");
 
     @Mock
-    private OrderRepository orderRepository;
+    private OrderQueryRepository orderQueryRepository;
 
     @Mock
     private OrderLifecycleService orderLifecycleService;
@@ -52,8 +53,8 @@ class PendingPaymentTimeoutSchedulerTest {
 
     private PendingPaymentTimeoutScheduler scheduler(int batchSize) {
         return new PendingPaymentTimeoutScheduler(
-                orderRepository, orderLifecycleService, platformSettingService, jobLock,
-                Clock.fixed(NOW, ZoneOffset.UTC), batchSize);
+                orderQueryRepository, orderLifecycleService, platformSettingService, jobLock,
+                Clock.fixed(NOW, ZoneOffset.UTC), batchSize, null);
     }
 
     private void lockGranted() {
@@ -72,12 +73,12 @@ class PendingPaymentTimeoutSchedulerTest {
         lockGranted();
         given(platformSettingService.getMinutes(PlatformSettingService.ORDER_PAYMENT_TIMEOUT_MINUTES))
                 .willReturn(Duration.ofMinutes(60));
-        given(orderRepository.findExpiredPendingPaymentOrders(any(), anyInt())).willReturn(List.of(order));
+        given(orderQueryRepository.findExpiredPendingPaymentOrders(any(), anyInt())).willReturn(List.of(order));
 
         scheduler(10).runPaymentTimeout();
 
         ArgumentCaptor<OffsetDateTime> cutoff = ArgumentCaptor.forClass(OffsetDateTime.class);
-        verify(orderRepository).findExpiredPendingPaymentOrders(cutoff.capture(), eq(10));
+        verify(orderQueryRepository).findExpiredPendingPaymentOrders(cutoff.capture(), eq(10));
         assertThat(cutoff.getValue().toInstant()).isEqualTo(NOW.minus(Duration.ofMinutes(60)));
         verify(orderLifecycleService).expireUnpaidSellerOrder(501L);
     }
@@ -104,7 +105,7 @@ class PendingPaymentTimeoutSchedulerTest {
         lockGranted();
         given(platformSettingService.getMinutes(PlatformSettingService.ORDER_PAYMENT_TIMEOUT_MINUTES))
                 .willReturn(Duration.ofMinutes(30));
-        given(orderRepository.findExpiredPendingPaymentOrders(any(), anyInt()))
+        given(orderQueryRepository.findExpiredPendingPaymentOrders(any(), anyInt()))
                 .willReturn(List.of(first, second));
         org.mockito.BDDMockito.willThrow(new IllegalStateException("boom"))
                 .given(orderLifecycleService).expireUnpaidSellerOrder(601L);

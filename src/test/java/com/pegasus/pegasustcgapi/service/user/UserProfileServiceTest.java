@@ -18,9 +18,11 @@ import com.pegasus.pegasustcgapi.dto.user.UserResponse;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
+import com.pegasus.pegasustcgapi.exception.ForbiddenException;
 import com.pegasus.pegasustcgapi.model.auth.AuthUser;
 import com.pegasus.pegasustcgapi.model.user.RoleCode;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
+import com.pegasus.pegasustcgapi.repository.user.RoleRepository;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.util.Map;
@@ -46,6 +48,9 @@ class UserProfileServiceTest {
 
     @Mock
     private StorageService storageService;
+
+    @Mock
+    private RoleRepository roleRepository;
 
     @InjectMocks
     private UserProfileService userProfileService;
@@ -216,5 +221,69 @@ class UserProfileServiceTest {
         given(authService.loadWithRoles(owner.id())).willReturn(owner);
         userProfileService.updateProfile(owner.id(), new UpdateProfileRequest(null, null, null, null, false));
         verify(userRepository).updateProfileSelective(owner.id(), Map.of("phonePublic", false));
+    }
+
+    @Test
+    void sellerCanSetBannerAndReceivesSignedUrl() {
+        var owner = anActiveUser().build();
+        given(userRepository.findById(owner.id())).willReturn(Optional.of(owner));
+        given(roleRepository.findCodesByUserId(owner.id())).willReturn(Set.of(RoleCode.SELLER));
+        given(authService.loadWithRoles(owner.id())).willReturn(anActiveUser().withBannerUrl("banners/new.webp").build());
+        given(storageService.presignDownload("banners/new.webp")).willReturn("https://example.com/signed-banner");
+
+        var response = userProfileService.updateProfile(owner.id(),
+                new UpdateProfileRequest(null, null, null, null, null, "banners/new.webp"));
+
+        verify(storageService).requireUploadedFor(UploadPurpose.SHOP_BANNER, "banners/new.webp");
+        verify(userRepository).updateProfileSelective(owner.id(), Map.of("bannerUrl", "banners/new.webp"));
+        assertThat(response.bannerUrl()).isEqualTo("https://example.com/signed-banner");
+    }
+
+    @Test
+    void buyerCannotSetBanner() {
+        var owner = anActiveUser().build();
+        given(userRepository.findById(owner.id())).willReturn(Optional.of(owner));
+        given(roleRepository.findCodesByUserId(owner.id())).willReturn(Set.of(RoleCode.BUYER));
+        assertThatThrownBy(() -> userProfileService.updateProfile(owner.id(),
+                new UpdateProfileRequest(null, null, null, null, null, "banners/new.webp")))
+                .isInstanceOf(ForbiddenException.class)
+                .satisfies(e -> assertThat(((ForbiddenException) e).errorCode()).isEqualTo(ErrorCode.ACCESS_DENIED));
+    }
+
+    @Test
+    void duplicateBannerKeyIsRejected() {
+        var owner = anActiveUser().build();
+        given(userRepository.findById(owner.id())).willReturn(Optional.of(owner));
+        given(roleRepository.findCodesByUserId(owner.id())).willReturn(Set.of(RoleCode.SELLER));
+        given(userRepository.bannerKeyUsedByAnother("banners/claimed.png", owner.id())).willReturn(true);
+        assertThatThrownBy(() -> userProfileService.updateProfile(owner.id(),
+                new UpdateProfileRequest(null, null, null, null, null, "banners/claimed.png")))
+                .isInstanceOf(ConflictException.class)
+                .satisfies(e -> assertThat(((ConflictException) e).errorCode()).isEqualTo(ErrorCode.IMAGE_KEY_IN_USE));
+    }
+
+    @Test
+    void omittedBannerDoesNotChangeIt() {
+        var owner = anActiveUser().build();
+        given(userRepository.findById(owner.id())).willReturn(Optional.of(owner));
+        given(authService.loadWithRoles(owner.id())).willReturn(owner);
+        userProfileService.updateProfile(owner.id(), new UpdateProfileRequest(null, null, null, null, null, null));
+        verify(roleRepository, never()).findCodesByUserId(anyLong());
+        verify(storageService, never()).requireUploadedFor(eq(UploadPurpose.SHOP_BANNER), anyString());
+    }
+
+    @Test
+    void clearingBannerDoesNotRequireSellerAndDeletesOldObject() {
+        var owner = anActiveUser().withBannerUrl("banners/old.webp").build();
+        given(userRepository.findById(owner.id())).willReturn(Optional.of(owner));
+        given(authService.loadWithRoles(owner.id())).willReturn(anActiveUser().build());
+
+        var response = userProfileService.updateProfile(owner.id(),
+                new UpdateProfileRequest(null, null, null, null, null, ""));
+
+        verify(userRepository).updateProfileSelective(eq(owner.id()), any());
+        verify(storageService).delete("banners/old.webp");
+        verify(roleRepository, never()).findCodesByUserId(anyLong());
+        assertThat(response.bannerUrl()).isNull();
     }
 }

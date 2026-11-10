@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.pricing;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 
 import com.pegasus.pegasustcgapi.config.PricingProperties;
@@ -12,10 +14,14 @@ import com.pegasus.pegasustcgapi.repository.pricing.ListingPriceHistoryRepositor
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.repository.pricing.VariantMarketStatRepository;
 import com.pegasus.pegasustcgapi.service.pricing.AutoPriceCalculator.Quote;
+import com.pegasus.pegasustcgapi.service.sale.SalePriceLock;
+import com.pegasus.pegasustcgapi.service.sale.SalePriceRefresher;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -33,6 +39,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * computed once and kept, so a second run prices from the same median — not
  * from prices the first run already moved — reaches the same prices, and changes
  * nothing. MANUAL listings are never read, let alone written.
+ *
+ * <p>A listing in a scheduled or running sale is never priced up, only down
+ * [TCG-676]; see {@link SalePriceLock}. Its sale price follows the new price.
  *
  * <p>Each market is its own transaction. Two AUTO_MEDIAN listings of one seller
  * converging on the same price is normal and breaks nothing (there is
@@ -52,31 +61,56 @@ public class MarketPricingService {
     private final VariantMarketStatRepository stats;
     private final ListingPriceHistoryRepository priceHistory;
     private final PlatformSettingService settings;
+    private final SalePriceLock saleLock;
+    private final SalePriceRefresher salePrices;
     private final TransactionTemplate transactions;
     private final PricingProperties properties;
     private final Clock clock;
+    private final AuditLogService audit;
 
     public MarketPricingService(
             ListingRepository listings,
             VariantMarketStatRepository stats,
             ListingPriceHistoryRepository priceHistory,
             PlatformSettingService settings,
+            SalePriceLock saleLock,
+            SalePriceRefresher salePrices,
             PlatformTransactionManager transactionManager,
             PricingProperties properties,
-            Clock clock) {
+            Clock clock,
+            AuditLogService audit) {
 
         this.listings = listings;
         this.stats = stats;
         this.priceHistory = priceHistory;
         this.settings = settings;
+        this.saleLock = saleLock;
+        this.salePrices = salePrices;
         this.transactions = new TransactionTemplate(transactionManager);
         this.properties = properties;
         this.clock = clock;
+        this.audit = audit;
     }
 
     /** Today in the market's own time zone, which is what the 03:00 schedule is in. */
     public RunResult runToday() {
         return run(LocalDate.now(clock.withZone(properties.zone())));
+    }
+
+    /**
+     * The admin's "run now" button. The run commits market by market, so its
+     * audit row is written on its own once the run is over.
+     */
+    public RunResult runTodayFor(long adminId) {
+        RunResult result = runToday();
+        audit.recordOnItsOwn(adminId, AuditAction.MARKET_PRICING_RUN, result.statDate(),
+                "Ran market pricing for " + result.statDate(),
+                AuditLogService.meta("marketsComputed", result.marketsComputed(),
+                        "listingsRepriced", result.listingsRepriced(),
+                        "listingsUnchanged", result.listingsUnchanged(),
+                        "listingsSkipped", result.listingsSkipped(),
+                        "marketsFailed", result.marketsFailed()));
+        return result;
     }
 
     public RunResult run(LocalDate day) {
@@ -113,33 +147,41 @@ public class MarketPricingService {
     /**
      * One market's AUTO_MEDIAN listings, locked, each moved to its own quote. A
      * listing with nothing usable to follow — no market today, or too thin a one —
-     * keeps its price.
+     * keeps its price, and so does one whose quote is a rise while a sale holds it.
      */
     private Tally repriceMarket(MarketKey market, LocalDate day, int minSample, OffsetDateTime now) {
         MarketStat stat = stats.find(market, day).orElse(null);
+        List<Listing> autoPriced = listings.lockAutoPriced(market, REPRICED);
+        Set<Long> inSale = saleLock.lockedAmong(autoPriced.stream().map(Listing::id).toList());
 
         int repriced = 0;
         int unchanged = 0;
         int skipped = 0;
-        for (Listing listing : listings.lockAutoPriced(market, REPRICED)) {
+        List<Long> moved = new ArrayList<>();
+        for (Listing listing : autoPriced) {
             Optional<Quote> quote = AutoPriceCalculator.quote(listing, stat, minSample);
             if (quote.isEmpty()) {
                 skipped++;
             } else if (quote.get().price().compareTo(listing.price()) == 0) {
                 unchanged++;
+            } else if (quote.get().price().compareTo(listing.price()) > 0 && inSale.contains(listing.id())) {
+                skipped++;
             } else if (listings.applyAutoPrice(listing.id(), quote.get().price(), now)) {
                 priceHistory.insert(listing.id(), listing.price(), quote.get().price(), PricingMode.AUTO_MEDIAN,
                         null, quote.get().reason());
+                moved.add(listing.id());
                 repriced++;
             }
         }
+        salePrices.refreshListings(moved);
         return new Tally(repriced, unchanged, skipped);
     }
 
     /**
      * @param marketsComputed markets that got a statistics row on this run; zero on a
      *                        repeat run the same day
-     * @param listingsSkipped AUTO_MEDIAN listings left alone for want of a usable median
+     * @param listingsSkipped AUTO_MEDIAN listings left alone for want of a usable median,
+     *                        or because a sale holds their price from going up
      * @param marketsFailed   markets whose transaction failed and was rolled back
      */
     public record RunResult(

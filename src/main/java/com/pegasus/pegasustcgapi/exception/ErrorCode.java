@@ -9,15 +9,19 @@ public enum ErrorCode {
     MALFORMED_REQUEST(HttpStatus.BAD_REQUEST, "Request could not be read"),
     UNSUPPORTED_CONTENT_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Send the request body as application/json"),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "HTTP method is not supported here"),
+    INVALID_ORDER_STATUS(HttpStatus.BAD_REQUEST, "Only completed orders can be reordered"),
 
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect"),
     UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Authentication is required"),
     INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "Token is invalid, expired or already used"),
+    GOOGLE_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Google credential is invalid or expired"),
 
     ACCOUNT_LOCKED(HttpStatus.FORBIDDEN, "Account is temporarily locked"),
     ACCOUNT_SUSPENDED(HttpStatus.FORBIDDEN, "Account is suspended"),
     ACCOUNT_DEACTIVATED(HttpStatus.FORBIDDEN, "Account is deactivated"),
     EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Email address is not verified"),
+    GOOGLE_EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Google email address is not verified"),
+    GOOGLE_SIGNIN_NOT_ALLOWED(HttpStatus.FORBIDDEN, "This account cannot sign in with Google"),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "Not allowed to perform this action"),
     SELLER_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Seller profile is not verified"),
     BIDDING_BANNED(HttpStatus.FORBIDDEN, "You are barred from bidding after not paying for won auctions"),
@@ -51,10 +55,14 @@ public enum ErrorCode {
     REVIEW_NOT_FOUND(HttpStatus.NOT_FOUND, "Review not found"),
     RETURN_NOT_FOUND(HttpStatus.NOT_FOUND, "Return request not found"),
     PROMO_NOT_FOUND(HttpStatus.NOT_FOUND, "Discount code not found"),
+    SALE_NOT_FOUND(HttpStatus.NOT_FOUND, "Sale not found"),
     AUCTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Auction not found"),
 
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email address is already registered"),
     USERNAME_ALREADY_USED(HttpStatus.CONFLICT, "Username is already taken"),
+    GOOGLE_ALREADY_LINKED(HttpStatus.CONFLICT, "Account is already linked to a different Google identity"),
+    GOOGLE_LINK_NOT_ALLOWED(HttpStatus.CONFLICT, "This email address cannot be linked to Google automatically"),
+    ROLE_REQUIRES_PASSWORD(HttpStatus.CONFLICT, "Privileged roles require a password on the account"),
     SELLER_ALREADY_VERIFIED(HttpStatus.CONFLICT, "Seller profile is already verified"),
     VERIFICATION_IN_REVIEW(HttpStatus.CONFLICT, "A verification request is already under review"),
     VERIFICATION_ALREADY_DECIDED(HttpStatus.CONFLICT, "This verification request was already decided"),
@@ -109,12 +117,16 @@ public enum ErrorCode {
     PROMO_USED_UP(HttpStatus.CONFLICT, "This discount code has no uses left"),
     AUCTION_CLOSED(HttpStatus.CONFLICT, "This auction is no longer open"),
     BID_TOO_LOW(HttpStatus.CONFLICT, "The bid is below the current minimum"),
+    ALREADY_LEADING(HttpStatus.CONFLICT, "You are already the highest bidder"),
     BUY_NOW_UNAVAILABLE(HttpStatus.CONFLICT, "Buy now is no longer available on this auction"),
     AUCTION_HAS_BIDS(HttpStatus.CONFLICT, "This auction already has bids, so it can no longer be changed or cancelled"),
     UNIT_NOT_AVAILABLE(HttpStatus.CONFLICT, "This card is held by an order or another auction"),
-    NO_SECOND_BIDDER(HttpStatus.CONFLICT, "No other bidder to offer the card to"),
-    OFFER_EXPIRED(HttpStatus.CONFLICT, "This offer is no longer open"),
     PROMO_CLAIM_FULL(HttpStatus.CONFLICT, "All of this discount code has been handed out"),
+    SALE_OVERLAP(HttpStatus.CONFLICT, "Another sale of this shop already covers these listings at that time"),
+    SALE_PRICE_LOCKED(HttpStatus.CONFLICT, "This listing is in a sale, so its price cannot go up until the sale ends"),
+    SALE_IN_USE(HttpStatus.CONFLICT, "This sale has orders and cannot be deleted"),
+    SALE_QUOTA_REACHED(HttpStatus.CONFLICT, "No cards are left at the sale price"),
+    SALE_PAUSED(HttpStatus.CONFLICT, "This sale is paused"),
 
     INVALID_ATTRIBUTE_DEFINITION(HttpStatus.BAD_REQUEST, "Attribute definition is not usable"),
     INVALID_PRODUCT_ATTRIBUTES(HttpStatus.BAD_REQUEST, "Product attributes do not match this game"),
@@ -136,10 +148,13 @@ public enum ErrorCode {
     PROMO_WRONG_SELLER(HttpStatus.BAD_REQUEST, "This shop code does not belong to a shop in the order"),
     PROMO_ALREADY_APPLIED(HttpStatus.BAD_REQUEST, "A code of this kind is already applied to the order"),
     PROMO_NOT_CLAIMED(HttpStatus.BAD_REQUEST, "Collect this discount code before using it"),
+    SALE_INVALID(HttpStatus.BAD_REQUEST, "Sale settings are invalid"),
+    SALE_BUYER_LIMIT_REACHED(HttpStatus.BAD_REQUEST, "You have already bought as many as this sale allows"),
     NO_SHIPPING_ADDRESS(HttpStatus.BAD_REQUEST, "Add a shipping address before bidding"),
     AUCTION_END_TOO_SOON(HttpStatus.BAD_REQUEST, "The closing time must be at least 1 hour from now"),
     AUCTION_END_TOO_FAR(HttpStatus.BAD_REQUEST, "The closing time must be within 30 days from now"),
     BUY_NOW_BELOW_START(HttpStatus.BAD_REQUEST, "The buy-now price must be higher than the starting price"),
+    EXPORT_TOO_LARGE(HttpStatus.BAD_REQUEST, "Too many rows to export in one file; narrow the filters"),
 
     UNSUPPORTED_FILE_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "File type is not allowed for this upload"),
     FILE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "File is larger than this upload allows"),
@@ -148,7 +163,8 @@ public enum ErrorCode {
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many requests; try again in a minute"),
 
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error"),
-    STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Object storage is unavailable");
+    STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Object storage is unavailable"),
+    GOOGLE_SIGNIN_DISABLED(HttpStatus.SERVICE_UNAVAILABLE, "Google sign-in is not configured");
 
     private final HttpStatus status;
     private final String defaultMessage;

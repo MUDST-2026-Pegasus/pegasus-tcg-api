@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.dto.catalog.CatalogCardEffectResponse;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogCardEffectRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogCardEffectRepository.EffectFields;
@@ -21,10 +23,12 @@ public class CatalogCardEffectService {
 
     private final CatalogCardEffectRepository effects;
     private final CatalogProductService products;
+    private final AuditLogService audit;
 
-    public CatalogCardEffectService(CatalogCardEffectRepository effects, CatalogProductService products) {
+    public CatalogCardEffectService(CatalogCardEffectRepository effects, CatalogProductService products, AuditLogService audit) {
         this.effects = effects;
         this.products = products;
+        this.audit = audit;
     }
 
     /** Found for retired products too, so an admin can still correct them. */
@@ -34,10 +38,13 @@ public class CatalogCardEffectService {
     }
 
     @Transactional
-    public List<CatalogCardEffectResponse> replace(long productId, List<EffectFields> fields) {
+    public List<CatalogCardEffectResponse> replace(long productId, List<EffectFields> fields, long adminId) {
         products.require(productId);
         effects.replaceForProduct(productId, fields);
         log.info("Replaced card effects of product {} with {} entries", productId, fields.size());
+        audit.record(adminId, AuditAction.CATALOG_PRODUCT_EFFECTS_REPLACED, productId,
+                "Replaced abilities and attacks of product #" + productId,
+                AuditLogService.meta("entries", fields.size()));
         return effects.findByProductId(productId);
     }
 }

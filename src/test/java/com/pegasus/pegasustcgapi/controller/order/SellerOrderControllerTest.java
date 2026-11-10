@@ -21,6 +21,7 @@ import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.security.AuthClaims;
 import com.pegasus.pegasustcgapi.security.AuthPrincipalArgumentResolver;
 import com.pegasus.pegasustcgapi.service.order.SellerOrderDeskService;
+import com.pegasus.pegasustcgapi.service.order.pdf.OrderSummaryPdfService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -47,6 +48,9 @@ class SellerOrderControllerTest {
 
     @Mock
     private SellerOrderDeskService desk;
+
+    @Mock
+    private OrderSummaryPdfService orderSummaryPdfs;
 
     @InjectMocks
     private SellerOrderController sellerOrderController;

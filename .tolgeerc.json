@@ -1,0 +1,11 @@
+{
+  "$schema": "https://docs.tolgee.io/cli-schema.json",
+  "projectId": 36508,
+  "format": "JSON_TOLGEE",
+  "push": {
+    "forceMode": "KEEP",
+    "files": [
+      { "path": "./build/i18n/errors/en.json", "language": "en", "namespace": "errors" }
+    ]
+  }
+}

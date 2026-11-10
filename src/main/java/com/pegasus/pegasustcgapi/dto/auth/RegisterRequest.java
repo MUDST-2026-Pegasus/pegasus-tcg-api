@@ -44,4 +44,9 @@ public record RegisterRequest(
 
         @Schema(description = "Initial roles to request (BUYER or SELLER)")
         Set<RoleCode> roles) {
+
+    @Override
+    public String toString() {
+        return "RegisterRequest[email=REDACTED, username=REDACTED, displayName=REDACTED, password=REDACTED, phone=REDACTED, roles=" + roles + "]";
+    }
 }

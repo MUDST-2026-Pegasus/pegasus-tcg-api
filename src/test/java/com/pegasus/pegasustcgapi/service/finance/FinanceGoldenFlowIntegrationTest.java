@@ -119,8 +119,8 @@ class FinanceGoldenFlowIntegrationTest extends PostgresIntegrationTest {
         accounts.upsert(seller1.profileId(), verificationId, "TEST", "Test Bank", "Golden Seller", "123456");
         var payout = payouts.request(seller1.userId(), money("500.00"));
         payouts.approve(payout.getId(), adminId);
-        payouts.processing(payout.getId());
-        payouts.paid(payout.getId(), "BANK-PAYOUT", "payouts/golden.png");
+        payouts.processing(payout.getId(), adminId);
+        payouts.paid(payout.getId(), "BANK-PAYOUT", "payouts/golden.png", adminId);
 
         assertThat(balance(wallets.platformWalletId()).subtract(platformBefore)).isEqualByComparingTo("105.00");
         long wallet1 = dsl.select(WALLET.ID).from(WALLET).where(WALLET.USER_ID.eq(seller1.userId()))

@@ -39,6 +39,10 @@ docker compose up -d
 ./gradlew bootRun
 ```
 
+`./gradlew bootRun` reads `.env`. To select credentials by Git branch, use
+`make run` with local `.env.dev` and `.env.prod` files: `main` uses prod and
+other branches use dev. Keep both files out of Git.
+
 The application runs on port `8080` by Spring Boot's default. On startup, Flyway applies migrations and jOOQ generates database code; PostgreSQL must be healthy before running Gradle.
 
 Verify the service:
@@ -371,6 +375,12 @@ DELETE /admin/catalog/products/{productId}/images/{imageId}       ADMIN
 
 `GET /catalog/products` and its admin counterpart support `gameId`, `categoryId`, `cardSetId`, `productType`, `q`, `sort`, `page`, `size`, plus dynamic attribute filters such as `attr.hp=200`. Supported sort values are `name`, `newest`, and `cardnumber`.
 
+#### Tolerant public search (TCG-690)
+
+`GET /api/v1/catalog/products?q=pokamon&sort=relevance` keeps the existing page shape (`items`, `page`, `size`, `totalItems`, `totalPages`). When no literal match exists and a nearby English term is found, it adds `correctedQuery`, for example `"Pokemon"`. The request's `q` remains the original text and is the source of the UI's “You searched …” message. `correctedQuery` is absent for literal matches, empty queries, and queries without a safe correction. Other paged endpoints are unchanged.
+
+The public search checks product English/local names and card number, game English/local names, category name, and card set English/local names. Literal matches are preferred. A correction is limited to one or two edits, including adjacent transpositions, and only applied when the corrected query produces results under the selected filters. `sort=relevance` orders closest matches first with a stable product ID tie break; the existing explicit price, name, date, and popularity sorts remain available. All existing filters and pagination apply to the corrected results. The first version corrects Latin-script queries; Thai names remain literally searchable.
+
 `GET /catalog/products/{idOrSlug}/market` is public and returns an array for each active variant and condition with a market statistic. Each entry has `catalogVariantId`, `condition`, the latest `medianPrice` and `statDate`, `change30dPercent`, `lastSold` (`price` and order-item `soldAt`), and `lowSample` (`sampleSize < 3`). The percentage compares against the nearest statistic **on or before** the Bangkok calendar date 30 days ago; it is `null` when there is no such row or the earlier median is zero. `lastSold` is `null` when there is no shipped, delivered, or completed sale. This separate route keeps the existing product-detail response unchanged for current callers.
 
 ### Collections and uploads (8)
@@ -450,6 +460,8 @@ Cancellation or an approved return creates an `APPROVED` refund obligation. For 
 - Successful responses use the common `ApiResult` envelope with `success`, `message`, and `data`.
 - List endpoints that paginate use zero-based `page` and a `size` default of `20`.
 - Error responses include a stable code in `data.code`; use the code rather than matching the human-readable message.
+- Validation errors (`VALIDATION_FAILED`) list `data.violations[]` as `{ field, message, code, params }`: `code` is the failed constraint (`NotBlank`, `Size`, `Pattern`, … or `typeMismatch` / `missingParameter`) and `params` its attributes, e.g. `{"field":"accountNumber","code":"Size","params":{"min":0,"max":34},"message":"size must be between 0 and 34"}`. Clients translate `code` + `params` and keep `message` as the fallback.
+- Every `ErrorCode` and its default message is exported by `./gradlew exportErrorCatalog` to `build/i18n/errors/en.json`. On every push to `develop`, CI pushes that file to the Tolgee namespace `errors` (language `en`, `forceMode: KEEP`, so edited translations are never overwritten). The job needs the repository secret `TOLGEE_API_KEY` (a project API key allowed to create keys) and is skipped without it. The web app translates error codes from that namespace.
 - Catalogued products and variants are deactivated with `active: false`. A product can be deleted only while no listing, stock record, order or collection references its variants (otherwise `409 PRODUCT_IN_USE`); variants are never deleted on their own.
 
 ## Project layout
@@ -501,7 +513,7 @@ On Windows the Makefile automatically selects `gradlew.bat` instead of `./gradle
 | Target | Description |
 | --- | --- |
 | `make build` | Build the project, skipping tests (`./gradlew build -x test`) |
-| `make run` | Start the application via Spring Boot (`./gradlew bootRun`) |
+| `make run` | Start Spring Boot with `.env.prod` on `main`, `.env.dev` otherwise |
 | `make test` | Run the full test suite with JUnit Platform (`./gradlew test`) |
 | `make clean` | Remove build artifacts (`./gradlew clean`) |
 | `make compile` | Compile Java sources; triggers jOOQ codegen (`./gradlew compileJava`) |
@@ -548,6 +560,7 @@ On Windows the Makefile automatically selects `gradlew.bat` instead of `./gradle
 ```bash
 make env          # create .env from template
 # edit .env — set JWT_SECRET, MinIO keys, etc.
+cp .env .env.dev  # make run uses this outside main
 make check        # start DB, migrate, codegen, build
 make run          # start the API on port 8080
 ```

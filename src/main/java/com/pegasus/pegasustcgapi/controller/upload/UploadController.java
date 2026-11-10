@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.upload;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.upload.PresignUploadRequest;
 import com.pegasus.pegasustcgapi.dto.upload.PresignUploadResponse;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  * browser uploads to directly, and the caller then sends the returned key to
  * whichever endpoint owns the record.
  */
+@SecurityRequirement(name = "BearerAuth")
 @RestController
 @RequestMapping(ApiPaths.UPLOADS)
 public class UploadController {

@@ -78,6 +78,12 @@ docker exec pegasus-tcg-postgres pg_restore -U postgres -d pegasus_tcg --clean -
 
 ## 3. ผลลัพธ์ที่ถูกต้อง
 
+ข้อมูลประมูลสำหรับ demo มีตัวอย่างครบทั้ง LIVE, AWAITING_PAYMENT, SOLD, UNSOLD,
+SUSPENDED และ CANCELLED โดยรายการ SOLD ผูกกับคำสั่งซื้อและการชำระเงินจริง
+ส่วนรายการ AWAITING_PAYMENT มีคำสั่งซื้อที่ยังไม่จ่าย สถานะ LIVE และกำหนดชำระของ
+ตัวอย่างที่เปิดอยู่จะคงอยู่ 7 วันหลังโหลด seed; โหลด seed ใหม่ก่อน demo หากเกินช่วงนี้
+
+
 ```text
 ==> Uploading pictures to MinIO (the first run downloads about 60 MB)
 Seed documents uploaded to pegasus/
@@ -201,3 +207,14 @@ All 328 pictures are in MinIO.
 | `password authentication failed` ตอนรัน Gradle หรือ API | พอร์ต 5432 ชนกับ PostgreSQL ในเครื่อง ตั้ง `DB_PORT=5436` และแก้ `DB_URL` ใน `.env` ให้ใช้พอร์ตเดียวกัน |
 | เว็บไม่มีรูป หรือเห็นรูป "ยังโหลดรูปไม่สำเร็จ" | รัน seed อีกรอบ (ไม่ใส่ `--skip-images`) และเช็ก `MINIO_PUBLIC_ENDPOINT=http://localhost:9000` ใน `.env` |
 | ล็อกอินแล้วข้อมูลแปลก ๆ | ออกจากระบบหรือล้างข้อมูลเว็บไซต์ แล้วล็อกอินใหม่ |
+
+
+## Auction demo data (TCG-626)
+
+The full seed loads `09_auctions.sql` with live auctions (with and without bids, one ending soon, and one with Buy Now), awaiting payment, sold, unsold (including an unpaid winner), and suspended auctions. The accounts `demo_buyer`, `deckbuilder_ton`, and `ploy_collects` have one, two, and three active unpaid-win strikes respectively; `ploy_collects` also has an active bidding ban. `99_verify.sql` checks that every demo status and penalty step exists. Open auctions keep their cards in `ON_AUCTION`; closed unsold and suspended auctions return them to stock.
+
+After loading the seed, run the standalone financial reconciliation with:
+
+```sh
+psql -X -v ON_ERROR_STOP=1 -f scripts/db/verify-financial-ledger.sql
+```

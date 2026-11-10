@@ -6,6 +6,7 @@ import com.pegasus.pegasustcgapi.dto.order.SellerOrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.Buyer;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.Detail;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.Payment;
+import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.ShippingChoice;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.Summary;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -16,7 +17,7 @@ import com.pegasus.pegasustcgapi.repository.order.AdminOrderRepository;
 import com.pegasus.pegasustcgapi.repository.order.AdminOrderRepository.AdminOrderQuery;
 import com.pegasus.pegasustcgapi.repository.order.AdminOrderRepository.AdminOrderRow;
 import com.pegasus.pegasustcgapi.repository.order.AdminOrderRepository.OrderContext;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
@@ -42,20 +43,20 @@ import org.springframework.transaction.annotation.Transactional;
 public class SellerOrderDeskService {
 
     private final AdminOrderRepository orders;
-    private final OrderRepository orderRecords;
+    private final OrderQueryRepository orderQueries;
     private final OrderLifecycleService lifecycle;
     private final SellerPort sellers;
     private final StorageService storage;
 
     public SellerOrderDeskService(
             AdminOrderRepository orders,
-            OrderRepository orderRecords,
+            OrderQueryRepository orderQueries,
             OrderLifecycleService lifecycle,
             SellerPort sellers,
             StorageService storage) {
 
         this.orders = orders;
-        this.orderRecords = orderRecords;
+        this.orderQueries = orderQueries;
         this.lifecycle = lifecycle;
         this.sellers = sellers;
         this.storage = storage;
@@ -103,11 +104,11 @@ public class SellerOrderDeskService {
 
         Summary summary = summaries(shop, List.of(row)).getFirst();
         Payment payment = orders.findLatestPayment(row.salesOrderId()).map(Payment::from).orElse(null);
-        BigDecimal cost = orderRecords.findCostTotalsBySellerOrderIds(List.of(sellerOrderId))
+        BigDecimal cost = orderQueries.findCostTotalsBySellerOrderIds(List.of(sellerOrderId))
                 .getOrDefault(sellerOrderId, BigDecimal.ZERO);
 
         return new Detail(summary, payment, cost,
-                orderRecords.countPaidOrdersOfBuyerAtSeller(shop.id(), row.buyerId()));
+                orderQueries.countPaidOrdersOfBuyerAtSeller(shop.id(), row.buyerId()));
     }
 
     @Transactional
@@ -137,6 +138,8 @@ public class SellerOrderDeskService {
                 rows.stream().map(AdminOrderRow::sellerOrderId).toList());
         Map<Long, OrderContext> contexts = orders.findOrderContexts(
                 rows.stream().map(AdminOrderRow::salesOrderId).distinct().toList());
+        Map<Long, ShippingChoice> choices = orderQueries.findShippingChoicesBySellerOrderIds(
+                rows.stream().map(AdminOrderRow::sellerOrderId).toList());
 
         return rows.stream().map(row -> {
             OrderContext context = contexts.getOrDefault(row.salesOrderId(), new OrderContext(null, null));
@@ -148,7 +151,8 @@ public class SellerOrderDeskService {
                     row.paidAt(),
                     shipBy(row.paidAt(), shop),
                     context.shippingAddressSnapshot(),
-                    context.buyerNote());
+                    context.buyerNote(), row.source(), row.auctionId(), row.auctionNumber(),
+                    choices.get(row.sellerOrderId()));
         }).toList();
     }
 

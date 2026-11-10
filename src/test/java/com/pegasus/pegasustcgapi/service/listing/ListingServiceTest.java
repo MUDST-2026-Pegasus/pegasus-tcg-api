@@ -39,8 +39,11 @@ import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.Details;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.Pricing;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.SellerListingQuery;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
+import com.pegasus.pegasustcgapi.repository.listing.SellerListingQueryRepository;
 import com.pegasus.pegasustcgapi.repository.inventory.SellerVariantCostRepository;
 import com.pegasus.pegasustcgapi.service.listing.ListingService.PriceChange;
+import com.pegasus.pegasustcgapi.service.sale.SalePriceLock;
+import com.pegasus.pegasustcgapi.service.sale.SalePriceRefresher;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.math.BigDecimal;
@@ -79,6 +82,9 @@ class ListingServiceTest {
     private ListingRepository listings;
 
     @Mock
+    private SellerListingQueryRepository sellerListings;
+
+    @Mock
     private ListingUnitRepository units;
 
     @Mock
@@ -99,12 +105,18 @@ class ListingServiceTest {
     @Mock
     private SellerVariantCostRepository costs;
 
+    @Mock
+    private SalePriceLock saleLock;
+
+    @Mock
+    private SalePriceRefresher salePrices;
+
     private ListingService service;
 
     @BeforeEach
     void setUp() {
-        service = new ListingService(sellers, listings, units, images, priceHistory, variants, cards, storage, costs,
-                FIXED);
+        service = new ListingService(sellers, listings, sellerListings, units, images, priceHistory, variants, cards,
+                storage, costs, saleLock, salePrices, FIXED);
     }
 
     // ---------- fixtures ----------
@@ -454,7 +466,7 @@ class ListingServiceTest {
             service.mine(USER, ListingStatus.ACTIVE, null, null, "  charizard  ", "PRICE_DESC", 0, 20);
             service.mine(USER, null, null, null, "   ", null, 0, 20);
 
-            verify(listings, times(2)).findSellerPage(query.capture());
+            verify(sellerListings, times(2)).findSellerPage(query.capture());
             assertThat(query.getAllValues().get(0).search()).isEqualTo("charizard");
             assertThat(query.getAllValues().get(0).sort()).isEqualTo(SellerListingQuery.Sort.PRICE_DESC);
             assertThat(query.getAllValues().get(0).sellerProfileId()).isEqualTo(SELLER);

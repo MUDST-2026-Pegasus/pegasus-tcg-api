@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service.user;
 
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import static com.pegasus.pegasustcgapi.support.AuthUserBuilder.anActiveUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -10,6 +11,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.ForbiddenException;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -40,6 +42,9 @@ class RoleServiceTest {
 
     @Mock
     private UserRepository users;
+
+    @Mock
+    private AuditLogService audit;
 
     @InjectMocks
     private RoleService service;
@@ -92,6 +97,35 @@ class RoleServiceTest {
                         e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.USER_NOT_FOUND));
 
         verify(roles, never()).grant(anyLong(), anyShort(), any());
+    }
+
+    @Test
+    @DisplayName("refuses to grant ADMIN or SUPPORT to a Google-only account without a password")
+    void rejectsPrivilegedRoleForPasswordlessAccount() {
+        given(users.findById(USER_ID)).willReturn(Optional.of(anActiveUser().withId(USER_ID).withoutPassword().build()));
+
+        assertThatThrownBy(() -> service.grantAsAdmin(USER_ID, RoleCode.ADMIN, ADMIN_ID))
+                .isInstanceOfSatisfying(ConflictException.class,
+                        e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.ROLE_REQUIRES_PASSWORD));
+
+        assertThatThrownBy(() -> service.grantAsAdmin(USER_ID, RoleCode.SUPPORT, ADMIN_ID))
+                .isInstanceOfSatisfying(ConflictException.class,
+                        e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.ROLE_REQUIRES_PASSWORD));
+
+        verify(roles, never()).grant(anyLong(), anyShort(), any());
+    }
+
+    @Test
+    @DisplayName("allows granting SELLER to a Google-only account without a password")
+    void allowsSellerRoleForPasswordlessAccount() {
+        given(users.findById(USER_ID)).willReturn(Optional.of(anActiveUser().withId(USER_ID).withoutPassword().build()));
+        given(roles.findIdByCode(RoleCode.SELLER)).willReturn(Optional.of(SELLER_ROLE_ID));
+        given(roles.findCodesByUserId(USER_ID)).willReturn(Set.of(RoleCode.BUYER, RoleCode.SELLER));
+
+        Set<RoleCode> result = service.grantAsAdmin(USER_ID, RoleCode.SELLER, ADMIN_ID);
+
+        verify(roles).grant(USER_ID, SELLER_ROLE_ID, ADMIN_ID);
+        assertThat(result).containsExactlyInAnyOrder(RoleCode.BUYER, RoleCode.SELLER);
     }
 
     @Test

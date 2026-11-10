@@ -6,6 +6,9 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.SellerShippingOptionRecord;
 import com.pegasus.pegasustcgapi.model.shipping.ShippingOption;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -26,6 +29,20 @@ public class ShippingOptionRepository {
                 .and(activeOnly ? SELLER_SHIPPING_OPTION.IS_ACTIVE.isTrue() : org.jooq.impl.DSL.noCondition())
                 .orderBy(SELLER_SHIPPING_OPTION.DISPLAY_ORDER.asc(), SELLER_SHIPPING_OPTION.ID.asc())
                 .fetch(ShippingOptionRepository::toOption);
+    }
+
+    /** First active choice per seller, in the same display order used by checkout. */
+    public Map<Long, ShippingOption> findDefaultActiveBySellerIds(Collection<Long> sellerProfileIds) {
+        if (sellerProfileIds.isEmpty()) return Map.of();
+        Map<Long, ShippingOption> defaults = new LinkedHashMap<>();
+        dsl.selectFrom(SELLER_SHIPPING_OPTION)
+                .where(SELLER_SHIPPING_OPTION.SELLER_PROFILE_ID.in(sellerProfileIds))
+                .and(SELLER_SHIPPING_OPTION.IS_ACTIVE.isTrue())
+                .orderBy(SELLER_SHIPPING_OPTION.SELLER_PROFILE_ID.asc(),
+                        SELLER_SHIPPING_OPTION.DISPLAY_ORDER.asc(), SELLER_SHIPPING_OPTION.ID.asc())
+                .fetch(ShippingOptionRepository::toOption)
+                .forEach(option -> defaults.putIfAbsent(option.sellerProfileId(), option));
+        return defaults;
     }
 
     public Optional<ShippingOption> findByIdAndSeller(long id, long sellerProfileId) {

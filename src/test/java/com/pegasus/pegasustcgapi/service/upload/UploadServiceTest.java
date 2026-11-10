@@ -165,4 +165,39 @@ class UploadServiceTest {
 
         verifyNoInteractions(storage);
     }
+
+    @Test
+    void sellerCanPresignShopBanner() {
+        given(storage.presignUpload(anyString())).willReturn("http://localhost:9000/signed");
+        var response = uploads.presign(principalWith(RoleCode.SELLER),
+                new PresignUploadRequest(UploadPurpose.SHOP_BANNER, "image/webp", 1024L));
+        assertThat(response.objectKey()).startsWith("banners/").endsWith(".webp");
+        assertThat(response.maxBytes()).isEqualTo(5L * 1024 * 1024);
+    }
+
+    @Test
+    void buyerCannotPresignShopBanner() {
+        assertThatThrownBy(() -> uploads.presign(principalWith(RoleCode.BUYER),
+                new PresignUploadRequest(UploadPurpose.SHOP_BANNER, "image/jpeg", 1024L)))
+                .isInstanceOf(ForbiddenException.class)
+                .extracting(e -> ((ForbiddenException) e).errorCode())
+                .isEqualTo(ErrorCode.ACCESS_DENIED);
+        verifyNoInteractions(storage);
+    }
+
+    @Test
+    void bannerRejectsPdfAndOversizedImages() {
+        var seller = principalWith(RoleCode.SELLER);
+        assertThatThrownBy(() -> uploads.presign(seller,
+                new PresignUploadRequest(UploadPurpose.SHOP_BANNER, "application/pdf", 1024L)))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).errorCode())
+                .isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE);
+        assertThatThrownBy(() -> uploads.presign(seller,
+                new PresignUploadRequest(UploadPurpose.SHOP_BANNER, "image/png", 5L * 1024 * 1024 + 1)))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).errorCode())
+                .isEqualTo(ErrorCode.FILE_TOO_LARGE);
+        verifyNoInteractions(storage);
+    }
 }

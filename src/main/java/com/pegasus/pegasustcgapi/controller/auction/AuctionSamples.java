@@ -26,7 +26,6 @@ import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Filter;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.MyAuction;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.MyAuctionPage;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.MyTab;
-import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.SecondChanceOffer;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Seller;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Viewer;
 import com.pegasus.pegasustcgapi.dto.order.CheckoutResponse;
@@ -35,14 +34,10 @@ import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.EligibleUnit;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.EligibleUnitPage;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.Kpis;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.MarketGuide;
-import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.PendingDecision;
-import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SecondBidder;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionDetail;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionPage;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionRow;
-import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SentOffer;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.UnitAvailability;
-import com.pegasus.pegasustcgapi.model.auction.AuctionOfferStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
 import com.pegasus.pegasustcgapi.model.auction.BidStatus;
@@ -94,10 +89,6 @@ final class AuctionSamples {
             "Evolving Skies", "218/203", "Secret Rare");
     static final AuctionItem LUGIA = item(1186, "Lugia V Alt Art #186", "lugia-v-alt-art-186", CardCondition.NM,
             "Silver Tempest", "186/195", "Ultra Rare");
-    static final AuctionItem ESPEON = item(1270, "Espeon VMAX Alt Art", "espeon-vmax-alt-art", CardCondition.NM,
-            "Evolving Skies", "270/203", "Secret Rare");
-    static final AuctionItem MEW = item(1232, "Mew ex SIR #232", "mew-ex-sir-232", CardCondition.NM,
-            "Paldean Fates", "232/091", "Special Illustration Rare");
     static final AuctionItem CHARIZARD_EX = item(1125, "Charizard ex — Obsidian Flames", "charizard-ex-obsidian-flames",
             CardCondition.NM, "Obsidian Flames", "125/197", "Double Rare");
 
@@ -140,14 +131,15 @@ final class AuctionSamples {
 
     static AuctionDetail auctionDetail(long id, OffsetDateTime now, boolean signedIn) {
         Viewer viewer = signedIn
-                ? new Viewer(AuctionViewerState.LEADING, thb(8450), false, List.of(), null, null, null)
+                ? new Viewer(AuctionViewerState.LEADING, thb(8450), false, List.of(), null, null)
                 : null;
         return new AuctionDetail(id, "AUC-2026-0142", AuctionStatus.LIVE, CHARIZARD,
                 List.of(), CARDVAULT,
                 "เก็บใน top loader ตั้งแต่แกะซอง ไม่เคยเล่น มีรูปมุมทั้ง 4 ด้านให้ดูในแกลเลอรี · ส่งแบบกล่องแข็ง",
                 thb(2000), thb(100), thb(8450), thb(8550), 12, 7, thb(12000), false,
                 now.minusDays(3), now.plusDays(1), now.plusDays(1).plusHours(4), 3, SHIPPING,
-                charizardBids(now), viewer, now);
+                charizardBids(now), viewer, null, null,
+                com.pegasus.pegasustcgapi.dto.auction.AuctionViews.Rules.DEFAULTS, now);
     }
 
     static BidHistory bidHistory(OffsetDateTime now, int page, int size) {
@@ -174,9 +166,6 @@ final class AuctionSamples {
                 new MyAuction(142, "AUC-2026-0142", CHARIZARD, CARDVAULT.shopName(), 12,
                         AuctionViewerState.WON_AWAITING_PAYMENT, thb(8450), thb(8450), SHIPPING, thb(8500), null,
                         false, now.minusMinutes(20), now.plusHours(23).plusMinutes(40), null),
-                new MyAuction(128, "AUC-2026-0128", MEW, "PokeHub Thailand", 14,
-                        AuctionViewerState.SECOND_CHANCE, thb(4800), thb(4650), SHIPPING, thb(4700), null,
-                        false, now.minusDays(2), now.plusHours(20), null),
                 new MyAuction(151, "AUC-2026-0151", UMBREON, RARECARD.shopName(), 27,
                         AuctionViewerState.LEADING, thb(15200), thb(15200), SHIPPING, null, thb(15300),
                         false, now.plusDays(1), null, null),
@@ -186,8 +175,8 @@ final class AuctionSamples {
                 new MyAuction(117, "AUC-2026-0117", LUGIA, CARDVAULT.shopName(), 9,
                         AuctionViewerState.LOST, thb(6100), thb(5800), SHIPPING, null, null,
                         false, now.minusDays(4), null, null));
-        return new MyAuctionPage(PageResponse.of(items, page, size, 15),
-                counts(MyTab.class, 15, 3, 1, 1, 4, 6), 0, STRIKE_LIMIT, null, now);
+        return new MyAuctionPage(PageResponse.of(items, page, size, 14),
+                counts(MyTab.class, 14, 3, 1, 4, 6), 0, STRIKE_LIMIT, null, null, now);
     }
 
     // ---- seller -------------------------------------------------------------------------
@@ -199,15 +188,10 @@ final class AuctionSamples {
                 new SellerAuctionRow(150, "AUC-2026-0150", PIKACHU, "U-0988", thb(2400), thb(2400), 0,
                         thb(3500), true, AuctionStatus.LIVE, now.plusDays(3), null, null),
                 new SellerAuctionRow(117, "AUC-2026-0117", LUGIA, "U-0912", thb(3000), thb(6100), 9,
-                        null, false, AuctionStatus.AWAITING_PAYMENT, now.minusHours(6), now.plusHours(18), 10377L),
-                new SellerAuctionRow(119, "AUC-2026-0119", ESPEON, "U-0655", thb(2500), thb(7900), 11,
-                        null, false, AuctionStatus.AWAITING_SELLER_DECISION, now.minusDays(2), now.plusHours(47),
-                        null),
-                new SellerAuctionRow(128, "AUC-2026-0128", MEW, "U-0702", thb(1500), thb(4800), 14,
-                        null, false, AuctionStatus.OFFERED_TO_SECOND, now.minusDays(2), now.plusHours(20), null));
-        Map<AuctionStatus, Long> statusCounts = counts(AuctionStatus.class, 4, 1, 1, 1, 1, 1, 1, 0);
+                        null, false, AuctionStatus.AWAITING_PAYMENT, now.minusHours(6), now.plusHours(18), 10377L));
+        Map<AuctionStatus, Long> statusCounts = counts(AuctionStatus.class, 4, 1, 1, 1, 1, 0);
         Kpis kpis = new Kpis(4, 2, 1, now.plusHours(18), thb(24600), 6, new BigDecimal("12.0"));
-        return new SellerAuctionPage(PageResponse.of(rows, page, size, 10), statusCounts, kpis, now);
+        return new SellerAuctionPage(PageResponse.of(rows, page, size, 8), statusCounts, kpis, now);
     }
 
     static EligibleUnitPage eligibleUnits(int page, int size) {
@@ -226,49 +210,23 @@ final class AuctionSamples {
     }
 
     static SellerAuctionDetail sellerDetail(long id, OffsetDateTime now) {
-        if (id == 119) {
-            PendingDecision decision = new PendingDecision("k***a", thb(7900), "ORD-10351",
-                    now.plusHours(47).plusMinutes(12), new SecondBidder("m***a", thb(7600), thb(7220)));
-            return new SellerAuctionDetail(119, "AUC-2026-0119", AuctionStatus.AWAITING_SELLER_DECISION, ESPEON,
-                    "U-0655", thb(2500), thb(100), thb(7900), 11, 5, thb(7505), COMMISSION_PERCENT, null, false,
-                    "เก็บใน top loader ตั้งแต่แกะซอง ไม่เคยเล่น · ส่งแบบกล่องแข็ง", false, false,
-                    now.minusDays(5), now.minusDays(2), now.minusDays(2), 0, now.minusDays(5).plusMinutes(20),
-                    "k***a", null, decision, null, null, List.of(), now);
-        }
-        return new SellerAuctionDetail(id, "AUC-2026-0142", AuctionStatus.LIVE, CHARIZARD, "U-0771",
+        return new SellerAuctionDetail(id, "AUC-2026-0142", AuctionStatus.LIVE, CHARIZARD, "U-0771", null,
                 thb(2000), thb(100), thb(8450), 12, 7, thb(8027), COMMISSION_PERCENT, thb(12000), false,
                 "เก็บใน top loader ตั้งแต่แกะซอง ไม่เคยเล่น มีรูปมุมทั้ง 4 ด้านให้ดูในแกลเลอรี · ส่งแบบกล่องแข็ง",
                 false, false, now.minusDays(3), now.plusDays(1), now.plusDays(1).plusHours(4), 3,
-                now.minusDays(3).plusMinutes(40), null, null, null, null, null,
+                now.minusDays(3).plusMinutes(40), null, null, null,
                 charizardBids(now).stream().map(b -> new Bid(b.bidderAlias(), b.bidderInitials(), false,
                         b.amount(), b.placedAt())).toList(),
-                now);
+                null, now);
     }
 
     static SellerAuctionDetail created(long id, OffsetDateTime now, BigDecimal start, BigDecimal increment,
             OffsetDateTime endsAt, BigDecimal buyNow, String note) {
         return new SellerAuctionDetail(id, "AUC-2026-0160", AuctionStatus.LIVE, CHARIZARD_EX, "U-1042",
+                UUID.fromString("0f9e1c2a-6b1d-4e8a-9a51-2c7d5b3e1042"),
                 start, increment, start, 0, 0, start.multiply(new BigDecimal("0.95")), COMMISSION_PERCENT, buyNow,
-                buyNow != null, note, true, true, now, endsAt, endsAt, 0, null, null, null, null, null, null,
-                List.of(), now);
-    }
-
-    static SellerAuctionDetail withStatus(SellerAuctionDetail d, AuctionStatus status, SentOffer offer,
-            OffsetDateTime now) {
-        return new SellerAuctionDetail(d.id(), d.auctionNumber(), status, d.item(), d.unitLabel(),
-                d.startingPrice(), d.bidIncrement(), d.currentPrice(), d.bidCount(), d.bidderCount(),
-                d.estimatedPayout(), d.commissionPercent(), d.buyNowPrice(), false, d.sellerNote(), false, false,
-                d.startedAt(), d.originalEndsAt(), d.endsAt(), d.extensionCount(), d.firstBidAt(), d.winnerAlias(),
-                null, null, offer, d.orderId(), d.bids(), now);
-    }
-
-    static SentOffer sentOffer(OffsetDateTime now) {
-        return new SentOffer("m***a", thb(7600), AuctionOfferStatus.PENDING, now.plusHours(24));
-    }
-
-    static SecondChanceOffer secondChanceOffer(OffsetDateTime now) {
-        return new SecondChanceOffer(thb(8300), SHIPPING, thb(8350), AuctionOfferStatus.PENDING,
-                now.plusHours(23).plusMinutes(59));
+                buyNow != null, note, true, true, now, endsAt, endsAt, 0, null, null, null, null,
+                List.of(), null, now);
     }
 
     // ---- admin --------------------------------------------------------------------------
@@ -277,19 +235,19 @@ final class AuctionSamples {
         List<AdminAuctionRow> rows = List.of(
                 new AdminAuctionRow(139, "AUC-2026-0139", RAYQUAZA.card().productName(), RARECARD.shopName(),
                         RARECARD.username(), thb(21500), 41, 9, AuctionStatus.LIVE, now.plusMinutes(2), null,
-                        List.of(Signal.NEW_ACCOUNT_RAPID_BIDS, Signal.SHARED_ADDRESS_WITH_SELLER), 0, null),
+                        List.of(Signal.NEW_ACCOUNT_RAPID_BIDS, Signal.SHARED_ADDRESS_WITH_SELLER), 0, null, null),
                 new AdminAuctionRow(142, "AUC-2026-0142", CHARIZARD.card().productName(), CARDVAULT.shopName(),
                         CARDVAULT.username(), thb(8450), 12, 7, AuctionStatus.AWAITING_PAYMENT, now.minusMinutes(20),
-                        now.plusHours(23).plusMinutes(41), List.of(), 0, null),
+                        now.plusHours(23).plusMinutes(41), List.of(), 0, null, null),
                 new AdminAuctionRow(155, "AUC-2026-0155", "Pikachu Illustrator", "newshop_99", "newshop_99",
                         thb(2000), 0, 0, AuctionStatus.LIVE, now.plusDays(2), null, List.of(Signal.REPORTED), 3,
-                        null),
+                        null, null),
                 new AdminAuctionRow(98, "AUC-2026-0098", "Gengar VMAX Alt Art", "fakecards_th", "fakecards_th",
                         thb(6000), 3, 2, AuctionStatus.SUSPENDED, now.minusDays(6), null, List.of(), 0,
-                        now.minusDays(6)));
-        AdminAuctionViews.Kpis kpis = new AdminAuctionViews.Kpis(128, 14, 9, 3, 2);
+                        now.minusDays(6), null));
+        AdminAuctionViews.Kpis kpis = new AdminAuctionViews.Kpis(128, 14, 9, 2, thb(486200));
         return new AdminAuctionPage(PageResponse.of(rows, page, size, 1204),
-                counts(AdminAuctionViews.Tab.class, 1204, 2, 128, 12, 1050, 2), kpis, 2, now);
+                counts(AdminAuctionViews.Tab.class, 1204, 2, 128, 12, 1050, 2), kpis, 2, 1, 1, now);
     }
 
     static AdminAuctionDetail adminDetail(long id, OffsetDateTime now, List<AdminAction> actions,

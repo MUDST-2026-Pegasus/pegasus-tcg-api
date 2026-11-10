@@ -1,18 +1,6 @@
 package com.pegasus.pegasustcgapi.repository.listing;
 
-import com.pegasus.pegasustcgapi.repository.metrics.AdminMetricsRepository;
-
-import com.pegasus.pegasustcgapi.repository.catalog.CatalogProductRepository;
-import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository;
-
-import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
-import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
-import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
-import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
-import static com.pegasus.pegasustcgapi.jooq.tables.SellerRatingSummary.SELLER_RATING_SUMMARY;
-import static com.pegasus.pegasustcgapi.jooq.tables.SellerShippingOption.SELLER_SHIPPING_OPTION;
-import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.ListingRecord;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
@@ -21,28 +9,17 @@ import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
 import com.pegasus.pegasustcgapi.model.pricing.MarketKey;
 import com.pegasus.pegasustcgapi.model.pricing.PricingMode;
 import com.pegasus.pegasustcgapi.model.seller.SellerStatus;
-import com.pegasus.pegasustcgapi.model.user.UserStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import org.jooq.Condition;
 import org.jooq.DSLContext;
-import org.jooq.Field;
-import org.jooq.Record;
-import org.jooq.SelectField;
-import org.jooq.SelectOnConditionStep;
-import org.jooq.SortField;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
- * Reads and writes {@code listing}.
+ * Writes {@code listing}, and loads one listing by seller or under a row lock.
  *
  * <p>Nothing here writes {@code quantity_*}. Those belong to the trigger on
  * {@code listing_unit}, which also flips ACTIVE and SOLD_OUT as stock runs out
@@ -52,22 +29,13 @@ import org.springframework.stereotype.Repository;
  * listing. A method here that locks a listing row is only for work that touches
  * that row alone. Work that also changes cards locks them first through
  * {@link ListingUnitRepository}, and lets the trigger take the listing.
+ *
+ * <p>Buyer pages live in {@link PublicListingQueryRepository}; the seller's own
+ * dashboard page lives in {@link SellerListingQueryRepository}; the conditions they
+ * share are in {@link ListingConditions}.
  */
 @Repository
 public class ListingRepository {
-
-    // Aliased: listing, seller_profile and user_account each have a status and a
-    // deleted_at, and a record carrying two columns of one name maps ambiguously.
-    private static final Field<String> SELLER_STATUS = SELLER_PROFILE.STATUS.as("seller_status");
-    private static final Field<UserStatus> ACCOUNT_STATUS = USER_ACCOUNT.STATUS.as("account_status");
-    private static final Field<OffsetDateTime> ACCOUNT_DELETED_AT = USER_ACCOUNT.DELETED_AT.as("account_deleted_at");
-
-    /** The card's name, read per row, so the dashboard can be sorted A to Z without joining the page. */
-    private static final Field<String> PRODUCT_NAME = DSL.field(
-            DSL.select(CATALOG_PRODUCT.NAME)
-                    .from(CATALOG_VARIANT)
-                    .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
-                    .where(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID)));
 
     private final DSLContext dsl;
 
@@ -99,20 +67,6 @@ public class ListingRepository {
                 .forNoKeyUpdate()
                 .fetchOptional()
                 .map(ListingRepository::toListing);
-    }
-
-    /** Newest change first unless the seller asks otherwise; the dashboard index is built for that one. */
-    public List<Listing> findSellerPage(SellerListingQuery query) {
-        return dsl.selectFrom(LISTING)
-                .where(sellerConditions(query))
-                .orderBy(sellerOrder(query.sort()))
-                .limit(query.limit())
-                .offset(query.offset())
-                .fetch(ListingRepository::toListing);
-    }
-
-    public long countSeller(SellerListingQuery query) {
-        return dsl.fetchCount(LISTING, sellerConditions(query));
     }
 
     /**
@@ -227,139 +181,6 @@ public class ListingRepository {
                 .execute() > 0;
     }
 
-    // ---------- the market ----------
-
-    public List<PublicListing> findPublicPage(PublicListingQuery query) {
-        return enrich(publicSelect()
-                .where(publicConditions(query))
-                .orderBy(order(query.sort()))
-                .limit(query.limit())
-                .offset(query.offset())
-                .fetch(ListingRepository::toPublic));
-    }
-
-    public long countPublic(PublicListingQuery query) {
-        return dsl.selectCount()
-                .from(LISTING)
-                .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
-                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
-                .where(publicConditions(query))
-                .fetchSingle(0, long.class);
-    }
-
-    /** A page a buyer may open: on sale or sold out, from a seller who is open for business. */
-    public Optional<PublicListing> findPublic(long listingId) {
-        List<PublicListing> rows = publicSelect()
-                .where(LISTING.ID.eq(listingId))
-                .and(sellerOpenForBusiness())
-                .and(LISTING.STATUS.in(ListingStatus.ACTIVE.name(), ListingStatus.SOLD_OUT.name()))
-                .fetch(ListingRepository::toPublic);
-        return enrich(rows).stream().findFirst();
-    }
-
-    // ---------- checkout ----------
-
-    /** Deleted listings are left out; everything else comes back with the seller's standing. */
-    public List<Offer> findOffers(Collection<Long> listingIds) {
-        if (listingIds.isEmpty()) {
-            return List.of();
-        }
-        List<SelectField<?>> fields = new ArrayList<>(List.of(LISTING.fields()));
-        fields.add(SELLER_STATUS);
-        fields.add(SELLER_PROFILE.VACATION_MODE);
-        fields.add(ACCOUNT_STATUS);
-        fields.add(ACCOUNT_DELETED_AT);
-        fields.add(USER_ACCOUNT.DISPLAY_NAME);
-        fields.add(USER_ACCOUNT.USERNAME);
-
-        return dsl.select(fields)
-                .from(LISTING)
-                .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
-                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
-                .where(LISTING.ID.in(listingIds))
-                .and(LISTING.DELETED_AT.isNull())
-                .fetch(r -> new Offer(
-                        toListing(r.into(LISTING)),
-                        SellerStatus.valueOf(r.get(SELLER_STATUS)),
-                        r.get(SELLER_PROFILE.VACATION_MODE),
-                        r.get(ACCOUNT_STATUS) == UserStatus.ACTIVE && r.get(ACCOUNT_DELETED_AT) == null,
-                        r.get(USER_ACCOUNT.DISPLAY_NAME),
-                        r.get(USER_ACCOUNT.USERNAME)));
-    }
-
-    public record SellerStanding(
-            long sellerProfileId,
-            String sellerName,
-            boolean vacationMode,
-            boolean sellerAvailable) {}
-
-    public record ListingGrading(String gradingCompany, BigDecimal gradeValue) {
-        public boolean isGraded() {
-            return gradingCompany != null && !gradingCompany.isBlank();
-        }
-    }
-
-    public Map<Long, ListingGrading> findGradingByListingIds(Collection<Long> listingIds) {
-        if (listingIds.isEmpty()) {
-            return Map.of();
-        }
-        return dsl.select(LISTING.ID, LISTING.GRADING_COMPANY, LISTING.GRADE_VALUE)
-                .from(LISTING)
-                .where(LISTING.ID.in(listingIds))
-                .fetchMap(LISTING.ID, r -> new ListingGrading(
-                        r.get(LISTING.GRADING_COMPANY),
-                        r.get(LISTING.GRADE_VALUE)));
-    }
-
-    /**
-     * Checks standing for the given seller profile IDs against sellerOpenForBusiness criteria:
-     * verified, not in vacation mode, active account, and not deleted.
-     */
-    public Map<Long, SellerStanding> findSellerStandings(Collection<Long> sellerProfileIds) {
-        if (sellerProfileIds.isEmpty()) {
-            return Map.of();
-        }
-        Field<Boolean> isOpen = DSL.field(sellerProfileOpenForBusiness()).as("is_open");
-
-        return dsl.select(
-                SELLER_PROFILE.ID,
-                SELLER_PROFILE.VACATION_MODE,
-                isOpen,
-                USER_ACCOUNT.DISPLAY_NAME,
-                USER_ACCOUNT.USERNAME)
-                .from(SELLER_PROFILE)
-                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
-                .where(SELLER_PROFILE.ID.in(sellerProfileIds))
-                .fetchMap(SELLER_PROFILE.ID, r -> {
-                    boolean vacation = Boolean.TRUE.equals(r.get(SELLER_PROFILE.VACATION_MODE));
-                    boolean available = Boolean.TRUE.equals(r.get(isOpen));
-                    String displayName = r.get(USER_ACCOUNT.DISPLAY_NAME);
-                    String username = r.get(USER_ACCOUNT.USERNAME);
-                    String sellerName = (displayName != null && !displayName.isBlank()) ? displayName : username;
-                    return new SellerStanding(r.get(SELLER_PROFILE.ID), sellerName, vacation, available);
-                });
-    }
-
-    /**
-     * Active listings with stock > 0 for specified sellers and catalog variants,
-     * restricted to sellers who are open for business.
-     */
-    public List<Listing> findActiveListingsForReorder(Collection<Long> sellerProfileIds, Collection<Long> catalogVariantIds) {
-        if (sellerProfileIds.isEmpty() || catalogVariantIds.isEmpty()) {
-            return List.of();
-        }
-        return dsl.select(LISTING.fields())
-                .from(LISTING)
-                .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
-                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
-                .where(LISTING.SELLER_PROFILE_ID.in(sellerProfileIds))
-                .and(LISTING.CATALOG_VARIANT_ID.in(catalogVariantIds))
-                .and(sellerOpenForBusiness())
-                .and(LISTING.STATUS.eq(ListingStatus.ACTIVE.name()))
-                .and(LISTING.QUANTITY_AVAILABLE.gt(0))
-                .fetch(r -> toListing(r.into(LISTING)));
-    }
-
     // ---------- the nightly job ----------
 
     /** Every market that has at least one AUTO_MEDIAN listing to move. */
@@ -403,201 +224,11 @@ public class ListingRepository {
 
     // ---------- helpers ----------
 
-    private SelectOnConditionStep<Record> publicSelect() {
-        List<SelectField<?>> fields = new ArrayList<>(List.of(LISTING.fields()));
-        fields.add(USER_ACCOUNT.USERNAME);
-        fields.add(USER_ACCOUNT.DISPLAY_NAME);
-        fields.add(USER_ACCOUNT.AVATAR_URL);
-        fields.add(SELLER_PROFILE.STATUS);
-        fields.add(SELLER_RATING_SUMMARY.RATING_AVG);
-        fields.add(SELLER_RATING_SUMMARY.RATING_COUNT);
-
-        return dsl.select(fields)
-                .from(LISTING)
-                .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
-                .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
-                .leftJoin(SELLER_RATING_SUMMARY).on(SELLER_RATING_SUMMARY.SELLER_PROFILE_ID.eq(SELLER_PROFILE.ID));
-    }
-
-    /** Two grouped reads for the whole page, regardless of how many listings it contains. */
-    private List<PublicListing> enrich(List<PublicListing> rows) {
-        if (rows.isEmpty()) return rows;
-        List<Long> sellerIds = rows.stream().map(r -> r.listing().sellerProfileId()).distinct().toList();
-        Map<Long, Integer> sales = dsl.select(SELLER_ORDER.SELLER_PROFILE_ID, DSL.count())
-                .from(SELLER_ORDER)
-                .where(SELLER_ORDER.SELLER_PROFILE_ID.in(sellerIds))
-                .and(SELLER_ORDER.STATUS.in(AdminMetricsRepository.SOLD_STATUSES))
-                .groupBy(SELLER_ORDER.SELLER_PROFILE_ID)
-                .fetchMap(SELLER_ORDER.SELLER_PROFILE_ID, DSL.count());
-
-        Map<Long, List<ShippingOption>> shipping = new HashMap<>();
-        dsl.select(SELLER_SHIPPING_OPTION.SELLER_PROFILE_ID, SELLER_SHIPPING_OPTION.EST_DAYS_MIN,
-                        SELLER_SHIPPING_OPTION.EST_DAYS_MAX, SELLER_SHIPPING_OPTION.BASE_FEE,
-                        SELLER_SHIPPING_OPTION.FREE_THRESHOLD)
-                .from(SELLER_SHIPPING_OPTION)
-                .where(SELLER_SHIPPING_OPTION.SELLER_PROFILE_ID.in(sellerIds))
-                .and(SELLER_SHIPPING_OPTION.IS_ACTIVE.isTrue())
-                .fetch().forEach(r -> shipping.computeIfAbsent(r.value1(), ignored -> new ArrayList<>())
-                        .add(new ShippingOption(r.value2(), r.value3(), r.value4(), r.value5())));
-
-        return rows.stream().map(row -> {
-            List<ShippingOption> options = shipping.getOrDefault(row.listing().sellerProfileId(), List.of());
-            ShippingOption fastest = options.stream()
-                    .filter(o -> o.maxDays() != null)
-                    .min(Comparator.comparing(ShippingOption::maxDays)
-                            .thenComparing(ShippingOption::minDays, Comparator.nullsLast(Comparator.naturalOrder())))
-                    .orElse(null);
-            boolean free = options.stream().anyMatch(o -> o.baseFee().signum() == 0
-                    || o.freeThreshold() != null && row.listing().price().compareTo(o.freeThreshold()) >= 0);
-            return new PublicListing(row.listing(), row.sellerUsername(), row.sellerDisplayName(),
-                    row.sellerAvatarUrl(), row.verified(), row.ratingAvg(), row.ratingCount(),
-                    sales.getOrDefault(row.listing().sellerProfileId(), 0),
-                    new Delivery(fastest == null ? null : fastest.minDays(),
-                            fastest == null ? null : fastest.maxDays(), free, options.size()));
-        }).toList();
-    }
-
-    private record ShippingOption(Short minDays, Short maxDays, BigDecimal baseFee, BigDecimal freeThreshold) {}
-
-    /**
-     * A seller buyers can see: verified, not on vacation, and an account that is
-     * still active. Vacation hides every listing at once without touching their
-     * statuses. {@link ProductMarketRepository} prices the catalogue by the same rule.
-     */
-    static Condition sellerProfileOpenForBusiness() {
-        return SELLER_PROFILE.STATUS.eq(SellerStatus.VERIFIED.name())
-                .and(SELLER_PROFILE.VACATION_MODE.isFalse())
-                .and(USER_ACCOUNT.STATUS.eq(UserStatus.ACTIVE))
-                .and(USER_ACCOUNT.DELETED_AT.isNull());
-    }
-
-    public static Condition sellerOpenForBusiness() {
-        return LISTING.DELETED_AT.isNull()
-                .and(sellerProfileOpenForBusiness());
-    }
-
-    private static Condition publicConditions(PublicListingQuery query) {
-        Condition condition = sellerOpenForBusiness()
-                .and(LISTING.STATUS.eq(ListingStatus.ACTIVE.name()));
-
-        if (query.sellerUserId() != null) {
-            condition = condition.and(USER_ACCOUNT.ID.eq(query.sellerUserId()));
-        }
-        if (query.variantId() != null) {
-            condition = condition.and(LISTING.CATALOG_VARIANT_ID.eq(query.variantId()));
-        }
-        if (query.condition() != null) {
-            condition = condition.and(LISTING.CONDITION_CODE.eq(query.condition().name()));
-        }
-        if (query.minPrice() != null) {
-            condition = condition.and(LISTING.PRICE.ge(query.minPrice()));
-        }
-        if (query.maxPrice() != null) {
-            condition = condition.and(LISTING.PRICE.le(query.maxPrice()));
-        }
-        if (query.productId() != null || query.gameId() != null) {
-            // A semi-join, so the page and the count share this condition unchanged.
-            Condition card = DSL.noCondition();
-            if (query.productId() != null) {
-                card = card.and(CATALOG_VARIANT.CATALOG_PRODUCT_ID.eq(query.productId()));
-            }
-            if (query.gameId() != null) {
-                card = card.and(CATALOG_PRODUCT.GAME_ID.eq(query.gameId()));
-            }
-            condition = condition.and(LISTING.CATALOG_VARIANT_ID.in(
-                    DSL.select(CATALOG_VARIANT.ID)
-                            .from(CATALOG_VARIANT)
-                            .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
-                            .where(card)));
-        }
-        return condition;
-    }
-
-    private static Condition sellerConditions(SellerListingQuery query) {
-        Condition condition = LISTING.SELLER_PROFILE_ID.eq(query.sellerProfileId())
-                .and(LISTING.DELETED_AT.isNull());
-
-        if (query.status() != null) {
-            condition = condition.and(LISTING.STATUS.eq(query.status().name()));
-        }
-        if (query.variantId() != null) {
-            condition = condition.and(LISTING.CATALOG_VARIANT_ID.eq(query.variantId()));
-        }
-        if (query.condition() != null) {
-            condition = condition.and(LISTING.CONDITION_CODE.eq(query.condition().name()));
-        }
-        if (query.search() != null) {
-            String pattern = containsPattern(query.search());
-            // A semi-join like the market's, so the page and the count share this condition unchanged.
-            condition = condition.and(ilike(LISTING.LOT_LABEL, pattern)
-                    .or(LISTING.CATALOG_VARIANT_ID.in(
-                            DSL.select(CATALOG_VARIANT.ID)
-                                    .from(CATALOG_VARIANT)
-                                    .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
-                                    .where(ilike(CATALOG_PRODUCT.NAME, pattern)
-                                            .or(ilike(CATALOG_PRODUCT.NAME_LOCAL, pattern))
-                                            .or(ilike(CATALOG_PRODUCT.CARD_NUMBER, pattern))
-                                            .or(ilike(CATALOG_VARIANT.SKU, pattern))))));
-        }
-        return condition;
-    }
-
-    /** Every order ends on the id, so rows that tie keep their place from one page to the next. */
-    private static List<SortField<?>> sellerOrder(SellerListingQuery.Sort sort) {
-        return switch (sort) {
-            case UPDATED -> List.of(LISTING.UPDATED_AT.desc(), LISTING.ID.desc());
-            case NEWEST -> List.of(LISTING.CREATED_AT.desc(), LISTING.ID.desc());
-            case PRICE_ASC -> List.of(LISTING.PRICE.asc(), LISTING.ID.asc());
-            case PRICE_DESC -> List.of(LISTING.PRICE.desc(), LISTING.ID.desc());
-            case STOCK_ASC -> List.of(LISTING.QUANTITY_AVAILABLE.asc(), LISTING.ID.asc());
-            case STOCK_DESC -> List.of(LISTING.QUANTITY_AVAILABLE.desc(), LISTING.ID.desc());
-            case NAME -> List.of(PRODUCT_NAME.asc(), LISTING.ID.asc());
-        };
-    }
-
-    /** "%text%" with the LIKE wildcards in the text taken literally. */
-    private static String containsPattern(String text) {
-        return "%" + text.trim()
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_") + "%";
-    }
-
-    /**
-     * A real {@code ILIKE}, as in {@link CatalogProductRepository}: the trigram
-     * indexes are on the columns themselves, and {@code lower()} around them would
-     * leave the search on a sequential scan.
-     */
-    private static Condition ilike(Field<String> column, String pattern) {
-        return DSL.condition("{0} ILIKE {1} ESCAPE '\\'", column, DSL.val(pattern));
-    }
-
-    private static List<SortField<?>> order(PublicListingQuery.Sort sort) {
-        return switch (sort) {
-            case PRICE_ASC -> List.of(LISTING.PRICE.asc(), LISTING.ID.asc());
-            case PRICE_DESC -> List.of(LISTING.PRICE.desc(), LISTING.ID.desc());
-            case NEWEST -> List.of(LISTING.PUBLISHED_AT.desc().nullsLast(), LISTING.ID.desc());
-        };
-    }
-
     private static List<String> names(Collection<ListingStatus> statuses) {
         return statuses.stream().map(Enum::name).toList();
     }
 
-    private static PublicListing toPublic(Record r) {
-        return new PublicListing(
-                toListing(r.into(LISTING)),
-                r.get(USER_ACCOUNT.USERNAME),
-                r.get(USER_ACCOUNT.DISPLAY_NAME),
-                r.get(USER_ACCOUNT.AVATAR_URL),
-                SellerStatus.VERIFIED.name().equals(r.get(SELLER_PROFILE.STATUS)),
-                r.get(SELLER_RATING_SUMMARY.RATING_COUNT) == null || r.get(SELLER_RATING_SUMMARY.RATING_COUNT) == 0
-                        ? null : r.get(SELLER_RATING_SUMMARY.RATING_AVG),
-                r.get(SELLER_RATING_SUMMARY.RATING_COUNT) == null ? 0 : r.get(SELLER_RATING_SUMMARY.RATING_COUNT),
-                0, new Delivery(null, null, false, 0));
-    }
-
-    static Listing toListing(ListingRecord r) {
+    public static Listing toListing(ListingRecord r) {
         return new Listing(
                 r.getId(),
                 r.getSellerProfileId(),
@@ -621,7 +252,12 @@ public class ListingRepository {
                 r.getVersion(),
                 r.getPublishedAt(),
                 r.getCreatedAt(),
-                r.getUpdatedAt());
+                r.getUpdatedAt(),
+                r.getBlockedAt() == null ? null : new Listing.Block(
+                        r.getBlockedReason(),
+                        r.getBlockedBy(),
+                        r.getBlockedAt(),
+                        r.getBlockedFromStatus() == null ? null : ListingStatus.valueOf(r.getBlockedFromStatus())));
     }
 
     // ---------- shapes ----------
@@ -670,7 +306,14 @@ public class ListingRepository {
         }
     }
 
-    /** @param sellerUserId narrows the market to one storefront */
+    /**
+     * @param sellerUserId narrows the market to one storefront
+     * @param minPrice     on the price a buyer pays now, sale included; so is maxPrice
+     * @param onSale       true: only cards on sale; false: only cards off sale; null: both
+     * @param saleId       only cards priced by this sale
+     * @param minDiscount  only cards at least this many percent off
+     * @param now          the instant a sale row has to still run at
+     */
     public record PublicListingQuery(
             Long sellerUserId,
             Long variantId,
@@ -679,15 +322,36 @@ public class ListingRepository {
             CardCondition condition,
             BigDecimal minPrice,
             BigDecimal maxPrice,
+            Boolean onSale,
+            Long saleId,
+            BigDecimal minDiscount,
             Sort sort,
             int limit,
-            int offset) {
+            int offset,
+            OffsetDateTime now) {
+
+        public PublicListingQuery {
+            if (now == null) {
+                now = OffsetDateTime.now();
+            }
+        }
+
+        /** No sale filter, at the current instant. */
+        public PublicListingQuery(Long sellerUserId, Long variantId, Long productId, Short gameId,
+                CardCondition condition, BigDecimal minPrice, BigDecimal maxPrice, Sort sort, int limit, int offset) {
+            this(sellerUserId, variantId, productId, gameId, condition, minPrice, maxPrice, null, null, null,
+                    sort, limit, offset, null);
+        }
 
         /** Cheapest first is what a buyer comparing sellers of one card wants. */
         public enum Sort {
             PRICE_ASC,
             PRICE_DESC,
-            NEWEST
+            NEWEST,
+            /** Largest share off first; cards off sale last. */
+            DISCOUNT_DESC,
+            /** The sale that ends first first; cards off sale last. */
+            ENDING_SOON
         }
     }
 
@@ -714,5 +378,14 @@ public class ListingRepository {
             boolean sellerAccountActive,
             String sellerDisplayName,
             String sellerUsername) {
+
+        /** Whether a buyer can take it now: exactly what the reservation query accepts, plus at least one card. */
+        public boolean purchasable() {
+            return listing.status() == ListingStatus.ACTIVE
+                    && listing.quantityAvailable() > 0
+                    && sellerStatus == SellerStatus.VERIFIED
+                    && !sellerOnVacation
+                    && sellerAccountActive;
+        }
     }
 }

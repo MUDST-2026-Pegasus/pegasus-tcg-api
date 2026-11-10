@@ -17,4 +17,9 @@ public record DevTokenResponse(String token) {
     public static DevTokenResponse hidden() {
         return new DevTokenResponse(null);
     }
+
+    @Override
+    public String toString() {
+        return "DevTokenResponse[token=REDACTED]";
+    }
 }

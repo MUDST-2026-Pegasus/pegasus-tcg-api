@@ -58,5 +58,10 @@ public class RefundController {
     }
 
     public record Destination(@NotBlank String bankName, @NotBlank String accountName,
-            @NotBlank String accountNumber) {}
+            @NotBlank String accountNumber) {
+        @Override
+        public String toString() {
+            return "Destination[bankName=" + bankName + ", accountName=REDACTED, accountNumber=REDACTED]";
+        }
+    }
 }

@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.setting;
 
+import static org.mockito.Mockito.mock;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -45,7 +47,7 @@ class PlatformSettingServiceTest {
 
     @BeforeEach
     void setUp() {
-        settings = new PlatformSettingService(repository, new ObjectMapper());
+        settings = new PlatformSettingService(repository, new ObjectMapper(), mock(AuditLogService.class));
     }
 
     @Nested
@@ -86,6 +88,23 @@ class PlatformSettingServiceTest {
         }
 
         @Test
+        void auctionSettingsUseStoredValuesOnEveryRead() {
+            given(repository.findValue(PlatformSettingService.AUCTION_EXTENSION_SECONDS))
+                    .willReturn(Optional.of("120"), Optional.of("15"));
+            assertThat(settings.getSeconds(PlatformSettingService.AUCTION_EXTENSION_SECONDS))
+                    .isEqualTo(Duration.ofSeconds(120));
+            assertThat(settings.getSeconds(PlatformSettingService.AUCTION_EXTENSION_SECONDS))
+                    .isEqualTo(Duration.ofSeconds(15));
+        }
+
+        @Test
+        void fractionalPaymentHoursSupportShortQaTimeouts() {
+            given(repository.findValue(PlatformSettingService.AUCTION_PAYMENT_HOURS))
+                    .willReturn(Optional.of("0.01"));
+            assertThat(settings.getAuctionPaymentWindow()).isEqualTo(Duration.ofSeconds(36));
+        }
+
+        @Test
         @DisplayName("a missing setting is SETTING_NOT_FOUND, not a silent default")
         void missingSettingFailsLoudly() {
             given(repository.findValue(RATE)).willReturn(Optional.empty());
@@ -101,6 +120,29 @@ class PlatformSettingServiceTest {
             given(repository.findValue(RATE)).willReturn(Optional.of("\"five\""));
 
             assertThatThrownBy(() -> settings.getDecimal(RATE)).isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    @Nested
+    class AuctionValues {
+        @Test
+        void fractionalPaymentHoursCanBeSaved() {
+            String key = PlatformSettingService.AUCTION_PAYMENT_HOURS;
+            given(repository.exists(key)).willReturn(true);
+            given(repository.findAll()).willReturn(List.of(new Setting(key, "0.01", "Payment", ADMIN_ID)));
+            settings.update(key, "0.01", ADMIN_ID);
+            verify(repository).update(key, "0.01", ADMIN_ID);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"0", "-1", "1.5", "\"3\"", "true", "2147483648"})
+        void invalidAuctionValuesAreRejected(String value) {
+            String key = PlatformSettingService.AUCTION_EXTENSION_SECONDS;
+            given(repository.exists(key)).willReturn(true);
+            assertThatThrownBy(() -> settings.update(key, value, ADMIN_ID))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+            verify(repository, never()).update(anyString(), anyString(), anyLong());
         }
     }
 

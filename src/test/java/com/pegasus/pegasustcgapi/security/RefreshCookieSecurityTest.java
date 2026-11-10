@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -24,6 +25,25 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.ObjectMapper;
 
 class RefreshCookieSecurityTest {
+    @Test
+    void sameSiteNoneIsAllowedWhenSecure() {
+        AuthProperties auth = mock(AuthProperties.class);
+        when(auth.refreshTokenTtl()).thenReturn(Duration.ofDays(30));
+        RefreshCookie cookie = new RefreshCookie(auth, "pegasus_rt", "", true, "None");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        cookie.set(response, "secret");
+        assertThat(response.getHeader("Set-Cookie")).contains("SameSite=None", "Secure");
+    }
+
+    @Test
+    void sameSiteNoneWithoutSecureOrUnknownValueFailsFast() {
+        AuthProperties auth = mock(AuthProperties.class);
+        assertThatThrownBy(() -> new RefreshCookie(auth, "pegasus_rt", "", false, "None"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> new RefreshCookie(auth, "pegasus_rt", "", true, "lax"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
     @Test
     void cookieIsHttpOnlyAndClearsWithSamePath() {
         AuthProperties auth = mock(AuthProperties.class);
@@ -53,6 +73,13 @@ class RefreshCookieSecurityTest {
         response = new MockHttpServletResponse();
         filter.doFilter(request, response, new MockFilterChain());
         assertThat(response.getStatus()).isEqualTo(200);
+
+        MockHttpServletRequest googleRequest = new MockHttpServletRequest("POST", "/api/v1/auth/google");
+        googleRequest.setContentType("application/json");
+        googleRequest.addHeader("Origin", "https://evil.example.com");
+        MockHttpServletResponse googleResponse = new MockHttpServletResponse();
+        filter.doFilter(googleRequest, googleResponse, new MockFilterChain());
+        assertThat(googleResponse.getStatus()).isEqualTo(403);
     }
 
     @Test

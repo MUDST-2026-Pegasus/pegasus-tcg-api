@@ -54,8 +54,41 @@ public class ApiClient {
         }
     }
 
+    /** A response whose body is not JSON, such as a generated PDF. */
+    public record BinaryResponse(int status, byte[] body, Map<String, String> headers) {
+
+        public BinaryResponse {
+            body = body.clone();
+            headers = Map.copyOf(headers);
+        }
+
+        @Override
+        public byte[] body() {
+            return body.clone();
+        }
+
+        public Optional<String> header(String name) {
+            return Optional.ofNullable(headers.get(name.toLowerCase()));
+        }
+    }
+
     public Response get(String path, String bearer) {
         return send(request(path, bearer, Map.of()).GET());
+    }
+
+    public BinaryResponse getBytes(String path, String bearer, String accept) {
+        HttpRequest request = request(path, bearer, Map.of(), accept).GET().build();
+        try {
+            HttpResponse<byte[]> response = http.send(request, BodyHandlers.ofByteArray());
+            Map<String, String> headers = new LinkedHashMap<>();
+            response.headers().map().forEach((name, values) -> headers.put(name.toLowerCase(), values.getFirst()));
+            return new BinaryResponse(response.statusCode(), response.body(), headers);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while calling the API", e);
+        }
     }
 
     public Response post(String path, String bearer, Object body) {
@@ -64,7 +97,9 @@ public class ApiClient {
 
     public Response post(String path, String bearer, Object body, Map<String, String> headers) {
         Map<String, String> requestHeaders = new LinkedHashMap<>(headers);
-        if (path.equals("/api/v1/auth/refresh") || path.equals("/api/v1/auth/logout")) {
+        if (path.equals("/api/v1/auth/refresh")
+                || path.equals("/api/v1/auth/logout")
+                || path.equals("/api/v1/auth/google")) {
             requestHeaders.putIfAbsent("Origin", "http://localhost:3000");
             if (body instanceof Map<?, ?> fields && fields.get("refreshToken") instanceof String token) {
                 requestHeaders.put("Cookie", "pegasus_rt=" + token);
@@ -96,9 +131,13 @@ public class ApiClient {
     }
 
     private HttpRequest.Builder request(String path, String bearer, Map<String, String> headers) {
+        return request(path, bearer, headers, "application/json");
+    }
+
+    private HttpRequest.Builder request(String path, String bearer, Map<String, String> headers, String accept) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .timeout(Duration.ofSeconds(30))
-                .header("Accept", "application/json");
+                .header("Accept", accept);
         if (bearer != null) {
             builder.header("Authorization", bearer);
         }

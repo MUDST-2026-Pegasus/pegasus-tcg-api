@@ -41,7 +41,7 @@ BEGIN
      WHERE c.total_quantity <> (SELECT count(*) FROM listing_unit u
                                  WHERE u.seller_profile_id = c.seller_profile_id AND u.catalog_variant_id = c.catalog_variant_id
                                    AND u.condition_code = c.condition_code
-                                   AND u.status IN ('IN_STOCK', 'LISTED', 'RESERVED', 'RETURNED'))
+                                   AND u.status IN ('IN_STOCK', 'LISTED', 'RESERVED', 'ON_AUCTION', 'RETURNED'))
         OR c.total_quantity <> (SELECT coalesce(sum(m.quantity_delta), 0) FROM inventory_movement m
                                  WHERE m.seller_profile_id = c.seller_profile_id AND m.catalog_variant_id = c.catalog_variant_id
                                    AND m.condition_code = c.condition_code);
@@ -87,9 +87,50 @@ BEGIN
      WHERE p.owner_type = 'SELLER' AND r.amount <> so.seller_discount_amount;
     IF bad > 0 THEN RAISE EXCEPTION 'verify: % shop-code redemption(s) differ from the shop discount', bad; END IF;
 
-    -- 10. Every table has something in it.
+    -- Price sales [TCG-684]: SOLD_OUT needs every MTG listing's flash card taken, or the
+    -- refresher would put the uncovered listings back on sale and the campaign reads ACTIVE.
+    SELECT count(*) INTO bad FROM listing l
+      JOIN catalog_variant cv ON cv.id = l.catalog_variant_id
+      JOIN catalog_product cp ON cp.id = cv.catalog_product_id
+     WHERE l.status = 'ACTIVE' AND cp.game_id = (SELECT id FROM game WHERE code = 'MTG')
+       AND NOT EXISTS (SELECT 1 FROM price_sale_listing psl JOIN price_sale s ON s.id = psl.sale_id
+                        WHERE s.slug = 'midnight-flash' AND psl.listing_id = l.id
+                          AND psl.sold_count = psl.quota);
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: % MTG listing(s) left on Midnight Flash', bad; END IF;
+    SELECT count(*) INTO n FROM price_sale;
+    IF n <> 8 THEN RAISE EXCEPTION 'verify: expected 8 price sales, found %', n; END IF;
+
+    -- Every auction status used by the demo UI and each penalty step must exist.
+    SELECT count(DISTINCT status) INTO n FROM auction
+     WHERE status IN ('LIVE', 'AWAITING_PAYMENT', 'SOLD', 'UNSOLD', 'SUSPENDED', 'CANCELLED');
+    IF n <> 6 THEN RAISE EXCEPTION 'verify: auction demo statuses are incomplete'; END IF;
+    SELECT count(*) INTO bad FROM auction a
+     WHERE a.status = 'SOLD' AND NOT EXISTS (
+         SELECT 1 FROM sales_order so JOIN payment p ON p.sales_order_id = so.id
+          WHERE so.id = a.sales_order_id AND so.source = 'AUCTION'
+            AND so.auction_id = a.id AND so.status = 'PAID' AND p.status = 'SUCCEEDED');
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: sold auction without a paid order'; END IF;
+    SELECT count(*) INTO bad FROM auction a
+     WHERE a.status = 'AWAITING_PAYMENT' AND a.sales_order_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM sales_order so WHERE so.id = a.sales_order_id
+                       AND so.source = 'AUCTION' AND so.auction_id = a.id
+                       AND so.status = 'PENDING_PAYMENT');
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: pending auction checkout has no unpaid order'; END IF;
+    SELECT count(DISTINCT strike_count) INTO n FROM (
+        SELECT count(*) AS strike_count FROM bidder_strike
+         WHERE cleared_at IS NULL GROUP BY user_id) penalties;
+    IF n <> 3 THEN RAISE EXCEPTION 'verify: auction penalty examples are incomplete'; END IF;
+    SELECT count(*) INTO n FROM bidding_ban
+     WHERE lifted_at IS NULL AND banned_until > now();
+    IF n < 1 THEN RAISE EXCEPTION 'verify: no active auction bidding ban'; END IF;
+
+    -- 10. Every table covered by this seed has something in it. Auction and
+    -- listing_sale_price is filled by the app's refresher, not the seed.
     FOR t IN SELECT c.relname FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
-              WHERE ns.nspname = 'public' AND c.relkind = 'r' AND c.relname <> 'flyway_schema_history'
+              WHERE ns.nspname = 'public' AND c.relkind = 'r'
+                AND c.relname NOT IN ('flyway_schema_history', 'auction', 'auction_bid',
+                                      'bidder_strike', 'bidding_ban',
+                                      'listing_sale_price')
               ORDER BY c.relname LOOP
         EXECUTE format('SELECT count(*) FROM %I', t.relname) INTO n;
         IF n = 0 THEN empty := empty || t.relname::text; END IF;

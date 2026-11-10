@@ -26,10 +26,13 @@ import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.catalog.CatalogVariantRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingImageRepository;
 import com.pegasus.pegasustcgapi.repository.pricing.ListingPriceHistoryRepository;
+import com.pegasus.pegasustcgapi.service.sale.SalePriceLock;
+import com.pegasus.pegasustcgapi.service.sale.SalePriceRefresher;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.Details;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.Pricing;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.SellerListingQuery;
+import com.pegasus.pegasustcgapi.repository.listing.SellerListingQueryRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.repository.inventory.SellerVariantCostRepository;
 import com.pegasus.pegasustcgapi.storage.StorageService;
@@ -70,6 +73,7 @@ public class ListingService {
 
     private final SellerPort sellers;
     private final ListingRepository listings;
+    private final SellerListingQueryRepository sellerListings;
     private final ListingUnitRepository units;
     private final ListingImageRepository images;
     private final ListingPriceHistoryRepository priceHistory;
@@ -77,11 +81,14 @@ public class ListingService {
     private final ListingCardRenderer cards;
     private final StorageService storage;
     private final SellerVariantCostRepository costs;
+    private final SalePriceLock saleLock;
+    private final SalePriceRefresher salePrices;
     private final Clock clock;
 
     public ListingService(
             SellerPort sellers,
             ListingRepository listings,
+            SellerListingQueryRepository sellerListings,
             ListingUnitRepository units,
             ListingImageRepository images,
             ListingPriceHistoryRepository priceHistory,
@@ -89,10 +96,13 @@ public class ListingService {
             ListingCardRenderer cards,
             StorageService storage,
             SellerVariantCostRepository costs,
+            SalePriceLock saleLock,
+            SalePriceRefresher salePrices,
             Clock clock) {
 
         this.sellers = sellers;
         this.listings = listings;
+        this.sellerListings = sellerListings;
         this.units = units;
         this.images = images;
         this.priceHistory = priceHistory;
@@ -100,6 +110,8 @@ public class ListingService {
         this.cards = cards;
         this.storage = storage;
         this.costs = costs;
+        this.saleLock = saleLock;
+        this.salePrices = salePrices;
         this.clock = clock;
     }
 
@@ -123,7 +135,7 @@ public class ListingService {
                 search == null || search.isBlank() ? null : search.trim(), parseSort(sort),
                 paging.size(), paging.offset());
 
-        List<Listing> rows = listings.findSellerPage(query);
+        List<Listing> rows = sellerListings.findSellerPage(query);
         Map<Long, ListingCard> cardsByVariant = cards.cards(rows.stream().map(Listing::catalogVariantId).toList());
         Map<Long, String> photoByListing = images.primaryKeysOf(rows.stream().map(Listing::id).toList());
 
@@ -132,7 +144,7 @@ public class ListingService {
                         cards.signed(photoByListing.get(l.id()))))
                 .toList();
 
-        return PageResponse.of(items, paging.page(), paging.size(), listings.countSeller(query));
+        return PageResponse.of(items, paging.page(), paging.size(), sellerListings.countSeller(query));
     }
 
     public SellerListingResponse get(long userId, long listingId) {
@@ -211,10 +223,12 @@ public class ListingService {
         BigDecimal price = change.price() != null ? change.price() : listing.price();
         Pricing pricing = new Pricing(change.mode(), price, change.offsetPercent(), change.floor(), change.ceiling());
         requirePricingConsistent(pricing);
+        saleLock.requireAllowed(listing.id(), listing.price(), price);
 
         listings.updatePricing(listing.id(), pricing);
         if (price.compareTo(listing.price()) != 0) {
             priceHistory.insert(listing.id(), listing.price(), price, change.mode(), userId, "set by seller");
+            salePrices.refreshListings(List.of(listing.id()));
         }
         return render(require(seller, listing.id()));
     }
@@ -251,6 +265,7 @@ public class ListingService {
             throw new ConflictException(ErrorCode.LISTING_STATUS_TRANSITION,
                     "The listing changed while this request was on its way; reload it and try again");
         }
+        salePrices.refreshListings(List.of(listing.id()));
         return render(require(seller, listing.id()));
     }
 
@@ -274,6 +289,7 @@ public class ListingService {
         if (!listings.softDelete(listing.id(), OffsetDateTime.now(clock))) {
             throw new ConflictException(ErrorCode.LISTING_HAS_RESERVATIONS);
         }
+        salePrices.refreshListings(List.of(listing.id()));
     }
 
     // ---------- moves ----------

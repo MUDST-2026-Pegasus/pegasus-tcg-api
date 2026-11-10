@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.listing;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.listing.ListingDetailsRequest;
@@ -43,6 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
  * than trusting a token that may be a TTL out of date. Reading needs a seller
  * profile; changing anything needs it VERIFIED [RQ-1].
  */
+@SecurityRequirement(name = "BearerAuth")
 @RestController
 @RequestMapping(ApiPaths.SELLERS_ME + "/listings")
 public class SellerListingController {

@@ -61,6 +61,11 @@ public final class AdminFinanceViews {
             String accountNumber, String transferReference,
             BigDecimal escrowAmount, BigDecimal escrowRefunded, int failedAttempts,
             String lastFailureReason, OffsetDateTime requestedAt, OffsetDateTime processedAt) {
+        @Override
+        public String toString() {
+            return "AdminRefund[id=" + id + ", salesOrderId=" + salesOrderId + ", amount=" + amount
+                    + ", status=" + status + ", accountNumber=REDACTED]";
+        }
     }
 
     /**
@@ -80,6 +85,10 @@ public final class AdminFinanceViews {
 
     public record PayoutAccount(String bankName, String accountName, String accountNumber,
             OffsetDateTime verifiedAt) {
+        @Override
+        public String toString() {
+            return "PayoutAccount[bankName=" + bankName + ", accountName=REDACTED, accountNumber=REDACTED]";
+        }
     }
 
     /** A completed sub-order the payout pays for. */

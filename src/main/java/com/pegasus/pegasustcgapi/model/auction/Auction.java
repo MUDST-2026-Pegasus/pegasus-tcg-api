@@ -13,7 +13,7 @@ import java.time.OffsetDateTime;
  * @param leadingBidId    null while there are no bids
  * @param originalEndsAt  the closing time the seller picked
  * @param endsAt          the closing time now, after any 2-minute extensions
- * @param winnerId        whoever must pay now: the top bidder, a buy-now buyer or an accepting runner-up
+ * @param winnerId        whoever must pay now: the top bidder or a buy-now buyer
  * @param salesOrderId    the order placed by the auction checkout; null until then
  * @param relistedFromId  the auction this one was reopened from
  * @param version         bumped on every change
@@ -43,7 +43,6 @@ public record Auction(
         BigDecimal winningAmount,
         OffsetDateTime closedAt,
         OffsetDateTime paymentDueAt,
-        OffsetDateTime decisionDueAt,
         Long salesOrderId,
         AuctionStatus status,
         OffsetDateTime cancelledAt,
@@ -54,6 +53,30 @@ public record Auction(
         int version,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt) {
+
+    /**
+     * The price to show: what the card sold for while a winner holds it (AWAITING_PAYMENT or
+     * SOLD), else the leading bid (or the starting price with no bids). A buy-now win has no
+     * bids, so {@code currentPrice} stays at the starting price while {@code winningAmount}
+     * holds the buy-now price [TCG-638]. An unpaid win keeps {@code winningAmount} but did
+     * not sell, so it falls back to {@code currentPrice} [TCG-639].
+     */
+    public BigDecimal closingOrCurrentPrice() {
+        boolean sold = status == AuctionStatus.AWAITING_PAYMENT || status == AuctionStatus.SOLD;
+        return sold && winningAmount != null ? winningAmount : currentPrice;
+    }
+
+    /**
+     * When it closes while live, when it really stopped once ended. A buy-now, a cancel or a
+     * suspension ends it before the time the seller picked [TCG-638, TCG-639].
+     */
+    public OffsetDateTime closedOrEndsAt() {
+        if (status == AuctionStatus.LIVE) return endsAt;
+        if (closedAt != null) return closedAt;
+        if (cancelledAt != null) return cancelledAt;
+        if (suspendedAt != null) return suspendedAt;
+        return endsAt;
+    }
 
     /** Whether buy-now can still be used: LIVE, no bids yet and a price set. */
     public boolean buyNowAvailable() {
@@ -72,7 +95,6 @@ public record Auction(
 
     /** Whether the card is still locked by this auction. */
     public boolean open() {
-        return status == AuctionStatus.LIVE || status == AuctionStatus.AWAITING_PAYMENT
-                || status == AuctionStatus.AWAITING_SELLER_DECISION || status == AuctionStatus.OFFERED_TO_SECOND;
+        return status == AuctionStatus.LIVE || status == AuctionStatus.AWAITING_PAYMENT;
     }
 }

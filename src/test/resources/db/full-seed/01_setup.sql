@@ -83,10 +83,18 @@ INSERT INTO platform_setting (setting_key, setting_value, description, updated_a
     ('payout.minimum_amount',         '100.00', 'Smallest payout a seller may request.', pg_temp.ago(400)),
     ('pricing.median_min_sample',     '3',      'Below this sample size the median is ignored for AUTO_MEDIAN.', pg_temp.ago(400)),
     ('order.payment_timeout_minutes', '60',     'Minutes an unpaid order may hold its reserved cards before it is cancelled.', pg_temp.ago(400)),
+    ('auction.payment_hours',        '24',     'Hours allowed to pay after an auction win.', pg_temp.ago(400)),
+    ('auction.extension_seconds',    '120',    'Seconds remaining that trigger a bid extension.', pg_temp.ago(400)),
+    ('auction.strike_limit',         '3',      'Unpaid wins before a bidding ban.', pg_temp.ago(400)),
+    ('auction.ban_days',             '30',     'Days a bidding ban lasts.', pg_temp.ago(400)),
+    ('auction.min_duration_minutes', '60',     'Minimum auction duration in minutes.', pg_temp.ago(400)),
+    ('auction.max_duration_days',    '30',     'Maximum auction duration in days.', pg_temp.ago(400)),
     ('payment.slip_auto_approve',     'false',  'Bank-transfer slip approval is manual; this legacy switch cannot be enabled.', pg_temp.ago(400)),
     ('payment.transfer_account',
      '{"bankName":"TEST BANK","accountName":"PEGASUS TCG","accountNumber":"000-0-00000-0","promptPayId":"0000000000"}',
-     'Bank account shown to buyers for bank transfers; replace before use.', pg_temp.ago(400))
+     'Bank account shown to buyers for bank transfers; replace before use.', pg_temp.ago(400)),
+    ('report.low_stock_threshold',   '500',    'Weekly report: remaining units below this read as low stock.', pg_temp.ago(400)),
+    ('report.fast_moving_percent',   '30',     'Weekly report: percent of the week''s stock sold, above which a row reads as fast moving.', pg_temp.ago(400))
 ON CONFLICT (setting_key) DO UPDATE
    SET setting_value = EXCLUDED.setting_value,
        description   = EXCLUDED.description,

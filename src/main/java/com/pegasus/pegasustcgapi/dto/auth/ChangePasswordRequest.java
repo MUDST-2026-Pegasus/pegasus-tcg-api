@@ -12,4 +12,9 @@ public record ChangePasswordRequest(
         @NotBlank
         @Size(min = 8, max = 128)
         String newPassword) {
+
+    @Override
+    public String toString() {
+        return "ChangePasswordRequest[currentPassword=REDACTED, newPassword=REDACTED]";
+    }
 }

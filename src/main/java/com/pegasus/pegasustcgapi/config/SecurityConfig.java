@@ -66,6 +66,7 @@ public class SecurityConfig {
     private static final String[] PUBLIC_POST_ENDPOINTS = {
         ApiPaths.AUTH + "/register",
         ApiPaths.AUTH + "/login",
+        ApiPaths.AUTH + "/google",
         ApiPaths.AUTH + "/refresh",
         ApiPaths.AUTH + "/logout",
         ApiPaths.AUTH + "/password/forgot",
@@ -101,6 +102,9 @@ public class SecurityConfig {
         ApiPaths.AUCTIONS,
         ApiPaths.AUCTIONS + "/*",
         ApiPaths.AUCTIONS + "/*/bids",
+        // The SALE page, a sale's own page and the home flash sale [TCG-679].
+        ApiPaths.SALES,
+        ApiPaths.SALES + "/*",
     };
 
     /** Public Swagger UI and OpenAPI documentation resources. */
@@ -147,6 +151,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
                         .requestMatchers(SWAGGER_WHITELIST).permitAll()
                         // The basket is the one part of the shop a guest keeps, so every
                         // method on it is open; the handlers themselves decide what an
@@ -220,20 +225,21 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(properties.allowedOrigins());
+        properties.applyTo(config);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of(
                 "Authorization",
                 "Content-Type",
                 "Accept",
                 "Idempotency-Key",
-                "X-Cart-Session"));
+                "X-Cart-Session",
+                "traceparent",
+                "tracestate",
+                "baggage"));
         config.setExposedHeaders(List.of(
                 "X-Cart-Session",
-                "Idempotency-Key"));
-        if (properties.allowedOrigins().contains("*")) {
-            throw new IllegalStateException("Credentialed CORS requires explicit allowed origins");
-        }
+                "Idempotency-Key",
+                "Content-Disposition"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 

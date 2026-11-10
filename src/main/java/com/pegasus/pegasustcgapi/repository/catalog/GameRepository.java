@@ -4,7 +4,9 @@ import static com.pegasus.pegasustcgapi.jooq.tables.Game.GAME;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.GameRecord;
 import com.pegasus.pegasustcgapi.model.catalog.Game;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -29,6 +31,15 @@ public class GameRepository {
                 .where(visible)
                 .orderBy(GAME.DISPLAY_ORDER.asc(), GAME.NAME.asc())
                 .fetch(GameRepository::toGame);
+    }
+
+    public Map<Short, Game> findByIds(Collection<Short> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.selectFrom(GAME)
+                .where(GAME.ID.in(ids))
+                .fetchMap(GAME.ID, GameRepository::toGame);
     }
 
     public Optional<Game> findById(short id) {

@@ -3,8 +3,6 @@ package com.pegasus.pegasustcgapi.controller.auction;
 import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.CreateAuction;
-import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.DecisionChoice;
-import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.SellerDecision;
 import com.pegasus.pegasustcgapi.dto.auction.AuctionRequests.UpdateAuction;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.EligibleUnitPage;
 import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionDetail;
@@ -12,15 +10,13 @@ import com.pegasus.pegasustcgapi.dto.auction.SellerAuctionViews.SellerAuctionPag
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
+import com.pegasus.pegasustcgapi.service.auction.SellerAuctionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.OffsetDateTime;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,9 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The signed-in shop's own auctions [TCG-613]. Another shop's auction is 404.
- *
- * <p>Contract only: every endpoint returns {@link AuctionSamples} until BE-2 and BE-9 add the logic.
+ * The signed-in shop's own auctions [TCG-613, TCG-615]. Another shop's auction is 404.
  */
 @Tag(name = "Seller Auctions", description = "Open, manage and follow up a shop's own auctions")
 @SecurityRequirement(name = "BearerAuth")
@@ -43,14 +37,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping(ApiPaths.SELLERS_ME_AUCTIONS)
 public class SellerAuctionController {
 
-    private final Clock clock;
+    private final SellerAuctionService service;
 
-    public SellerAuctionController(Clock clock) {
-        this.clock = clock;
-    }
-
-    private OffsetDateTime now() {
-        return OffsetDateTime.now(clock);
+    public SellerAuctionController(SellerAuctionService service) {
+        this.service = service;
     }
 
     @Operation(summary = "List the shop's auctions",
@@ -62,7 +52,7 @@ public class SellerAuctionController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             AuthPrincipal principal) {
-        return ApiResult.success(AuctionSamples.sellerAuctions(now(), page, size));
+        return ApiResult.success(service.list(principal.userId(), status, q, page, size));
     }
 
     @Operation(summary = "Stock cards for the new-auction form",
@@ -76,15 +66,15 @@ public class SellerAuctionController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             AuthPrincipal principal) {
-        return ApiResult.success(AuctionSamples.eligibleUnits(page, size));
+        return ApiResult.success(service.eligibleUnits(principal.userId(), q, gameId, condition, page, size));
     }
 
     @Operation(summary = "Open an auction",
             description = "Opens at once and locks the card. The shop must be VERIFIED.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Auction opened"),
-            @ApiResponse(responseCode = "400", description = "VALIDATION_FAILED, AUCTION_END_TOO_SOON, "
-                    + "AUCTION_END_TOO_FAR or BUY_NOW_BELOW_START"),
+            @ApiResponse(responseCode = "400", description = "VALIDATION_FAILED, AUCTION_END_TOO_SOON (details.minMinutes), "
+                    + "AUCTION_END_TOO_FAR (details.maxDays) or BUY_NOW_BELOW_START"),
             @ApiResponse(responseCode = "403", description = "SELLER_NOT_VERIFIED"),
             @ApiResponse(responseCode = "404", description = "LISTING_UNIT_NOT_FOUND"),
             @ApiResponse(responseCode = "409", description = "UNIT_NOT_AVAILABLE")
@@ -92,8 +82,7 @@ public class SellerAuctionController {
     @PostMapping
     public ResponseEntity<ApiResult<SellerAuctionDetail>> create(@Valid @RequestBody CreateAuction request,
             AuthPrincipal principal) {
-        SellerAuctionDetail created = AuctionSamples.created(160, now(), request.startingPrice(),
-                request.bidIncrement(), request.endsAt(), request.buyNowPrice(), request.sellerNote());
+        SellerAuctionDetail created = service.create(principal.userId(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResult.success(created));
     }
 
@@ -105,7 +94,7 @@ public class SellerAuctionController {
     })
     @GetMapping("/{id}")
     public ApiResult<SellerAuctionDetail> get(@PathVariable long id, AuthPrincipal principal) {
-        return ApiResult.success(AuctionSamples.sellerDetail(id, now()));
+        return ApiResult.success(service.get(principal.userId(), id));
     }
 
     @Operation(summary = "Change buy-now or the note",
@@ -118,9 +107,7 @@ public class SellerAuctionController {
     @PatchMapping("/{id}")
     public ApiResult<SellerAuctionDetail> update(@PathVariable long id, @Valid @RequestBody UpdateAuction request,
             AuthPrincipal principal) {
-        SellerAuctionDetail d = AuctionSamples.created(id, now(), BigDecimal.valueOf(2400),
-                BigDecimal.valueOf(100), now().plusDays(3), request.buyNowPrice(), request.sellerNote());
-        return ApiResult.success(d);
+        return ApiResult.success(service.update(principal.userId(), id, request));
     }
 
     @Operation(summary = "Cancel an auction",
@@ -132,26 +119,6 @@ public class SellerAuctionController {
     })
     @PostMapping("/{id}/cancel")
     public ApiResult<SellerAuctionDetail> cancel(@PathVariable long id, AuthPrincipal principal) {
-        SellerAuctionDetail d = AuctionSamples.sellerDetail(150, now());
-        return ApiResult.success(AuctionSamples.withStatus(d, AuctionStatus.CANCELLED, null, now()));
-    }
-
-    @Operation(summary = "Choose what happens after the winner did not pay",
-            description = "Only while AWAITING_SELLER_DECISION. OFFER_TO_SECOND sends the runner-up an offer at their "
-                    + "bid (24 hours to answer); RELIST puts the card back in stock so the app can open the "
-                    + "new-auction form with the old settings.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Choice recorded"),
-            @ApiResponse(responseCode = "409", description = "NO_SECOND_BIDDER, or AUCTION_CLOSED when the time "
-                    + "to choose has passed")
-    })
-    @PostMapping("/{id}/decision")
-    public ApiResult<SellerAuctionDetail> decide(@PathVariable long id, @Valid @RequestBody SellerDecision request,
-            AuthPrincipal principal) {
-        SellerAuctionDetail d = AuctionSamples.sellerDetail(119, now());
-        SellerAuctionDetail result = request.choice() == DecisionChoice.OFFER_TO_SECOND
-                ? AuctionSamples.withStatus(d, AuctionStatus.OFFERED_TO_SECOND, AuctionSamples.sentOffer(now()), now())
-                : AuctionSamples.withStatus(d, AuctionStatus.UNSOLD, null, now());
-        return ApiResult.success(result);
+        return ApiResult.success(service.cancel(principal.userId(), id));
     }
 }

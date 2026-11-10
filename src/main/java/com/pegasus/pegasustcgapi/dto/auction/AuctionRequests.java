@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.Map;
 import java.util.UUID;
 
 /** Every request body the auction endpoints accept [TCG-613]. Money is THB. */
@@ -45,7 +46,13 @@ public final class AuctionRequests {
             @Schema(example = "ฝากใส่ซองกันน้ำด้วยครับ")
             @Size(max = MAX_NOTE) String buyerNote,
             @Schema(example = "8500")
-            BigDecimal expectedGrandTotal) {
+            BigDecimal expectedGrandTotal,
+            @Schema(hidden = true) String platformCode,
+            @Schema(hidden = true) Map<Long, String> sellerCodes) {
+        public AuctionCheckout(Long shippingAddressId, Long shippingOptionId, String buyerNote,
+                BigDecimal expectedGrandTotal) {
+            this(shippingAddressId, shippingOptionId, buyerNote, expectedGrandTotal, null, null);
+        }
     }
 
     /**
@@ -84,18 +91,6 @@ public final class AuctionRequests {
             @Positive BigDecimal buyNowPrice,
             @Schema(example = "ส่งแบบกล่องแข็ง")
             @Size(max = MAX_NOTE) String sellerNote) {
-    }
-
-    /** What the seller does after the winner did not pay. */
-    public enum DecisionChoice {
-        /** Offer the card to the runner-up at their own bid (409 NO_SECOND_BIDDER when there is none). */
-        OFFER_TO_SECOND,
-        /** Put the card back in stock; the app then opens the new-auction form with the old settings. */
-        RELIST
-    }
-
-    @Schema(description = "The seller's choice after the winner did not pay")
-    public record SellerDecision(@NotNull DecisionChoice choice) {
     }
 
     @Schema(description = "Why an admin stopped the auction; the seller and every bidder see it")

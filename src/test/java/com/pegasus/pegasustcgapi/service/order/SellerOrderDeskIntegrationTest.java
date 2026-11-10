@@ -5,6 +5,8 @@ import com.pegasus.pegasustcgapi.service.payment.PaymentService;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerShippingOption.SELLER_SHIPPING_OPTION;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrderStatusHistory.SELLER_ORDER_STATUS_HISTORY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -12,6 +14,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.pegasus.pegasustcgapi.dto.cart.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.order.CheckoutRequest;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.Detail;
+import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.ShippingChoice;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderViews.Summary;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
@@ -27,6 +30,7 @@ import com.pegasus.pegasustcgapi.support.TestData.Seller;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -90,6 +94,9 @@ class SellerOrderDeskIntegrationTest extends PostgresIntegrationTest {
             assertThat(row.buyer().username()).isEqualTo(mine.buyer().username());
             assertThat(row.shippingAddressSnapshot()).isNotBlank();
             assertThat(row.buyerNote()).isEqualTo("Please use a top loader");
+            assertThat(row.source()).isEqualTo("CART");
+            assertThat(row.auctionId()).isNull();
+            assertThat(row.auctionNumber()).isNull();
             assertThat(row.paidAt()).isNotNull();
             assertThat(Duration.between(row.paidAt(), row.shipBy()).toDays()).isPositive();
         });
@@ -239,5 +246,96 @@ class SellerOrderDeskIntegrationTest extends PostgresIntegrationTest {
         assertThat(refund.getStatus()).isEqualTo("PROCESSED");
         assertThat(refund.getProcessedBy()).as("settled by the system, not a person").isNull();
         assertThat(refund.getReason()).isEqualTo("Out of stock");
+    }
+
+    // ---- TCG-503: the delivery choice the buyer picked ----
+
+    private long carrierOption(Seller seller, String name) {
+        return dsl.insertInto(SELLER_SHIPPING_OPTION)
+                .set(SELLER_SHIPPING_OPTION.SELLER_PROFILE_ID, seller.profileId())
+                .set(SELLER_SHIPPING_OPTION.NAME, name)
+                .set(SELLER_SHIPPING_OPTION.CARRIER_CODE, "KERRY")
+                .set(SELLER_SHIPPING_OPTION.BASE_FEE, new BigDecimal("50.00"))
+                .set(SELLER_SHIPPING_OPTION.PER_ITEM_FEE, BigDecimal.ZERO)
+                .set(SELLER_SHIPPING_OPTION.EST_DAYS_MIN, (short) 1)
+                .set(SELLER_SHIPPING_OPTION.EST_DAYS_MAX, (short) 2)
+                .set(SELLER_SHIPPING_OPTION.IS_ACTIVE, true)
+                .set(SELLER_SHIPPING_OPTION.DISPLAY_ORDER, (short) 0)
+                .returning(SELLER_SHIPPING_OPTION.ID)
+                .fetchSingle().getId();
+    }
+
+    private Placed paidWithOption(Seller seller, long optionId) {
+        var card = data.card(data.game("Pokemon"), "Desk " + data.tag(), "SR");
+        Listing listing = data.onSale(seller, card, CardCondition.NM, 1, "200.00");
+        AuthPrincipal buyer = data.buyer();
+        cart.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
+        var order = checkout.checkout(buyer, "desk-" + data.tag(), null,
+                new CheckoutRequest(data.address(buyer), Map.of(seller.profileId(), optionId), null));
+        lifecycle.markOrderPaid(buyer, order.orderId());
+        return new Placed(seller, buyer, order.orderId(), order.sellerOrders().getFirst().id(), listing.id());
+    }
+
+    @Test
+    void checkoutFreezesTheChosenOptionAndListAndDetailReturnIt() {
+        Seller seller = data.seller();
+        long optionId = carrierOption(seller, "Kerry express");
+        Placed placed = paidWithOption(seller, optionId);
+
+        ShippingChoice expected = new ShippingChoice(optionId, "Kerry express", "KERRY",
+                new BigDecimal("50.00"), (short) 1, (short) 2);
+        Summary row = desk.list(seller.principal(), List.of(), null, null, 0, 20).items().getFirst();
+        assertThat(row.shippingChoice()).usingRecursiveComparison().withComparatorForType(
+                BigDecimal::compareTo, BigDecimal.class).isEqualTo(expected);
+        assertThat(desk.detail(seller.principal(), placed.sellerOrderId()).summary().shippingChoice())
+                .usingRecursiveComparison().withComparatorForType(BigDecimal::compareTo, BigDecimal.class)
+                .isEqualTo(expected);
+    }
+
+    @Test
+    void editingOrDeletingTheOptionLaterLeavesTheOrderAsItWas() {
+        Seller seller = data.seller();
+        long optionId = carrierOption(seller, "Kerry express");
+        Placed placed = paidWithOption(seller, optionId);
+
+        dsl.update(SELLER_SHIPPING_OPTION).set(SELLER_SHIPPING_OPTION.NAME, "Renamed")
+                .set(SELLER_SHIPPING_OPTION.CARRIER_CODE, "FLASH")
+                .where(SELLER_SHIPPING_OPTION.ID.eq(optionId)).execute();
+        ShippingChoice edited = desk.detail(seller.principal(), placed.sellerOrderId()).summary().shippingChoice();
+        assertThat(edited.name()).isEqualTo("Kerry express");
+        assertThat(edited.carrierCode()).isEqualTo("KERRY");
+
+        dsl.deleteFrom(SELLER_SHIPPING_OPTION).where(SELLER_SHIPPING_OPTION.ID.eq(optionId)).execute();
+        ShippingChoice deleted = desk.detail(seller.principal(), placed.sellerOrderId()).summary().shippingChoice();
+        assertThat(deleted.optionId()).isNull();
+        assertThat(deleted.name()).isEqualTo("Kerry express");
+        assertThat(deleted.carrierCode()).isEqualTo("KERRY");
+    }
+
+    @Test
+    void anOptionWithoutACarrierGivesNullCarrierAndOrdersWithoutSnapshotGiveNull() {
+        Seller seller = data.seller();
+        Placed placed = paid(seller); // the shop's default test option has no carrier
+
+        ShippingChoice choice = desk.detail(seller.principal(), placed.sellerOrderId()).summary().shippingChoice();
+        assertThat(choice.name()).isEqualTo("Test standard shipping");
+        assertThat(choice.carrierCode()).isNull();
+
+        dsl.update(SELLER_ORDER).setNull(SELLER_ORDER.SHIPPING_OPTION_NAME)
+                .where(SELLER_ORDER.ID.eq(placed.sellerOrderId())).execute();
+        assertThat(desk.detail(seller.principal(), placed.sellerOrderId()).summary().shippingChoice()).isNull();
+    }
+
+    @Test
+    void shippingWithAnotherCarrierThanTheBuyerPickedStillWorks() {
+        Seller seller = data.seller();
+        Placed placed = paidWithOption(seller, carrierOption(seller, "Kerry express"));
+        desk.accept(seller.principal(), placed.sellerOrderId());
+
+        Detail shipped = desk.ship(seller.principal(), placed.sellerOrderId(),
+                new ShipOrderRequest("Flash Express", "TH0123456789", "FLASH", null, null));
+
+        assertThat(shipped.summary().order().status()).isEqualTo("SHIPPED");
+        assertThat(shipped.summary().shippingChoice().carrierCode()).isEqualTo("KERRY");
     }
 }

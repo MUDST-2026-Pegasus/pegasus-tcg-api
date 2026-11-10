@@ -16,6 +16,7 @@ import com.pegasus.pegasustcgapi.dto.auth.AuthResponse;
 import com.pegasus.pegasustcgapi.dto.auth.ChangePasswordRequest;
 import com.pegasus.pegasustcgapi.dto.auth.ResetPasswordRequest;
 import com.pegasus.pegasustcgapi.dto.auth.TokenResponse;
+import com.pegasus.pegasustcgapi.dto.user.UserResponse;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
 import com.pegasus.pegasustcgapi.model.auth.AuthUser;
@@ -116,6 +117,7 @@ class PasswordServiceTest {
         void changesPassword() {
             AuthUser user = anActiveUser().withId(USER_ID).withPassword("current-password").build();
             given(authService.loadWithRoles(USER_ID)).willReturn(user);
+            given(authService.currentUser(USER_ID)).willReturn(UserResponse.from(user));
             given(authService.startSession(user, CLIENT)).willReturn(FRESH_TOKENS);
 
             AuthResponse response = service.change(
@@ -139,6 +141,23 @@ class PasswordServiceTest {
                             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INVALID_CREDENTIALS))
                     .hasMessage("Current password is incorrect");
 
+            verify(users, never()).updatePasswordHash(anyLong(), anyString());
+            verify(authTokens, never()).revokeAll(anyLong(), any());
+            verify(authService, never()).startSession(any(), any());
+        }
+
+        @Test
+        @DisplayName("refuses password change for a Google-only account with null passwordHash")
+        void rejectsGoogleOnlyAccountWithoutPassword() {
+            given(authService.loadWithRoles(USER_ID))
+                    .willReturn(anActiveUser().withId(USER_ID).withoutPassword().build());
+
+            assertThatThrownBy(() -> service.change(
+                    USER_ID, new ChangePasswordRequest("any-password", "brand-new-password"), CLIENT))
+                    .isInstanceOfSatisfying(UnauthorizedException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INVALID_CREDENTIALS));
+
+            verify(passwordEncoder, never()).matches(any(), any());
             verify(users, never()).updatePasswordHash(anyLong(), anyString());
             verify(authTokens, never()).revokeAll(anyLong(), any());
             verify(authService, never()).startSession(any(), any());

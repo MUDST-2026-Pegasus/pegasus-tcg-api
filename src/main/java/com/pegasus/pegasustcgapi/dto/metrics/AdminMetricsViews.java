@@ -52,13 +52,28 @@ public final class AdminMetricsViews {
     /**
      * @param promotionCost what Pegasus paid shops back for Pegasus codes (PROMO_SUBSIDY
      *                      ledger entries), by when the money was released
+     * @param saleSubsidy   what Pegasus paid shops for its sale campaigns' discounts
+     *                      (SALE_SUBSIDY ledger entries), by when the money was released [TCG-680]
      */
     public record Stats(
             MoneyStat gmv,
             CountStat newSellers,
             ActiveListingsStat activeListings,
             CommissionStat commission,
-            MoneyStat promotionCost) {
+            MoneyStat promotionCost,
+            MoneyStat saleSubsidy,
+            long liveAuctions,
+            BigDecimal auctionSalesLast30Days) {
+
+        public Stats(MoneyStat gmv, CountStat newSellers, ActiveListingsStat activeListings,
+                CommissionStat commission, MoneyStat promotionCost, MoneyStat saleSubsidy) {
+            this(gmv, newSellers, activeListings, commission, promotionCost, saleSubsidy, 0, BigDecimal.ZERO);
+        }
+
+        public Stats(MoneyStat gmv, CountStat newSellers, ActiveListingsStat activeListings,
+                CommissionStat commission, MoneyStat promotionCost) {
+            this(gmv, newSellers, activeListings, commission, promotionCost, null, 0, BigDecimal.ZERO);
+        }
     }
 
     /** @param month {@code YYYY-MM} */

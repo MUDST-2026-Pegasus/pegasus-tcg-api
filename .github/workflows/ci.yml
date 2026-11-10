@@ -41,7 +41,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-          cache: gradle
+
+      # Caches deps, wrapper and the Gradle build cache (setup-java only did deps).
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
 
       - name: Generate test JWT secret
         run: echo "JWT_SECRET=$(openssl rand -base64 48)" >> "$GITHUB_ENV"
@@ -54,11 +59,11 @@ jobs:
           docker compose up -d --wait postgres minio
 
       - name: Test and build
-        run: ./gradlew build --no-daemon
+        run: ./gradlew build --build-cache
 
       - name: Publish BE test results
         if: always() && hashFiles('build/test-results/test/*.xml') != ''
-        uses: EnricoMi/publish-unit-test-result-action/linux@v2.25.0
+        uses: EnricoMi/publish-unit-test-result-action/linux@v2.26.0
         with:
           files: build/test-results/test/*.xml
           check_name: BE Tests
@@ -101,6 +106,19 @@ jobs:
           update-comment: true
           min-coverage-overall: 0
           min-coverage-changed-files: 0
+
+      # ErrorCode → Tolgee namespace `errors` (ภาษา en) — job tolgee-errors เป็นคน push [TCG-548]
+      - name: Export error catalog
+        if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+        run: ./gradlew exportErrorCatalog --build-cache
+
+      - name: Upload error catalog
+        if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+        uses: actions/upload-artifact@v7
+        with:
+          name: error-catalog
+          path: build/i18n/errors/en.json
+          retention-days: 7
 
       - name: Upload application JAR
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
@@ -199,6 +217,8 @@ jobs:
         with:
           context: image
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ${{ env.IMAGE }}:sha-${{ github.sha }}
             ${{ env.IMAGE }}:${{ github.ref_name == 'main' && 'latest' || 'develop' }}
@@ -253,3 +273,39 @@ jobs:
           # The other app repo may have pushed a bump in the meantime.
           for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
           exit 1
+
+  tolgee-errors:
+    name: Push error codes to Tolgee
+    needs: [quality]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      # Project API key ที่มีสิทธิ์สร้าง key — ไม่ตั้ง = ข้าม (ไม่ทำให้ CI แดง)
+      TOLGEE_API_KEY: ${{ secrets.TOLGEE_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download error catalog
+        uses: actions/download-artifact@v8
+        with:
+          name: error-catalog
+          path: build/i18n/errors
+
+      - name: Setup Node
+        if: env.TOLGEE_API_KEY != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # forceMode KEEP: สร้างเฉพาะ key ใหม่ ไม่ทับคำแปลที่แก้ใน Tolgee แล้ว (.tolgeerc.json)
+      - name: Push to Tolgee
+        if: env.TOLGEE_API_KEY != ''
+        run: npx --yes @tolgee/cli@2.21.0 push
+
+      - name: Skip without key
+        if: env.TOLGEE_API_KEY == ''
+        run: echo "::notice::TOLGEE_API_KEY is not set — skipped pushing error codes to Tolgee"

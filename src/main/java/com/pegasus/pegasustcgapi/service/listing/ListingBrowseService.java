@@ -6,6 +6,7 @@ import com.pegasus.pegasustcgapi.dto.listing.ListingCard;
 import com.pegasus.pegasustcgapi.dto.pricing.MarketStatResponse;
 import com.pegasus.pegasustcgapi.dto.listing.PublicListingDetailResponse;
 import com.pegasus.pegasustcgapi.dto.listing.PublicListingResponse;
+import com.pegasus.pegasustcgapi.dto.sale.SalePricing;
 import com.pegasus.pegasustcgapi.dto.user.PublicProfileResponse;
 import com.pegasus.pegasustcgapi.exception.ApiException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -17,12 +18,18 @@ import com.pegasus.pegasustcgapi.model.listing.ListingImage;
 import com.pegasus.pegasustcgapi.model.pricing.MarketKey;
 import com.pegasus.pegasustcgapi.model.user.UserStatus;
 import com.pegasus.pegasustcgapi.repository.listing.ListingImageRepository;
-import com.pegasus.pegasustcgapi.repository.listing.ListingRepository;
+import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
+import com.pegasus.pegasustcgapi.repository.listing.PublicListingQueryRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.PublicListing;
 import com.pegasus.pegasustcgapi.repository.listing.ListingRepository.PublicListingQuery;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
 import com.pegasus.pegasustcgapi.repository.pricing.VariantMarketStatRepository;
+import com.pegasus.pegasustcgapi.service.sale.SalePricingService;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.OffsetDateTime;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -38,36 +45,69 @@ import org.springframework.stereotype.Service;
 @Service
 public class ListingBrowseService {
 
-    private final ListingRepository listings;
+    private final PublicListingQueryRepository listings;
     private final ListingImageRepository images;
+    private final ListingUnitRepository units;
     private final VariantMarketStatRepository stats;
     private final UserRepository users;
     private final ListingCardRenderer cards;
+    private final SalePricingService salePricing;
+    private final Clock clock;
 
     public ListingBrowseService(
-            ListingRepository listings,
+            PublicListingQueryRepository listings,
             ListingImageRepository images,
+            ListingUnitRepository units,
             VariantMarketStatRepository stats,
             UserRepository users,
-            ListingCardRenderer cards) {
+            ListingCardRenderer cards,
+            SalePricingService salePricing,
+            Clock clock) {
 
         this.listings = listings;
         this.images = images;
+        this.units = units;
         this.stats = stats;
         this.users = users;
         this.cards = cards;
+        this.salePricing = salePricing;
+        this.clock = clock;
+    }
+
+    /**
+     * What the market, search and a sale's own page filter on beyond the card [TCG-679].
+     *
+     * @param onSale      true: only cards on sale; false: only cards off sale; null: both
+     * @param saleId      only cards priced by this sale
+     * @param minDiscount only cards at least this many percent off, 1–99
+     */
+    public record SaleFilter(Boolean onSale, Long saleId, BigDecimal minDiscount) {
+        public static final SaleFilter NONE = new SaleFilter(null, null, null);
     }
 
     /** ACTIVE listings only, cheapest first unless asked otherwise. */
     public PageResponse<PublicListingResponse> market(Long variantId, Long productId, Short gameId,
             CardCondition condition, BigDecimal minPrice, BigDecimal maxPrice, String sort, int page, int size) {
+        return market(variantId, productId, gameId, condition, minPrice, maxPrice, SaleFilter.NONE, sort, page, size);
+    }
+
+    /** ACTIVE listings only, cheapest first unless asked otherwise; prices are what a buyer pays now. */
+    public PageResponse<PublicListingResponse> market(Long variantId, Long productId, Short gameId,
+            CardCondition condition, BigDecimal minPrice, BigDecimal maxPrice, SaleFilter sale, String sort,
+            int page, int size) {
 
         if (minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, "minPrice cannot be above maxPrice");
         }
+        SaleFilter f = sale == null ? SaleFilter.NONE : sale;
+        if (f.minDiscount() != null
+                && (f.minDiscount().compareTo(BigDecimal.ONE) < 0 || f.minDiscount().compareTo(BigDecimal.valueOf(99)) > 0)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "minDiscount must be between 1 and 99");
+        }
         Paging paging = Paging.of(page, size);
         return page(new PublicListingQuery(null, variantId, productId, gameId, condition, minPrice, maxPrice,
-                parseSort(sort), paging.size(), paging.offset()), paging);
+                f.onSale(), f.saleId(), f.minDiscount(), parseSort(sort), paging.size(), paging.offset(),
+                OffsetDateTime.now(clock)), paging);
     }
 
     /**
@@ -83,7 +123,7 @@ public class ListingBrowseService {
 
         Paging paging = Paging.of(page, size);
         return page(new PublicListingQuery(owner.id(), variantId, null, null, condition, null, null,
-                parseSort(sort), paging.size(), paging.offset()), paging);
+                null, null, null, parseSort(sort), paging.size(), paging.offset(), OffsetDateTime.now(clock)), paging);
     }
 
     /** Profile details are available even before the owner publishes a listing. */
@@ -92,6 +132,7 @@ public class ListingBrowseService {
                 .filter(user -> user.status() == UserStatus.ACTIVE)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.USER_NOT_FOUND));
         return new PublicProfileResponse(owner.username(), owner.displayName(), cards.signed(owner.avatarUrl()),
+                cards.signed(owner.bannerUrl()),
                 owner.phonePublic() ? owner.phone() : null);
     }
 
@@ -107,29 +148,46 @@ public class ListingBrowseService {
                 .toList();
 
         PublicListingResponse shown = PublicListingResponse.of(row, cards.card(listing.catalogVariantId()),
-                photoUrls.isEmpty() ? null : photoUrls.getFirst(), cards.signed(row.sellerAvatarUrl()));
+                photoUrls.isEmpty() ? null : photoUrls.getFirst(), cards.signed(row.sellerAvatarUrl()),
+                salePricing.pricing(listing.id(), listing.price()));
 
-        MarketStatResponse market = stats.latest(new MarketKey(listing.catalogVariantId(), listing.condition()))
+        MarketStatResponse market = listing.gradingCompany() != null ? null
+                : stats.latest(new MarketKey(listing.catalogVariantId(), listing.condition()))
                 .map(MarketStatResponse::of)
                 .orElse(null);
 
-        return new PublicListingDetailResponse(shown, photoUrls, market);
+        String cert = listing.gradingCompany() == null ? null : units.publicCertNumber(listing.id());
+        Integer quota = salePricing.totalQuota(listing.id(), shown.pricing());
+        return new PublicListingDetailResponse(new PublicListingDetailResponse.DetailListing(shown, quota),
+                photoUrls, market, cert);
     }
 
-    private PageResponse<PublicListingResponse> page(PublicListingQuery query, Paging paging) {
-        List<PublicListing> rows = listings.findPublicPage(query);
-
+    /** The listings of a page, priced, cards and photos in one read each. Shared with the sale pages. */
+    public List<PublicListingResponse> render(List<PublicListing> rows) {
         Map<Long, ListingCard> cardsByVariant = cards.cards(
                 rows.stream().map(r -> r.listing().catalogVariantId()).toList());
         Map<Long, String> photoByListing = images.primaryKeysOf(
                 rows.stream().map(r -> r.listing().id()).toList());
+        Map<Long, BigDecimal> listPrices = new LinkedHashMap<>();
+        rows.forEach(r -> listPrices.put(r.listing().id(), r.listing().price()));
+        Map<Long, SalePricing> pricing = salePricing.pricing(listPrices);
 
-        List<PublicListingResponse> items = rows.stream()
+        return rows.stream()
                 .map(r -> PublicListingResponse.of(r, cardsByVariant.get(r.listing().catalogVariantId()),
-                        cards.signed(photoByListing.get(r.listing().id())), cards.signed(r.sellerAvatarUrl())))
+                        cards.signed(photoByListing.get(r.listing().id())), cards.signed(r.sellerAvatarUrl()),
+                        pricing.get(r.listing().id())))
                 .toList();
+    }
 
-        return PageResponse.of(items, paging.page(), paging.size(), listings.countPublic(query));
+    /** These listings, priced as on any market page, in id order; ones a buyer cannot open are left out. */
+    public List<PublicListingResponse> byIds(Collection<Long> listingIds) {
+        return render(listings.findPublicByIds(listingIds));
+    }
+
+    /** One page of the market under {@code query}. */
+    public PageResponse<PublicListingResponse> page(PublicListingQuery query, Paging paging) {
+        return PageResponse.of(render(listings.findPublicPage(query)), paging.page(), paging.size(),
+                listings.countPublic(query));
     }
 
     static PublicListingQuery.Sort parseSort(String sort) {
@@ -140,8 +198,10 @@ public class ListingBrowseService {
             case "price", "price_asc" -> PublicListingQuery.Sort.PRICE_ASC;
             case "price_desc" -> PublicListingQuery.Sort.PRICE_DESC;
             case "newest" -> PublicListingQuery.Sort.NEWEST;
+            case "discount_desc" -> PublicListingQuery.Sort.DISCOUNT_DESC;
+            case "ending_soon" -> PublicListingQuery.Sort.ENDING_SOON;
             default -> throw new ApiException(ErrorCode.VALIDATION_FAILED,
-                    "sort must be one of price, price_desc, newest");
+                    "sort must be one of price, price_desc, newest, discount_desc, ending_soon");
         };
     }
 }

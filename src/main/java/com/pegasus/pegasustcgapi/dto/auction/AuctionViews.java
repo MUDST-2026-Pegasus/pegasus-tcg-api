@@ -4,7 +4,6 @@ import com.pegasus.pegasustcgapi.dto.listing.ListingCard;
 
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
-import com.pegasus.pegasustcgapi.model.auction.AuctionOfferStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionStatus;
 import com.pegasus.pegasustcgapi.model.auction.AuctionViewerState;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
@@ -53,8 +52,6 @@ public final class AuctionViews {
         BIDDING,
         /** WON_AWAITING_PAYMENT. */
         TO_PAY,
-        /** SECOND_CHANCE. */
-        SECOND_CHANCE,
         /** WON. */
         WON,
         /** LOST. */
@@ -93,9 +90,15 @@ public final class AuctionViews {
      *
      * @param bidderInitials two letters for the avatar circle
      * @param mine           whether the caller placed it; always false for a guest
+     * @param cancelled      voided by an admin suspending the auction; kept so the history stays visible
      */
     public record Bid(String bidderAlias, String bidderInitials, boolean mine, BigDecimal amount,
-            OffsetDateTime placedAt) {
+            OffsetDateTime placedAt, boolean cancelled) {
+
+        public Bid(String bidderAlias, String bidderInitials, boolean mine, BigDecimal amount,
+                OffsetDateTime placedAt) {
+            this(bidderAlias, bidderInitials, mine, amount, placedAt, false);
+        }
     }
 
     /**
@@ -130,19 +133,6 @@ public final class AuctionViews {
     }
 
     /**
-     * The runner-up offer a seller sent the caller (B3-G).
-     *
-     * @param total amount plus shipping
-     */
-    public record SecondChanceOffer(
-            BigDecimal amount,
-            BigDecimal shippingFee,
-            BigDecimal total,
-            AuctionOfferStatus status,
-            OffsetDateTime expiresAt) {
-    }
-
-    /**
      * Where the signed-in caller stands on this auction (B3-D, B3-E, B3-F). Null for a guest.
      *
      * @param state          null when the caller has not bid
@@ -152,7 +142,6 @@ public final class AuctionViews {
      *                       EMAIL_NOT_VERIFIED, NO_SHIPPING_ADDRESS, BIDDING_BANNED or OWN_AUCTION
      * @param bannedUntil    set with BIDDING_BANNED
      * @param paymentDueAt   set with WON_AWAITING_PAYMENT
-     * @param offer          set with SECOND_CHANCE
      */
     public record Viewer(
             AuctionViewerState state,
@@ -160,8 +149,7 @@ public final class AuctionViews {
             boolean ownAuction,
             List<ErrorCode> blockers,
             OffsetDateTime bannedUntil,
-            OffsetDateTime paymentDueAt,
-            SecondChanceOffer offer) {
+            OffsetDateTime paymentDueAt) {
     }
 
     /**
@@ -175,10 +163,13 @@ public final class AuctionViews {
      * @param buyNowPrice     the price the seller set; null when they set none
      * @param buyNowAvailable true only while LIVE with no bids and a buy-now price
      * @param originalEndsAt  the closing time the seller picked
-     * @param endsAt          the closing time now, after any 2-minute extensions
+     * @param endsAt          the closing time now, after any 2-minute extensions; once ended, when it
+     *                        really stopped (earlier after a buy-now, cancel or suspension)
      * @param shippingFee     what the winner pays for delivery, for the "ยอดที่ต้องชำระถ้าชนะ" line
      * @param recentBids      newest first, at most five; the full list is under /bids
      * @param viewer          null for a guest
+     * @param winnerAlias     the masked winner ("n***t") once the auction ended with one; else null
+     * @param suspendReason   why an admin suspended it (SUSPENDED only); else null
      */
     public record AuctionDetail(
             long id,
@@ -203,7 +194,21 @@ public final class AuctionViews {
             BigDecimal shippingFee,
             List<Bid> recentBids,
             Viewer viewer,
+            String winnerAlias,
+            String suspendReason,
+            Rules rules,
             OffsetDateTime serverTime) {
+    }
+
+    /**
+     * The platform's current auction rules, so the page text matches what the admin set.
+     *
+     * @param paymentHours time a winner has to pay (may be fractional)
+     * @param strikeLimit  unpaid wins before a bidding ban
+     * @param banDays      length of that ban
+     */
+    public record Rules(BigDecimal paymentHours, int strikeLimit, int banDays) {
+        public static final Rules DEFAULTS = new Rules(BigDecimal.valueOf(24), 3, 30);
     }
 
     /** Every bid on one auction, newest first. */
@@ -229,7 +234,7 @@ public final class AuctionViews {
 
     /**
      * The caller now owns the right to buy the card and must pay within 24 hours
-     * through {@code POST /auctions/{id}/checkout}. Returned by buy-now and by accepting a runner-up offer.
+     * through {@code POST /auctions/{id}/checkout}. Returned by buy-now.
      *
      * @param total price plus shipping
      */
@@ -247,12 +252,13 @@ public final class AuctionViews {
      * One row on the buyer's "การประมูลของฉัน" page (W1).
      *
      * @param currentPrice the highest bid while live, the closing price once ended
-     * @param myHighestBid the caller's best bid; for SECOND_CHANCE this is the offer price
-     * @param totalDue     price plus shipping; set with WON_AWAITING_PAYMENT and SECOND_CHANCE
+     * @param myHighestBid the caller's best bid
+     * @param totalDue     price plus shipping; set with WON_AWAITING_PAYMENT
      * @param minNextBid   set while live, for the "บิด ฿X" button
      * @param extended     true while live and at least one extension has happened ("ต่อเวลาอยู่")
-     * @param deadline     paymentDueAt with WON_AWAITING_PAYMENT, the offer's expiry with SECOND_CHANCE,
-     *                     else null
+     * @param endsAt       the closing time while live; once ended, when it actually closed
+     *                     (earlier than planned after a buy-now)
+     * @param deadline     paymentDueAt with WON_AWAITING_PAYMENT, else null
      * @param orderId      set once the auction checkout placed an order
      */
     public record MyAuction(
@@ -279,6 +285,7 @@ public final class AuctionViews {
      * @param unpaidStrikes wins not paid in time that still count, shown as "ไม่ชำระหลังชนะ 0 / 3 ครั้ง"
      * @param strikeLimit   strikes that bar bidding (3)
      * @param bannedUntil   set while barred from bidding
+     * @param lastStrikeCardName card from the caller's most recent uncleared unpaid win
      */
     public record MyAuctionPage(
             PageResponse<MyAuction> page,
@@ -286,6 +293,7 @@ public final class AuctionViews {
             int unpaidStrikes,
             int strikeLimit,
             OffsetDateTime bannedUntil,
+            String lastStrikeCardName,
             OffsetDateTime serverTime) {
     }
 }

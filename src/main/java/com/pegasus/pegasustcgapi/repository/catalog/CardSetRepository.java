@@ -5,7 +5,9 @@ import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODU
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.CardSetRecord;
 import com.pegasus.pegasustcgapi.model.catalog.CardSet;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -27,6 +29,15 @@ public class CardSetRepository {
                 .where(CARD_SET.GAME_ID.eq(gameId))
                 .orderBy(CARD_SET.RELEASE_DATE.desc().nullsLast(), CARD_SET.NAME.asc())
                 .fetch(CardSetRepository::toCardSet);
+    }
+
+    public Map<Integer, CardSet> findByIds(Collection<Integer> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        return dsl.selectFrom(CARD_SET)
+                .where(CARD_SET.ID.in(ids))
+                .fetchMap(CARD_SET.ID, CardSetRepository::toCardSet);
     }
 
     public Optional<CardSet> findById(int id) {

@@ -14,6 +14,15 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import jakarta.validation.Validation;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import java.util.Map;
+import org.springframework.core.MethodParameter;
+import org.springframework.validation.BeanPropertyBindingResult;
+import org.springframework.validation.beanvalidation.SpringValidatorAdapter;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 
 class GlobalExceptionHandlerTest {
 
@@ -39,7 +48,43 @@ class GlobalExceptionHandlerTest {
                 .satisfies(violation -> {
                     assertThat(violation.field()).isEqualTo("gameId");
                     assertThat(violation.message()).isEqualTo("is required");
+                    assertThat(violation.code()).isEqualTo("missingParameter");
                 });
+    }
+
+    record Form(@NotBlank String name, @Size(max = 34) String accountNumber, @Max(5) int rating) {
+    }
+
+    @Test
+    @DisplayName("validation violations carry the constraint code and its params so clients can translate them")
+    void violationsCarryCodeAndParams() throws Exception {
+        Form form = new Form(" ", "x".repeat(40), 9);
+        BeanPropertyBindingResult result = new BeanPropertyBindingResult(form, "form");
+        new SpringValidatorAdapter(Validation.buildDefaultValidatorFactory().getValidator()).validate(form, result);
+        MethodParameter parameter = new MethodParameter(
+                GlobalExceptionHandlerTest.class.getDeclaredMethod("violationsCarryCodeAndParams"), -1);
+
+        ApiError detail = handler.handleValidation(
+                new MethodArgumentNotValidException(parameter, result),
+                new MockHttpServletRequest("POST", "/api/v1/forms")).getBody().getData();
+
+        assertThat(detail.violations()).extracting(ApiError.FieldViolation::field)
+                .containsExactlyInAnyOrder("name", "accountNumber", "rating");
+        assertThat(detail.violations()).anySatisfy(v -> {
+            assertThat(v.field()).isEqualTo("name");
+            assertThat(v.code()).isEqualTo("NotBlank");
+            assertThat(v.params()).isEmpty();
+            assertThat(v.message()).isNotBlank();
+        });
+        assertThat(detail.violations()).anySatisfy(v -> {
+            assertThat(v.field()).isEqualTo("accountNumber");
+            assertThat(v.code()).isEqualTo("Size");
+            assertThat(v.params()).isEqualTo(Map.of("min", 0, "max", 34));
+        });
+        assertThat(detail.violations()).anySatisfy(v -> {
+            assertThat(v.code()).isEqualTo("Max");
+            assertThat(v.params()).isEqualTo(Map.of("value", 5L));
+        });
     }
 
     @Test

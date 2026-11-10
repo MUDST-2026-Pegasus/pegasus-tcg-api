@@ -24,6 +24,8 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -88,6 +90,28 @@ public class CatalogSearchService {
     public PageResponse<ProductSummaryResponse> search(ProductBrowse browse) {
         requirePriceRange(browse.minPrice(), browse.maxPrice());
 
+        PageResponse<ProductSummaryResponse> exact = searchExact(browse);
+        String requested = browse.nameQuery();
+        if (!browse.activeOnly() || requested == null || requested.isBlank() || exact.totalItems() > 0
+                || !requested.trim().matches("[A-Za-z0-9][A-Za-z0-9 /#.'_-]*")) {
+            return exact;
+        }
+
+        for (String correction : closestTerms(requested.trim(), products.correctionCandidates(requested.trim()))) {
+            ProductBrowse corrected = new ProductBrowse(browse.gameIds(), browse.categoryId(), browse.cardSetId(),
+                    browse.productType(), correction, browse.rawParameters(), browse.sort(), browse.activeOnly(),
+                    browse.inStockOnly(), browse.conditions(), browse.minPrice(), browse.maxPrice(),
+                    browse.page(), browse.size());
+            PageResponse<ProductSummaryResponse> found = searchExact(corrected);
+            if (found.totalItems() > 0) {
+                return found.withCorrectedQuery(correction);
+            }
+        }
+        return exact;
+    }
+
+    private PageResponse<ProductSummaryResponse> searchExact(ProductBrowse browse) {
+
         Paging paging = Paging.of(browse.page(), browse.size());
         ProductSearchQuery query = new ProductSearchQuery(
                 browse.gameIds(), browse.categoryId(), browse.cardSetId(), browse.productType(),
@@ -98,13 +122,58 @@ public class CatalogSearchService {
                 browse.conditions(),
                 browse.minPrice(),
                 browse.maxPrice(),
-                parseSort(browse.sort()),
+                parseSort(browse.sort() == null && browse.nameQuery() != null && !browse.nameQuery().isBlank()
+                        ? "relevance" : browse.sort()),
                 paging.size(),
-                paging.offset());
+                paging.offset(),
+                OffsetDateTime.now(clock),
+                browse.saleStatus());
 
         List<CatalogProduct> found = products.search(query);
         return PageResponse.of(summarise(found, browse.conditions()), paging.page(), paging.size(),
                 products.count(query));
+    }
+
+    private static List<String> closestTerms(String requested, List<String> candidates) {
+        String query = requested.toLowerCase(Locale.ROOT);
+        int maxDistance = query.length() < 5 ? 1 : 2;
+        Map<String, Integer> distances = new HashMap<>();
+        for (String candidate : candidates) {
+            for (String term : candidate.split("\\s+")) {
+                int distance = editDistance(query, term.toLowerCase(Locale.ROOT), maxDistance);
+                if (distance > 0 && distance <= maxDistance) distances.merge(term, distance, Math::min);
+            }
+            int distance = editDistance(query, candidate.toLowerCase(Locale.ROOT), maxDistance);
+            if (distance > 0 && distance <= maxDistance) distances.merge(candidate, distance, Math::min);
+        }
+        return distances.entrySet().stream()
+                .sorted(Comparator.<Map.Entry<String, Integer>>comparingInt(Map.Entry::getValue)
+                        .thenComparingInt(entry -> entry.getKey().length())
+                        .thenComparing(Map.Entry::getKey))
+                .map(Map.Entry::getKey)
+                .toList();
+    }
+
+    /** Adjacent swaps count as one typo, alongside insertion, deletion and replacement. */
+    private static int editDistance(String left, String right, int limit) {
+        if (Math.abs(left.length() - right.length()) > limit) {
+            return limit + 1;
+        }
+        int[][] distance = new int[left.length() + 1][right.length() + 1];
+        for (int i = 0; i <= left.length(); i++) distance[i][0] = i;
+        for (int j = 0; j <= right.length(); j++) distance[0][j] = j;
+        for (int i = 1; i <= left.length(); i++) {
+            for (int j = 1; j <= right.length(); j++) {
+                int cost = left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1;
+                distance[i][j] = Math.min(distance[i - 1][j - 1] + cost,
+                        Math.min(distance[i - 1][j] + 1, distance[i][j - 1] + 1));
+                if (i > 1 && j > 1 && left.charAt(i - 1) == right.charAt(j - 2)
+                        && left.charAt(i - 2) == right.charAt(j - 1)) {
+                    distance[i][j] = Math.min(distance[i][j], distance[i - 2][j - 2] + 1);
+                }
+            }
+        }
+        return distance[left.length()][right.length()];
     }
 
     private static void requirePriceRange(BigDecimal minPrice, BigDecimal maxPrice) {
@@ -140,7 +209,7 @@ public class CatalogSearchService {
         }
 
         List<TrendingRow> ranked = market.trending(
-                gameId, OffsetDateTime.now(clock).minusDays(window), places);
+                gameId, OffsetDateTime.now(clock).minusDays(window), places, OffsetDateTime.now(clock));
 
         Map<Long, CatalogProduct> byId = products.findByIds(ranked.stream().map(TrendingRow::productId).toList());
         List<CatalogProduct> inOrder = ranked.stream()
@@ -169,7 +238,7 @@ public class CatalogSearchService {
         List<Long> ids = found.stream().map(CatalogProduct::id).toList();
         Map<Long, String> imageKeys = images.primaryKeysOf(ids);
         Map<Long, Integer> variantCounts = variants.activeCountsOf(ids);
-        Map<Long, Offer> offers = market.offersOf(ids, conditions);
+        Map<Long, Offer> offers = market.offersOf(ids, conditions, OffsetDateTime.now(clock));
 
         return found.stream()
                 .map(product -> {
@@ -296,8 +365,9 @@ public class CatalogSearchService {
             case "price", "price_asc" -> ProductSearchQuery.Sort.PRICE_ASC;
             case "price_desc" -> ProductSearchQuery.Sort.PRICE_DESC;
             case "popular" -> ProductSearchQuery.Sort.POPULAR;
+            case "relevance" -> ProductSearchQuery.Sort.RELEVANCE;
             default -> throw new ApiException(ErrorCode.VALIDATION_FAILED,
-                    "sort must be one of name, newest, cardNumber, price_asc, price_desc, popular");
+                    "sort must be one of relevance, name, newest, cardNumber, price_asc, price_desc, popular");
         };
     }
 }

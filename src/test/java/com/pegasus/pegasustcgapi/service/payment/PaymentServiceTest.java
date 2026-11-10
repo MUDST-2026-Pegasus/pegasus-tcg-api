@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service.payment;
 
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
@@ -9,11 +10,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.pegasus.pegasustcgapi.exception.ConflictException;
+import com.pegasus.pegasustcgapi.dto.payment.PaymentInfoResponse;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
@@ -22,11 +25,14 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
 import com.pegasus.pegasustcgapi.repository.finance.escrow.EscrowRepository;
 import com.pegasus.pegasustcgapi.repository.payment.PaymentRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
+import com.pegasus.pegasustcgapi.model.auction.Auction;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -44,11 +50,38 @@ class PaymentServiceTest {
     @Mock OrderLifecycleService orders;
     @Mock PlatformSettingService settings;
     @Mock StorageService storage;
+    @Mock AuctionRepository auctions;
+    private final com.pegasus.pegasustcgapi.config.PromptPayProperties promptPayProperties =
+            new com.pegasus.pegasustcgapi.config.PromptPayProperties(null, null, null, null);
     PaymentService service;
     AuthPrincipal buyer = new AuthPrincipal(7, null, null, Set.of());
 
     @BeforeEach void setUp() {
-        service = new PaymentService(payments, escrow, ledger, orders, settings, storage, Clock.systemUTC());
+        service = new PaymentService(payments, escrow, ledger, orders, settings, storage, Clock.systemUTC(),
+                auctions, promptPayProperties,
+                new com.pegasus.pegasustcgapi.service.payment.PromptPayQrService(promptPayProperties),
+                mock(AuditLogService.class));
+    }
+
+    @Test void auctionPaymentShowsDeadlineFromAuctionClose() {
+        SalesOrderRecord order = new SalesOrderRecord();
+        order.setId(11L);
+        order.setBuyerId(7L);
+        order.setAuctionId(5L);
+        PaymentRecord payment = new PaymentRecord();
+        payment.setId(21L);
+        payment.setSalesOrderId(11L);
+        Auction auction = mock(Auction.class);
+        OffsetDateTime due = OffsetDateTime.parse("2026-11-06T10:00:00Z");
+        when(auction.paymentDueAt()).thenReturn(due);
+        when(auctions.findById(5L)).thenReturn(Optional.of(auction));
+        when(payments.find(21L)).thenReturn(Optional.of(payment));
+        when(payments.findOrder(11L)).thenReturn(Optional.of(order));
+        when(settings.get(PlatformSettingService.PAYMENT_TRANSFER_ACCOUNT))
+                .thenReturn(new com.pegasus.pegasustcgapi.repository.setting.PlatformSettingRepository.Setting(
+                        PlatformSettingService.PAYMENT_TRANSFER_ACCOUNT, "{}", null, null));
+
+        assertThat(service.get(buyer, 21L).expiresAt()).isEqualTo(due);
     }
 
     @Test void paymentCreationRequiresKeyBeforeReadingAnOrder() {
@@ -198,5 +231,41 @@ class PaymentServiceTest {
                 .isInstanceOf(BadRequestException.class);
         verifyNoInteractions(escrow, ledger, orders);
         verify(payments, never()).reject(eq(21L), eq(9L), any(), any());
+    }
+
+    @Test
+    void getPaymentInfoReturnsPromptPayQrAndDetails() {
+        SalesOrderRecord order = new SalesOrderRecord();
+        order.setId(11L);
+        order.setBuyerId(7L);
+        OffsetDateTime placedAt = OffsetDateTime.parse("2026-11-06T10:00:00Z");
+        order.setPlacedAt(placedAt);
+        order.setGrandTotal(new BigDecimal("673.00"));
+
+        when(payments.findOrder(11L)).thenReturn(Optional.of(order));
+        when(payments.activeForOrder(11L)).thenReturn(Optional.empty());
+        when(payments.unpaidTotal(11L)).thenReturn(new BigDecimal("673.00"));
+        when(settings.getMinutes(PlatformSettingService.ORDER_PAYMENT_TIMEOUT_MINUTES))
+                .thenReturn(java.time.Duration.ofMinutes(60));
+
+        PaymentInfoResponse info = service.getPaymentInfo(buyer, 11L);
+        assertThat(info.qrPayload()).isEqualTo("00020101021229370016A0000006770101110113006694776111953037645406673.005802TH5911PEGASUS TCG6007Bangkok6304C2AF");
+        assertThat(info.promptpayId()).isEqualTo("094-xxx-1119");
+        assertThat(info.bankName()).isEmpty();
+        assertThat(info.accountName()).isEqualTo("PEGASUS TCG");
+        assertThat(info.amount()).isEqualByComparingTo("673.00");
+        assertThat(info.expiresAt()).isEqualTo(placedAt.plusMinutes(60));
+    }
+
+    @Test
+    void getPaymentInfoThrowsNotFoundForNonOwner() {
+        SalesOrderRecord order = new SalesOrderRecord();
+        order.setId(11L);
+        order.setBuyerId(99L);
+
+        when(payments.findOrder(11L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> service.getPaymentInfo(buyer, 11L))
+                .isInstanceOf(NotFoundException.class);
     }
 }

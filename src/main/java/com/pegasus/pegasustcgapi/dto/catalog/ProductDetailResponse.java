@@ -2,6 +2,8 @@ package com.pegasus.pegasustcgapi.dto.catalog;
 
 import com.pegasus.pegasustcgapi.model.catalog.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.catalog.CatalogVariant;
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -15,5 +17,12 @@ import java.util.List;
 public record ProductDetailResponse(
         CatalogProduct product,
         List<CatalogVariant> variants,
-        List<CatalogImageResponse> images) {
+        List<CatalogImageResponse> images,
+        Auctions auctions) {
+    public record Auctions(int openCount, BigDecimal lowestCurrentPrice, OffsetDateTime nearestEndAt) {}
+
+    public ProductDetailResponse(CatalogProduct product, List<CatalogVariant> variants,
+            List<CatalogImageResponse> images) {
+        this(product, variants, images, new Auctions(0, null, null));
+    }
 }

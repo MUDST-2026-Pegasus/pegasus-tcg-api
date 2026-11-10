@@ -3,18 +3,23 @@ package com.pegasus.pegasustcgapi.service.auth;
 import com.pegasus.pegasustcgapi.service.user.RoleService;
 
 import com.pegasus.pegasustcgapi.dto.auth.AuthResponse;
+import com.pegasus.pegasustcgapi.dto.auth.GoogleLoginRequest;
 import com.pegasus.pegasustcgapi.dto.auth.LoginRequest;
 import com.pegasus.pegasustcgapi.dto.auth.RegisterRequest;
 import com.pegasus.pegasustcgapi.dto.auth.TokenResponse;
 import com.pegasus.pegasustcgapi.dto.user.UserResponse;
 import com.pegasus.pegasustcgapi.model.auth.AuthUser;
+import com.pegasus.pegasustcgapi.model.auth.IdentityProvider;
 import com.pegasus.pegasustcgapi.model.auth.IssuedToken;
 import com.pegasus.pegasustcgapi.model.user.RoleCode;
 import com.pegasus.pegasustcgapi.model.auth.StoredToken;
 import com.pegasus.pegasustcgapi.model.auth.TokenPurpose;
+import com.pegasus.pegasustcgapi.model.auth.UserIdentity;
 import com.pegasus.pegasustcgapi.model.user.UserStatus;
+import com.pegasus.pegasustcgapi.repository.auth.UserIdentityRepository;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
 import com.pegasus.pegasustcgapi.security.ClientInfo;
+import com.pegasus.pegasustcgapi.service.auth.GoogleTokenVerifier.GoogleIdentity;
 import com.pegasus.pegasustcgapi.config.AuthProperties;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
@@ -22,10 +27,13 @@ import com.pegasus.pegasustcgapi.exception.ForbiddenException;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
 import com.pegasus.pegasustcgapi.storage.StorageService;
+import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -34,6 +42,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 
 @Service
@@ -41,8 +50,14 @@ public class AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
     private static final java.time.Duration REFRESH_RETRY_GRACE = java.time.Duration.ofSeconds(10);
+    private static final String USERNAME_PREFIX = "user_";
+    private static final String USERNAME_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+    private static final int USERNAME_RANDOM_LENGTH = 6;
+    private static final int MAX_USERNAME_ATTEMPTS = 10;
+    private static final int MAX_DISPLAY_NAME_LENGTH = 100;
 
     private final UserRepository users;
+    private final UserIdentityRepository userIdentities;
     private final RoleService roles;
     private final AuthTokenService authTokens;
     private final JwtService jwtService;
@@ -50,21 +65,30 @@ public class AuthService {
     private final AuthProperties properties;
     private final StorageService storage;
     private final Clock clock;
-
+    private final GoogleTokenVerifier googleTokenVerifier;
+    private final TransactionOperations tx;
+    private final SecureRandom secureRandom = new SecureRandom();
 
     private final String decoyHash;
 
+    public record GoogleAuthResult(AuthResponse response, boolean created) {
+    }
+
     public AuthService(
             UserRepository users,
+            UserIdentityRepository userIdentities,
             RoleService roles,
             AuthTokenService authTokens,
             JwtService jwtService,
             PasswordEncoder passwordEncoder,
             AuthProperties properties,
             StorageService storage,
-            Clock clock) {
+            Clock clock,
+            GoogleTokenVerifier googleTokenVerifier,
+            TransactionOperations tx) {
 
         this.users = users;
+        this.userIdentities = userIdentities;
         this.roles = roles;
         this.authTokens = authTokens;
         this.jwtService = jwtService;
@@ -72,6 +96,8 @@ public class AuthService {
         this.properties = properties;
         this.storage = storage;
         this.clock = clock;
+        this.googleTokenVerifier = googleTokenVerifier;
+        this.tx = Objects.requireNonNull(tx);
         this.decoyHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
@@ -107,7 +133,7 @@ public class AuthService {
         AuthUser user = loadWithRoles(userId);
         log.info("Registered user {} with roles {}", userId, user.roles());
 
-        return new AuthResponse(UserResponse.from(user), startSession(user, client));
+        return new AuthResponse(toUserResponse(user), startSession(user, client));
     }
 
     /**
@@ -127,6 +153,12 @@ public class AuthService {
         requireLoginAllowed(user);
         int attempt = reserveAttempt(user);
 
+        if (user.passwordHash() == null) {
+            passwordEncoder.matches(request.password(), decoyHash);
+            recordFailedAttempt(user, attempt);
+            throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
+        }
+
         if (!passwordEncoder.matches(request.password(), user.passwordHash())) {
             recordFailedAttempt(user, attempt);
             throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
@@ -135,7 +167,165 @@ public class AuthService {
         users.recordSuccessfulLogin(user.id(), OffsetDateTime.now(clock));
 
         AuthUser current = loadWithRoles(user.id());
-        return new AuthResponse(UserResponse.from(current), startSession(current, client));
+        return new AuthResponse(toUserResponse(current), startSession(current, client));
+    }
+
+    public GoogleAuthResult loginWithGoogle(GoogleLoginRequest request, ClientInfo client) {
+        GoogleIdentity googleUser = googleTokenVerifier.verify(request.credential());
+
+        Optional<UserIdentity> existingIdentity =
+                userIdentities.findByProviderAndSubject(IdentityProvider.GOOGLE, googleUser.subject());
+        if (existingIdentity.isPresent()) {
+            return new GoogleAuthResult(loginExistingGoogleIdentity(existingIdentity.get(), client), false);
+        }
+
+        Optional<AuthUser> existingUser = users.findByEmail(googleUser.email());
+        if (existingUser.isPresent()) {
+            return new GoogleAuthResult(linkAndLoginExistingAccount(existingUser.get(), googleUser, client), false);
+        }
+
+        if (users.existsByEmail(googleUser.email())) {
+            Optional<UserIdentity> raced =
+                    userIdentities.findByProviderAndSubject(IdentityProvider.GOOGLE, googleUser.subject());
+            if (raced.isPresent()) {
+                return new GoogleAuthResult(loginExistingGoogleIdentity(raced.get(), client), false);
+            }
+            throw new ConflictException(ErrorCode.EMAIL_ALREADY_USED);
+        }
+
+        return createNewGoogleUser(googleUser, client);
+    }
+
+    private AuthResponse loginExistingGoogleIdentity(UserIdentity identity, ClientInfo client) {
+        AuthUser user = users.findById(identity.userId())
+                .orElseThrow(() -> new ForbiddenException(ErrorCode.ACCOUNT_DEACTIVATED));
+        AuthUser userWithRoles = user.withRoles(roles.rolesOf(user.id()));
+        requireGoogleAllowed(userWithRoles);
+
+        return tx.execute(status -> {
+            OffsetDateTime now = OffsetDateTime.now(clock);
+            users.recordSuccessfulLogin(user.id(), now);
+            userIdentities.updateLastLoginAt(identity.id(), now);
+            AuthUser current = loadWithRoles(user.id());
+            return new AuthResponse(toUserResponse(current), startSession(current, client));
+        });
+    }
+
+    private AuthResponse linkAndLoginExistingAccount(
+            AuthUser existingUser, GoogleIdentity googleUser, ClientInfo client) {
+        AuthUser userWithRoles = existingUser.withRoles(roles.rolesOf(existingUser.id()));
+        requireGoogleAllowed(userWithRoles);
+
+        Optional<UserIdentity> existingGoogleIdentity =
+                userIdentities.findByUserIdAndProvider(existingUser.id(), IdentityProvider.GOOGLE);
+        if (existingGoogleIdentity.isPresent()) {
+            if (existingGoogleIdentity.get().providerSubject().equals(googleUser.subject())) {
+                return loginExistingGoogleIdentity(existingGoogleIdentity.get(), client);
+            }
+            throw new ConflictException(ErrorCode.GOOGLE_ALREADY_LINKED);
+        }
+        if (!isGoogleAuthoritativeEmail(googleUser)) {
+            throw new ConflictException(ErrorCode.GOOGLE_LINK_NOT_ALLOWED);
+        }
+
+        try {
+            return tx.execute(status -> {
+                OffsetDateTime now = OffsetDateTime.now(clock);
+                userIdentities.insert(existingUser.id(), IdentityProvider.GOOGLE, googleUser.subject(), now);
+                users.updatePasswordHash(existingUser.id(), null);
+                authTokens.revokeAll(existingUser.id(), TokenPurpose.REFRESH);
+                authTokens.revokeAll(existingUser.id(), TokenPurpose.PASSWORD_RESET);
+                users.recordSuccessfulLogin(existingUser.id(), now);
+                AuthUser current = loadWithRoles(existingUser.id());
+                TokenResponse tokens = startSession(current, client);
+                log.info("Linked existing account for user {} to Google identity", existingUser.id());
+                return new AuthResponse(toUserResponse(current), tokens);
+            });
+        } catch (DuplicateKeyException e) {
+            Optional<UserIdentity> raced = userIdentities.findByProviderAndSubject(
+                    IdentityProvider.GOOGLE, googleUser.subject());
+            if (raced.isPresent() && raced.get().userId() == existingUser.id()) {
+                return loginExistingGoogleIdentity(raced.get(), client);
+            }
+            throw new ConflictException(ErrorCode.GOOGLE_ALREADY_LINKED);
+        }
+    }
+
+    private GoogleAuthResult createNewGoogleUser(GoogleIdentity googleUser, ClientInfo client) {
+        for (int attempt = 1; attempt <= MAX_USERNAME_ATTEMPTS; attempt++) {
+            String username = generateUsername();
+            String displayName = resolveDisplayName(googleUser.name(), username);
+            try {
+                AuthResponse response = tx.execute(status -> {
+                    OffsetDateTime now = OffsetDateTime.now(clock);
+                    long userId = users.insert(new UserRepository.NewUser(
+                            googleUser.email(),
+                            username,
+                            displayName,
+                            null,
+                            null));
+                    userIdentities.insert(userId, IdentityProvider.GOOGLE, googleUser.subject(), now);
+                    roles.grant(userId, Set.of(RoleCode.BUYER), null);
+                    AuthUser user = loadWithRoles(userId);
+                    log.info("Registered Google user {} with roles {}", userId, user.roles());
+                    return new AuthResponse(toUserResponse(user), startSession(user, client));
+                });
+                return new GoogleAuthResult(response, true);
+            } catch (DuplicateKeyException e) {
+                if (isUsernameConflict(e)) {
+                    continue;
+                }
+                if (isIdentitySubjectConflict(e) || isEmailConflict(e)) {
+                    Optional<UserIdentity> raced = userIdentities.findByProviderAndSubject(
+                            IdentityProvider.GOOGLE, googleUser.subject());
+                    if (raced.isPresent()) {
+                        return new GoogleAuthResult(loginExistingGoogleIdentity(raced.get(), client), false);
+                    }
+                    throw new ConflictException(ErrorCode.EMAIL_ALREADY_USED);
+                }
+                throw new ConflictException(ErrorCode.DATA_CONFLICT);
+            }
+        }
+        throw new ConflictException(ErrorCode.USERNAME_ALREADY_USED);
+    }
+
+    private static void requireGoogleAllowed(AuthUser user) {
+        if (user.roles().contains(RoleCode.ADMIN) || user.roles().contains(RoleCode.SUPPORT)) {
+            throw new ForbiddenException(ErrorCode.GOOGLE_SIGNIN_NOT_ALLOWED);
+        }
+        switch (user.status()) {
+            case SUSPENDED -> throw new ForbiddenException(ErrorCode.ACCOUNT_SUSPENDED);
+            case DEACTIVATED -> throw new ForbiddenException(ErrorCode.ACCOUNT_DEACTIVATED);
+            case ACTIVE -> {
+                // Allowed.
+            }
+        }
+    }
+
+    private static boolean isGoogleAuthoritativeEmail(GoogleIdentity googleUser) {
+        if (!googleUser.emailVerified()) {
+            return false;
+        }
+        return googleUser.email().endsWith("@gmail.com") || googleUser.hasHostedDomain();
+    }
+
+    String generateUsername() {
+        StringBuilder sb = new StringBuilder(USERNAME_PREFIX.length() + USERNAME_RANDOM_LENGTH);
+        sb.append(USERNAME_PREFIX);
+        for (int i = 0; i < USERNAME_RANDOM_LENGTH; i++) {
+            sb.append(USERNAME_ALPHABET.charAt(secureRandom.nextInt(USERNAME_ALPHABET.length())));
+        }
+        return sb.toString();
+    }
+
+    static String resolveDisplayName(String googleName, String fallbackUsername) {
+        if (googleName == null || googleName.isBlank()) {
+            return fallbackUsername;
+        }
+        String trimmed = googleName.trim();
+        return trimmed.length() <= MAX_DISPLAY_NAME_LENGTH
+                ? trimmed
+                : trimmed.substring(0, MAX_DISPLAY_NAME_LENGTH);
     }
 
     /** Rotates the refresh token; a recently spent token may recover its successor after a lost response. */
@@ -193,7 +383,7 @@ public class AuthService {
         JwtService.AccessToken access = jwtService.issue(user);
         long remainingMillis = java.time.Duration.between(clock.instant(), refresh.expiresAt().toInstant()).toMillis();
         long refreshSeconds = Math.max(0, (remainingMillis + 999) / 1000);
-        return new AuthResponse(UserResponse.from(user), TokenResponse.bearer(
+        return new AuthResponse(toUserResponse(user), TokenResponse.bearer(
                 access.value(), access.expiresInSeconds(), refresh.value(), refreshSeconds));
     }
 
@@ -217,10 +407,15 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public UserResponse currentUser(long userId) {
-        AuthUser user = loadWithRoles(userId);
+        return toUserResponse(loadWithRoles(userId));
+    }
+
+    private UserResponse toUserResponse(AuthUser user) {
         String signedAvatar = user.avatarUrl() == null ? null
                 : storage.presignDownload(user.avatarUrl());
-        return UserResponse.from(user, signedAvatar);
+        String signedBanner = user.bannerUrl() == null ? null
+                : storage.presignDownload(user.bannerUrl());
+        return UserResponse.from(user, signedAvatar, signedBanner);
     }
 
     /** Opens a brand new session; used by login, registration and password changes. */
@@ -311,14 +506,29 @@ public class AuthService {
 
     /** Which unique index the database rejected on; the constraint names are in migration V1. */
     private static ErrorCode conflictCode(DuplicateKeyException e) {
-        String message = String.valueOf(e.getMostSpecificCause().getMessage());
-        if (message.contains("uq_user_account_username")) {
+        if (isUsernameConflict(e)) {
             return ErrorCode.USERNAME_ALREADY_USED;
         }
         return ErrorCode.EMAIL_ALREADY_USED;
     }
 
-    private static String normalizeEmail(String email) {
+    private static boolean isUsernameConflict(DuplicateKeyException e) {
+        return constraintMessage(e).contains("uq_user_account_username");
+    }
+
+    private static boolean isEmailConflict(DuplicateKeyException e) {
+        return constraintMessage(e).contains("uq_user_account_email");
+    }
+
+    private static boolean isIdentitySubjectConflict(DuplicateKeyException e) {
+        return constraintMessage(e).contains("uq_user_identity_subject");
+    }
+
+    private static String constraintMessage(DuplicateKeyException e) {
+        return String.valueOf(e.getMostSpecificCause().getMessage());
+    }
+
+    public static String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
     }
 

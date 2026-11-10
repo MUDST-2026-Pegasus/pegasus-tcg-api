@@ -4,6 +4,7 @@ import com.pegasus.pegasustcgapi.service.cart.CartService;
 import com.pegasus.pegasustcgapi.service.finance.refund.RefundService;
 import com.pegasus.pegasustcgapi.service.order.CheckoutService;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
+import com.pegasus.pegasustcgapi.service.listing.StockForecastService;
 import com.pegasus.pegasustcgapi.service.payment.PaymentService;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.EscrowHold.ESCROW_HOLD;
@@ -21,9 +22,11 @@ import com.pegasus.pegasustcgapi.dto.cart.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
+import com.pegasus.pegasustcgapi.model.listing.StockForecastStatus;
 import com.pegasus.pegasustcgapi.repository.payment.PaymentRepository;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -39,6 +42,7 @@ class ReturnServiceIntegrationTest extends PostgresIntegrationTest {
     @Autowired OrderLifecycleService orders;
     @Autowired ReturnService returns;
     @Autowired RefundService refunds;
+    @Autowired StockForecastService forecasts;
 
     @Test
     void rejectingAClaimResumesTheOriginalReleaseClock() {
@@ -154,6 +158,43 @@ class ReturnServiceIntegrationTest extends PostgresIntegrationTest {
                 .where(COLLECTION_ITEM.SOURCE_ORDER_ITEM_ID.eq(itemId))
                 .fetchSingle(0, int.class)).isEqualTo(1);
         assertFinanceInvariants(startingDifference);
+    }
+
+    @Test
+    void partialReturnForecastCountsOnlyKeptUnits() {
+        var seller = data.seller();
+        var buyer = data.buyer();
+        var card = data.card(data.game("Pokemon"), "Forecast return " + data.tag(), "AR");
+        var listing = data.onSale(seller, card, CardCondition.NM, 5, "100.00");
+        cart.addItem(buyer, null, new CartItemRequest(listing.id(), 3));
+        var order = checkout.checkout(buyer, "forecast-return-" + data.tag(), null, null);
+        long suborderId = order.sellerOrders().getFirst().id();
+        long itemId = order.sellerOrders().getFirst().items().getFirst().id();
+        var payment = payments.create(buyer, order.orderId(), "BANK_TRANSFER", "forecast-payment-" + data.tag());
+        paymentRows.attachSlip(payment.id(), "payments/forecast-" + data.tag() + ".png", "BANK-FORECAST");
+        long adminId = data.admin().userId();
+        payments.verify(adminId, payment.id(), true, null);
+        orders.shipSellerOrder(seller.principal(), suborderId,
+                new ShipOrderRequest("Thailand Post", "FORECAST-456", "TH_POST", null, null));
+
+        var request = returns.request(buyer.userId(), suborderId, "NOT_AS_DESCRIBED",
+                "Two damaged cards", List.of(), List.of(new ReturnService.Item(itemId, 2)));
+        returns.approve(seller.userId(), request.getId(), "PARTIAL_REFUND",
+                new BigDecimal("200.00"), true);
+        returns.ship(buyer.userId(), suborderId, request.getId(), "RETURN-FORECAST");
+        returns.receive(seller.userId(), request.getId(), true);
+        var refund = dsl.selectFrom(REFUND).where(REFUND.RETURN_REQUEST_ID.eq(request.getId())).fetchSingle();
+        refunds.setDestination(refund.getId(), buyer.userId(), "Test Bank", "Test Buyer", "1234567890");
+        refunds.startTransfer(refund.getId(), adminId, "1234567890");
+        refunds.processed(refund.getId(), adminId, "REF-FORECAST");
+
+        clock.advance(Duration.ofSeconds(1));
+        var forecast = forecasts.detail(seller.userId(), listing.id());
+        assertThat(dsl.select(SELLER_ORDER.COMPLETED_AT).from(SELLER_ORDER)
+                .where(SELLER_ORDER.ID.eq(suborderId)).fetchSingle(SELLER_ORDER.COMPLETED_AT)).isNotNull();
+        assertThat(forecast.availableStock()).isEqualTo(2);
+        assertThat(forecast.completedSales30Days()).isEqualTo(1);
+        assertThat(forecast.status()).isEqualTo(StockForecastStatus.INSUFFICIENT_DATA);
     }
 
     @Test

@@ -33,7 +33,13 @@ public class StorageConfig {
             StorageProperties properties, @Qualifier("minioClient") MinioClient minioClient) {
         return properties.sharesEndpoint()
                 ? minioClient
-                : client(properties, properties.publicEndpoint());
+                : MinioClient.builder()
+                        .endpoint(properties.publicEndpoint())
+                        .credentials(properties.accessKey(), properties.secretKey())
+                        // Presigning otherwise queries the bucket region through the
+                        // public URL. Inside Docker, localhost points at this container.
+                        .region("us-east-1")
+                        .build();
     }
 
     /**

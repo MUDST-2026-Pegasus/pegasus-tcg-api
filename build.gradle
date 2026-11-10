@@ -5,7 +5,7 @@ buildscript {
     dependencies {
         // Flyway resolves database modules from its own classloader, so the
         // Postgres support has to sit on the buildscript classpath.
-        classpath 'org.flywaydb:flyway-database-postgresql:13.11.1'
+        classpath 'org.flywaydb:flyway-database-postgresql:13.12.1'
         classpath 'org.postgresql:postgresql:42.7.14'
     }
 }
@@ -14,7 +14,7 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '4.1.2'
     id 'io.spring.dependency-management' version '1.1.7'
-    id 'org.flywaydb.flyway' version '13.11.1'
+    id 'org.flywaydb.flyway' version '13.12.1'
     id 'org.jooq.jooq-codegen-gradle' version '3.21.9'
     id 'jacoco'
 }
@@ -42,9 +42,19 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // Spring Boot 4 renamed the AOP starter to AspectJ.
+    implementation 'org.springframework.boot:spring-boot-starter-aspectj'
+    implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+    implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    // Spring Boot 4 auto-instruments JDBC with Micrometer observations and spans.
+    implementation 'net.ttddyy.observation:datasource-micrometer-spring-boot:2.3.0'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.86'
+    // Generates the signed-in user's order-summary PDF without a web-rendering runtime.
+    implementation 'org.apache.pdfbox:pdfbox:3.0.8'
     // Object storage. Talks S3 to MinIO in compose.yaml.
-    implementation 'io.minio:minio:9.0.3'
+    implementation 'io.minio:minio:9.0.4'
 
     // OpenAPI 3 / Swagger UI
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0'
@@ -71,10 +81,11 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-// Resolve DB settings the same way the app does: real env var first, then .env, then default.
+// Resolve DB settings the same way the app does: real env var, selected file, then default.
 def dotenv = new Properties()
-if (file('.env').exists()) {
-    file('.env').withInputStream { dotenv.load(it) }
+def envFile = file(System.getenv('APP_ENV_FILE') ?: '.env')
+if (envFile.exists()) {
+    envFile.withInputStream { dotenv.load(it) }
 }
 def dbSetting = { String key, String fallback ->
     System.getenv(key) ?: dotenv.getProperty(key) ?: fallback
@@ -142,12 +153,21 @@ tasks.named('jooqCodegen') {
     dependsOn tasks.named('flywayMigrate')
 }
 
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(ProcessResources).configureEach {
+    filteringCharset = 'UTF-8'
+}
+
 tasks.named('compileJava') {
     dependsOn tasks.named('jooqCodegen')
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+    systemProperty 'file.encoding', 'UTF-8'
     finalizedBy tasks.named('jacocoTestReport')
 }
 
@@ -169,4 +189,14 @@ jacocoTestReport {
             ])
         }))
     }
+}
+
+// ErrorCode → build/i18n/errors/en.json สำหรับ Tolgee namespace `errors` (CI push เข้า Tolgee) [TCG-548]
+tasks.register('exportErrorCatalog', JavaExec) {
+    group = 'i18n'
+    description = 'Writes every ErrorCode and its default message to build/i18n/errors/en.json'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.pegasus.pegasustcgapi.exception.ErrorCatalog'
+    args layout.buildDirectory.file('i18n/errors/en.json').get().asFile.path
+    outputs.file(layout.buildDirectory.file('i18n/errors/en.json'))
 }

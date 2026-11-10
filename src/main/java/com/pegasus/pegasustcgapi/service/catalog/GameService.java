@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.catalog;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.common.Slugs;
 import com.pegasus.pegasustcgapi.exception.ApiException;
@@ -16,6 +18,7 @@ import com.pegasus.pegasustcgapi.repository.catalog.GameRepository.GameFields;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,11 +43,13 @@ public class GameService {
     private final GameRepository games;
     private final GameAttributeRepository attributes;
     private final StorageService storage;
+    private final AuditLogService audit;
 
-    public GameService(GameRepository games, GameAttributeRepository attributes, StorageService storage) {
+    public GameService(GameRepository games, GameAttributeRepository attributes, StorageService storage, AuditLogService audit) {
         this.games = games;
         this.attributes = attributes;
         this.storage = storage;
+        this.audit = audit;
     }
 
     // ---------- games ----------
@@ -85,11 +90,13 @@ public class GameService {
         short id = games.insert(fields, createdBy);
         log.info("Created game: name='{}' code='{}' id={}",
                 LogSanitizer.sanitize(fields.name()), LogSanitizer.sanitize(code), id);
+        audit.record(createdBy, AuditAction.GAME_CREATED, id, "Created game \"" + fields.name() + "\"",
+                AuditLogService.meta("code", code, "slug", slug));
         return require(id);
     }
 
     @Transactional
-    public Game update(short gameId, GameFields requested) {
+    public Game update(short gameId, GameFields requested, long adminId) {
         Game existing = require(gameId);
         requireLogoUsable(requested.logoUrl(), existing.logoUrl());
 
@@ -102,7 +109,10 @@ public class GameService {
                 blankToNull(requested.nameLocal()), null, blankToNull(requested.logoUrl()),
                 requested.displayOrder(), requested.active()));
 
-        return require(gameId);
+        Game updated = require(gameId);
+        audit.record(adminId, AuditAction.GAME_UPDATED, gameId, "Updated game \"" + updated.name() + "\"",
+                AuditLogService.diff(existing, updated));
+        return updated;
     }
 
     /**
@@ -132,7 +142,7 @@ public class GameService {
     }
 
     @Transactional
-    public GameAttribute addAttribute(short gameId, AttributeFields requested) {
+    public GameAttribute addAttribute(short gameId, AttributeFields requested, long adminId) {
         require(gameId);
 
         AttributeFields fields = validated(requested);
@@ -141,6 +151,9 @@ public class GameService {
         }
 
         int id = attributes.insert(gameId, fields);
+        audit.record(adminId, AuditAction.GAME_ATTRIBUTE_CREATED, gameId,
+                "Added attribute \"" + fields.attrKey() + "\" to game #" + gameId,
+                AuditLogService.meta("attributeId", id, "attrKey", fields.attrKey()));
         return requireAttribute(gameId, id);
     }
 
@@ -151,8 +164,9 @@ public class GameService {
      * trusting what was valid when it was first saved.
      */
     @Transactional
-    public GameAttribute updateAttribute(short gameId, int attributeId, AttributeFields requested) {
-        requireAttribute(gameId, attributeId);
+    public GameAttribute updateAttribute(short gameId, int attributeId, AttributeFields requested,
+            long adminId) {
+        GameAttribute existing = requireAttribute(gameId, attributeId);
 
         AttributeFields fields = validated(requested);
         if (attributes.keyTaken(gameId, fields.attrKey(), attributeId)) {
@@ -160,13 +174,21 @@ public class GameService {
         }
 
         attributes.update(attributeId, fields);
-        return requireAttribute(gameId, attributeId);
+        GameAttribute updated = requireAttribute(gameId, attributeId);
+        Map<String, Object> changes = AuditLogService.diff(existing, updated);
+        changes.put("attributeId", attributeId);
+        audit.record(adminId, AuditAction.GAME_ATTRIBUTE_UPDATED, gameId,
+                "Updated attribute \"" + updated.attrKey() + "\" of game #" + gameId, changes);
+        return updated;
     }
 
     @Transactional
-    public void deleteAttribute(short gameId, int attributeId) {
-        requireAttribute(gameId, attributeId);
+    public void deleteAttribute(short gameId, int attributeId, long adminId) {
+        GameAttribute doomed = requireAttribute(gameId, attributeId);
         attributes.delete(attributeId);
+        audit.record(adminId, AuditAction.GAME_ATTRIBUTE_DELETED, gameId,
+                "Deleted attribute \"" + doomed.attrKey() + "\" of game #" + gameId,
+                AuditLogService.meta("attributeId", attributeId, "attrKey", doomed.attrKey()));
         log.info("Deleted attribute {} of game {}", attributeId, gameId);
     }
 

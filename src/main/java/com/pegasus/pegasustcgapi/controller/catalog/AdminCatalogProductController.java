@@ -1,6 +1,7 @@
 package com.pegasus.pegasustcgapi.controller.catalog;
 
 import com.pegasus.pegasustcgapi.common.ApiPaths;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import com.pegasus.pegasustcgapi.common.ApiResult;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.CatalogCardEffectRequest;
@@ -10,10 +11,11 @@ import com.pegasus.pegasustcgapi.dto.catalog.CatalogImageRequest;
 import com.pegasus.pegasustcgapi.dto.catalog.CatalogImageResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductDetailResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductRequest;
-import com.pegasus.pegasustcgapi.dto.catalog.ProductSummaryResponse;
+import com.pegasus.pegasustcgapi.dto.catalog.AdminProductSummaryResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.VariantRequest;
 import com.pegasus.pegasustcgapi.model.catalog.CatalogProduct;
 import com.pegasus.pegasustcgapi.model.catalog.CatalogVariant;
+import com.pegasus.pegasustcgapi.model.catalog.AdminSaleStatus;
 import com.pegasus.pegasustcgapi.model.catalog.ProductType;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogCardEffectService;
@@ -21,6 +23,7 @@ import com.pegasus.pegasustcgapi.service.catalog.CatalogImageService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogProductService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogSearchService;
 import com.pegasus.pegasustcgapi.service.catalog.ProductBrowse;
+import com.pegasus.pegasustcgapi.service.listing.AdminCardListingService;
 import com.pegasus.pegasustcgapi.service.catalog.CatalogVariantService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -49,6 +52,7 @@ import org.springframework.web.bind.annotation.RestController;
  * deactivated instead. Variants are never deleted on their own. Images are
  * always deletable: an image is a file, and removing it removes the file too.
  */
+@SecurityRequirement(name = "BearerAuth")
 @RestController
 @RequestMapping(ApiPaths.ADMIN + "/catalog")
 @PreAuthorize("hasRole('ADMIN')")
@@ -59,16 +63,19 @@ public class AdminCatalogProductController {
     private final CatalogImageService images;
     private final CatalogSearchService search;
     private final CatalogCardEffectService effects;
+    private final AdminCardListingService listings;
 
     public AdminCatalogProductController(CatalogProductService products,
             CatalogVariantService variants, CatalogImageService images,
-            CatalogSearchService search, CatalogCardEffectService effects) {
+            CatalogSearchService search, CatalogCardEffectService effects,
+            AdminCardListingService listings) {
 
         this.products = products;
         this.variants = variants;
         this.images = images;
         this.search = search;
         this.effects = effects;
+        this.listings = listings;
     }
 
     // ---------- products ----------
@@ -79,21 +86,22 @@ public class AdminCatalogProductController {
      * someone who already knows its id.
      */
     @GetMapping("/products")
-    public ApiResult<PageResponse<ProductSummaryResponse>> browse(
+    public ApiResult<PageResponse<AdminProductSummaryResponse>> browse(
             @RequestParam(required = false) Short gameId,
             @RequestParam(required = false) Integer categoryId,
             @RequestParam(required = false) Integer cardSetId,
             @RequestParam(required = false) ProductType productType,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String sort,
+            @RequestParam(required = false) AdminSaleStatus saleStatus,
             @RequestParam(defaultValue = "false") boolean activeOnly,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam Map<String, String> allParameters) {
 
-        return ApiResult.success(search.search(new ProductBrowse(
+        return ApiResult.success(listings.withStock(search.search(new ProductBrowse(
                 gameId == null ? null : Set.of(gameId), categoryId, cardSetId, productType, q,
-                allParameters, sort, activeOnly, false, null, null, null, page, size)));
+                allParameters, sort, activeOnly, false, null, null, null, page, size, saleStatus))));
     }
 
     /**
@@ -123,9 +131,11 @@ public class AdminCatalogProductController {
     /** The game and the slug are fixed at creation; everything else is editable. */
     @PutMapping("/products/{productId}")
     public ApiResult<CatalogProduct> updateProduct(
-            @PathVariable long productId, @Valid @RequestBody ProductRequest request) {
+            @PathVariable long productId, @Valid @RequestBody ProductRequest request,
+            AuthPrincipal principal) {
 
-        return ApiResult.success("Product updated", products.update(productId, request.toFields()));
+        return ApiResult.success("Product updated",
+                products.update(productId, request.toFields(), principal.userId()));
     }
 
     /**
@@ -133,8 +143,8 @@ public class AdminCatalogProductController {
      * once a listing, an order or a collection points at it; retire it then.
      */
     @DeleteMapping("/products/{productId}")
-    public ApiResult<Void> deleteProduct(@PathVariable long productId) {
-        products.delete(productId);
+    public ApiResult<Void> deleteProduct(@PathVariable long productId, AuthPrincipal principal) {
+        products.delete(productId, principal.userId());
         return ApiResult.success("Product deleted", null);
     }
 
@@ -148,9 +158,10 @@ public class AdminCatalogProductController {
 
     @PostMapping("/products/{productId}/variants")
     public ResponseEntity<ApiResult<CatalogVariant>> createVariant(
-            @PathVariable long productId, @Valid @RequestBody VariantRequest request) {
+            @PathVariable long productId, @Valid @RequestBody VariantRequest request,
+            AuthPrincipal principal) {
 
-        CatalogVariant created = variants.create(productId, request.toFields());
+        CatalogVariant created = variants.create(productId, request.toFields(), principal.userId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResult.success("Variant added", created));
     }
@@ -159,10 +170,11 @@ public class AdminCatalogProductController {
     public ApiResult<CatalogVariant> updateVariant(
             @PathVariable long productId,
             @PathVariable long variantId,
-            @Valid @RequestBody VariantRequest request) {
+            @Valid @RequestBody VariantRequest request,
+            AuthPrincipal principal) {
 
         return ApiResult.success("Variant updated",
-                variants.update(productId, variantId, request.toFields()));
+                variants.update(productId, variantId, request.toFields(), principal.userId()));
     }
 
     // ---------- images ----------
@@ -174,24 +186,27 @@ public class AdminCatalogProductController {
      */
     @PostMapping("/products/{productId}/images")
     public ResponseEntity<ApiResult<CatalogImageResponse>> addImage(
-            @PathVariable long productId, @Valid @RequestBody CatalogImageRequest request) {
+            @PathVariable long productId, @Valid @RequestBody CatalogImageRequest request,
+            AuthPrincipal principal) {
 
-        CatalogImageResponse created = images.add(productId, request.toFields());
+        CatalogImageResponse created = images.add(productId, request.toFields(), principal.userId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResult.success("Image added", created));
     }
 
     @PutMapping("/products/{productId}/images/{imageId}/primary")
     public ApiResult<CatalogImageResponse> makePrimary(
-            @PathVariable long productId, @PathVariable long imageId) {
+            @PathVariable long productId, @PathVariable long imageId, AuthPrincipal principal) {
 
-        return ApiResult.success("Primary image set", images.makePrimary(productId, imageId));
+        return ApiResult.success("Primary image set",
+                images.makePrimary(productId, imageId, principal.userId()));
     }
 
     /** Removes the row and the object behind it; the next image takes over as primary. */
     @DeleteMapping("/products/{productId}/images/{imageId}")
-    public ApiResult<Void> deleteImage(@PathVariable long productId, @PathVariable long imageId) {
-        images.delete(productId, imageId);
+    public ApiResult<Void> deleteImage(@PathVariable long productId, @PathVariable long imageId,
+            AuthPrincipal principal) {
+        images.delete(productId, imageId, principal.userId());
         return ApiResult.success("Image deleted", null);
     }
 
@@ -206,9 +221,11 @@ public class AdminCatalogProductController {
     /** Replaces the whole list; each effect's place in it is its display order. */
     @PutMapping("/products/{productId}/effects")
     public ApiResult<List<CatalogCardEffectResponse>> replaceEffects(
-            @PathVariable long productId, @Valid @RequestBody CatalogCardEffectsRequest request) {
+            @PathVariable long productId, @Valid @RequestBody CatalogCardEffectsRequest request,
+            AuthPrincipal principal) {
 
         return ApiResult.success("Abilities and attacks saved", effects.replace(productId,
-                request.effects().stream().map(CatalogCardEffectRequest::toFields).toList()));
+                request.effects().stream().map(CatalogCardEffectRequest::toFields).toList(),
+                principal.userId()));
     }
 }

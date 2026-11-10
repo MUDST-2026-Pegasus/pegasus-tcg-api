@@ -32,7 +32,7 @@ class CatalogProductDeleteIntegrationTest extends PostgresIntegrationTest {
                 .set(CATALOG_IMAGE.IS_PRIMARY, true)
                 .execute();
 
-        products.delete(card.productId());
+        products.delete(card.productId(), data.admin().userId());
 
         assertThat(dsl.fetchExists(CATALOG_PRODUCT, CATALOG_PRODUCT.ID.eq(card.productId()))).isFalse();
         assertThat(dsl.fetchExists(CATALOG_VARIANT, CATALOG_VARIANT.ID.eq(card.variantId()))).isFalse();
@@ -46,7 +46,7 @@ class CatalogProductDeleteIntegrationTest extends PostgresIntegrationTest {
         Card card = data.card(data.game("Pokemon"), "Charizard ex", "SAR");
         data.onSale(data.seller(), card, CardCondition.NM, 1, "1500.00");
 
-        assertThatThrownBy(() -> products.delete(card.productId()))
+        assertThatThrownBy(() -> products.delete(card.productId(), data.admin().userId()))
                 .isInstanceOf(ConflictException.class)
                 .extracting(e -> ((ConflictException) e).errorCode())
                 .isEqualTo(ErrorCode.PRODUCT_IN_USE);

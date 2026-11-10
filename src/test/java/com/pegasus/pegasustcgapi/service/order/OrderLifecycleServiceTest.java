@@ -32,8 +32,12 @@ import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -44,7 +48,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -60,6 +63,12 @@ class OrderLifecycleServiceTest {
 
     @Mock
     private OrderRepository orderRepository;
+    @Mock
+    private OrderTransitionRepository orderTransitionRepository;
+    @Mock
+    private OrderQueryRepository orderQueryRepository;
+    @Mock
+    private OrderReferenceQueryRepository orderReferenceQueryRepository;
 
     @Mock
     private SellerPort sellerPort;
@@ -76,7 +85,9 @@ class OrderLifecycleServiceTest {
     @Mock
     private CollectionPort collectionPort;
 
-    @InjectMocks
+    @Mock
+    private com.pegasus.pegasustcgapi.repository.auction.AuctionRepository auctionRepository;
+
     private OrderLifecycleService service;
 
     private final AuthPrincipal buyerPrincipal = new AuthPrincipal(42L, "buyer@example.com", "buyer", Set.of(RoleCode.BUYER));
@@ -84,6 +95,9 @@ class OrderLifecycleServiceTest {
 
     @BeforeEach
     void setUp() {
+        service = new OrderLifecycleService(orderRepository, orderTransitionRepository, orderQueryRepository,
+                orderReferenceQueryRepository, sellerPort, platformSettingService, inventoryPort, ledgerPort,
+                collectionPort, Clock.systemUTC(), null, auctionRepository);
     }
 
     private SalesOrderRecord mockSalesOrder(long id, long buyerId, String status, OffsetDateTime placedAt) {
@@ -137,10 +151,10 @@ class OrderLifecycleServiceTest {
         when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(salesOrder));
         when(platformSettingService.getHours(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS))
                 .thenReturn(Duration.ofHours(24));
-        when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
-        when(orderRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("CANCELLED"), any(), any(), any(), any(), any(), anyString()))
+        when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
+        when(orderTransitionRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("CANCELLED"), any(), any(), any(), any(), any(), anyString()))
                 .thenReturn(1);
-        when(orderRepository.findUnitIdsBySellerOrderId(10L)).thenReturn(List.of(501L, 502L));
+        when(orderQueryRepository.findUnitIdsBySellerOrderId(10L)).thenReturn(List.of(501L, 502L));
         when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(salesOrder));
         when(orderRepository.findSalesOrderById(1L)).thenReturn(Optional.of(salesOrder));
 
@@ -148,7 +162,7 @@ class OrderLifecycleServiceTest {
 
         assertThat(response).isNotNull();
         verify(inventoryPort).release(List.of(501L, 502L));
-        verify(orderRepository).insertStatusHistory(eq(10L), eq("PENDING_PAYMENT"), eq("CANCELLED"), eq(buyerPrincipal.userId()), eq("Changed my mind"));
+        verify(orderTransitionRepository).insertStatusHistory(eq(10L), eq("PENDING_PAYMENT"), eq("CANCELLED"), eq(buyerPrincipal.userId()), eq("Changed my mind"));
     }
 
     @Test
@@ -159,10 +173,10 @@ class OrderLifecycleServiceTest {
         SellerOrderRecord sellerOrder = mockSellerOrder(10L, 1L, 77L, "PENDING_PAYMENT");
 
         when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(salesOrder));
-        when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
-        when(orderRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("CANCELLED"), any(), any(), any(), any(), any(), any()))
+        when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
+        when(orderTransitionRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("CANCELLED"), any(), any(), any(), any(), any(), any()))
                 .thenReturn(1);
-        when(orderRepository.findUnitIdsBySellerOrderId(10L)).thenReturn(List.of(888L));
+        when(orderQueryRepository.findUnitIdsBySellerOrderId(10L)).thenReturn(List.of(888L));
         when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(salesOrder));
         when(orderRepository.findSalesOrderById(1L)).thenReturn(Optional.of(salesOrder));
 
@@ -208,10 +222,10 @@ class OrderLifecycleServiceTest {
 
         when(orderRepository.findSellerOrderById(10L)).thenReturn(Optional.of(sellerOrder));
         when(orderRepository.findSalesOrderByIdAndBuyerId(1L, buyerPrincipal.userId())).thenReturn(Optional.of(salesOrder));
-        when(orderRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("COMPLETED"), any(), any(), any(), any(), any(), any()))
+        when(orderTransitionRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("COMPLETED"), any(), any(), any(), any(), any(), any()))
                 .thenReturn(1);
         when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(salesOrder));
-        when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
+        when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
         when(orderRepository.findSalesOrderById(1L)).thenReturn(Optional.of(salesOrder));
 
         OrderDetailsResponse response = service.confirmBuyerOrderReceived(buyerPrincipal, 10L);
@@ -219,7 +233,7 @@ class OrderLifecycleServiceTest {
         assertThat(response).isNotNull();
         verify(ledgerPort).release(10L);
         verify(collectionPort).grant(buyerPrincipal.userId(), 10L);
-        verify(orderRepository).insertStatusHistory(eq(10L), eq("SHIPPED"), eq("COMPLETED"), eq(buyerPrincipal.userId()), anyString());
+        verify(orderTransitionRepository).insertStatusHistory(eq(10L), eq("SHIPPED"), eq("COMPLETED"), eq(buyerPrincipal.userId()), anyString());
     }
 
     @Test
@@ -232,14 +246,14 @@ class OrderLifecycleServiceTest {
         when(orderRepository.findSellerOrderByIdAndSellerProfileId(10L, 77L)).thenReturn(Optional.of(sellerOrder));
         when(platformSettingService.getDays(PlatformSettingService.ESCROW_AUTO_RELEASE_DAYS))
                 .thenReturn(Duration.ofDays(7));
-        when(orderRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("SHIPPED"), any(), any(), any(), any(), any(), any()))
+        when(orderTransitionRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("SHIPPED"), any(), any(), any(), any(), any(), any()))
                 .thenReturn(1);
 
-        when(orderRepository.findUnitIdsGroupedBySellerOrderId(10L)).thenReturn(Map.of(100L, List.of(888L)));
+        when(orderQueryRepository.findUnitIdsGroupedBySellerOrderId(10L)).thenReturn(Map.of(100L, List.of(888L)));
 
         SalesOrderRecord salesOrder = mockSalesOrder(1L, buyerPrincipal.userId(), "PAID", OffsetDateTime.now());
         when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(salesOrder));
-        when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
+        when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
         when(orderRepository.findSellerOrderById(10L)).thenReturn(Optional.of(sellerOrder));
 
         ShipOrderRequest shipRequest = new ShipOrderRequest("Flash Express", "FL9876543210", "FLASH", "proof/ship_10.jpg", LocalDate.now().plusDays(2));
@@ -247,8 +261,8 @@ class OrderLifecycleServiceTest {
 
         assertThat(response).isNotNull();
         verify(inventoryPort).commitSale(100L, List.of(888L), sellerPrincipal.userId());
-        verify(orderRepository).insertShipment(eq(10L), eq("FLASH"), eq("Flash Express"), eq("FL9876543210"), eq("IN_TRANSIT"), any(), any(), eq("proof/ship_10.jpg"), eq(sellerPrincipal.userId()));
-        verify(orderRepository).insertStatusHistory(eq(10L), eq("PAID"), eq("SHIPPED"), eq(sellerPrincipal.userId()), anyString());
+        verify(orderTransitionRepository).insertShipment(eq(10L), eq("FLASH"), eq("Flash Express"), eq("FL9876543210"), eq("IN_TRANSIT"), any(), any(), eq("proof/ship_10.jpg"), eq(sellerPrincipal.userId()));
+        verify(orderTransitionRepository).insertStatusHistory(eq(10L), eq("PAID"), eq("SHIPPED"), eq(sellerPrincipal.userId()), anyString());
     }
 
     @Test
@@ -256,18 +270,18 @@ class OrderLifecycleServiceTest {
     void autoCompleteSellerOrder_Success() {
         SellerOrderRecord sellerOrder = mockSellerOrder(10L, 1L, 77L, "SHIPPED");
         when(orderRepository.findSellerOrderById(10L)).thenReturn(Optional.of(sellerOrder));
-        when(orderRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("COMPLETED"), any(), any(), any(), any(), any(), any()))
+        when(orderTransitionRepository.updateSellerOrderStatus(eq(10L), anyCollection(), eq("COMPLETED"), any(), any(), any(), any(), any(), any()))
                 .thenReturn(1);
 
         SalesOrderRecord salesOrder = mockSalesOrder(1L, buyerPrincipal.userId(), "PAID", OffsetDateTime.now().minusDays(8));
         when(orderRepository.findSalesOrderById(1L)).thenReturn(Optional.of(salesOrder));
         when(orderRepository.findSalesOrderByIdForUpdate(1L)).thenReturn(Optional.of(salesOrder));
-        when(orderRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
+        when(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).thenReturn(List.of(sellerOrder));
 
         service.autoCompleteSellerOrder(10L);
 
         verify(ledgerPort).release(10L);
         verify(collectionPort).grant(buyerPrincipal.userId(), 10L);
-        verify(orderRepository).insertStatusHistory(eq(10L), eq("SHIPPED"), eq("COMPLETED"), eq(null), anyString());
+        verify(orderTransitionRepository).insertStatusHistory(eq(10L), eq("SHIPPED"), eq("COMPLETED"), eq(null), anyString());
     }
 }

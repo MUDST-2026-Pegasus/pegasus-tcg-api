@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -13,6 +15,9 @@ import com.pegasus.pegasustcgapi.common.ApiPaths;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.dto.order.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.order.OrderDetailsResponse;
+import com.pegasus.pegasustcgapi.dto.order.ReorderItemsResponse;
+import com.pegasus.pegasustcgapi.dto.payment.PaymentInfoResponse;
+import com.pegasus.pegasustcgapi.exception.BadRequestException;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.GlobalExceptionHandler;
@@ -20,6 +25,9 @@ import com.pegasus.pegasustcgapi.exception.NotFoundException;
 import com.pegasus.pegasustcgapi.security.AuthClaims;
 import com.pegasus.pegasustcgapi.security.AuthPrincipalArgumentResolver;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
+import com.pegasus.pegasustcgapi.service.order.pdf.OrderSummaryPdfRenderer.RenderedPdf;
+import com.pegasus.pegasustcgapi.service.order.pdf.OrderSummaryPdfService;
+import com.pegasus.pegasustcgapi.service.payment.PaymentService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -45,6 +53,12 @@ class OrderControllerTest {
 
     @Mock
     private OrderLifecycleService orderLifecycleService;
+
+    @Mock
+    private PaymentService paymentService;
+
+    @Mock
+    private OrderSummaryPdfService orderSummaryPdfs;
 
     @InjectMocks
     private OrderController orderController;
@@ -124,6 +138,114 @@ class OrderControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data.code").value("ORDER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders/{orderId}/payment-info returns 200 with QR payload and transfer details")
+    void getPaymentInfo_Success() throws Exception {
+        OffsetDateTime expiresAt = OffsetDateTime.parse("2026-11-06T12:00:00Z");
+        PaymentInfoResponse response = new PaymentInfoResponse(
+                "00020101021229370016A0000006770101110113006694776111953037645406673.005802TH5911PEGASUS TCG6007Bangkok6304C2AF",
+                "094-xxx-1119",
+                "ธนาคารไทยพาณิชย์ (SCB)",
+                "PEGASUS TCG",
+                new BigDecimal("673.00"),
+                expiresAt
+        );
+
+        given(paymentService.getPaymentInfo(any(), eq(100L)))
+                .willReturn(response);
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/100/payment-info"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("application/json;charset=UTF-8"))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.qrPayload").value(response.qrPayload()))
+                .andExpect(jsonPath("$.data.promptpayId").value("094-xxx-1119"))
+                .andExpect(jsonPath("$.data.bankName").value("ธนาคารไทยพาณิชย์ (SCB)"))
+                .andExpect(jsonPath("$.data.accountName").value("PEGASUS TCG"))
+                .andExpect(jsonPath("$.data.amount").value(673.00))
+                .andExpect(jsonPath("$.data.expiresAt").exists());
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders/{orderId}/payment-info returns 404 when order not found")
+    void getPaymentInfo_NotFound() throws Exception {
+        given(paymentService.getPaymentInfo(any(), eq(999L)))
+                .willThrow(new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/999/payment-info"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value("ORDER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders/{id}/summary.pdf returns 200 with PDF content")
+    void downloadSummary_Success() throws Exception {
+        RenderedPdf doc = new RenderedPdf(
+                "order-summary-ORD-1.pdf",
+                new byte[]{1, 2, 3}
+        );
+        given(orderSummaryPdfs.buyer(any(), eq(1L)))
+                .willReturn(doc);
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/1/summary.pdf"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF_VALUE))
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("order-summary-ORD-1.pdf")))
+                .andExpect(content().bytes(new byte[]{1, 2, 3}));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders/{id}/reorder-items returns 200 on success")
+    void getReorderItems_Success() throws Exception {
+        ReorderItemsResponse response = new ReorderItemsResponse(
+                1L,
+                "ORD-1",
+                List.of(new ReorderItemsResponse.ReorderItemDto(
+                        10L, 20L, "charizard-ex", "Charizard EX", "EN / Foil", "SAR",
+                        "https://example.com/img.png", "NM", new BigDecimal("150.00"), 1, "Card Kingdom"
+                ))
+        );
+        given(orderLifecycleService.getReorderItems(eq(1L), eq(42L)))
+                .willReturn(response);
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/1/reorder-items"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.orderId").value(1))
+                .andExpect(jsonPath("$.data.orderNumber").value("ORD-1"))
+                .andExpect(jsonPath("$.data.items[0].orderItemId").value(10))
+                .andExpect(jsonPath("$.data.items[0].catalogVariantId").value(20))
+                .andExpect(jsonPath("$.data.items[0].productSlug").value("charizard-ex"))
+                .andExpect(jsonPath("$.data.items[0].productName").value("Charizard EX"))
+                .andExpect(jsonPath("$.data.items[0].rarity").value("SAR"))
+                .andExpect(jsonPath("$.data.items[0].originalSellerName").value("Card Kingdom"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders/{id}/reorder-items returns 404 when order not found")
+    void getReorderItems_NotFound() throws Exception {
+        given(orderLifecycleService.getReorderItems(eq(999L), eq(42L)))
+                .willThrow(new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/999/reorder-items"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value("ORDER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders/{id}/reorder-items returns 400 when order not completed")
+    void getReorderItems_NotCompleted() throws Exception {
+        given(orderLifecycleService.getReorderItems(eq(1L), eq(42L)))
+                .willThrow(new BadRequestException(ErrorCode.INVALID_ORDER_STATUS, "Only completed orders can be reordered"));
+
+        mockMvc.perform(get(ApiPaths.ORDERS + "/1/reorder-items"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value("INVALID_ORDER_STATUS"));
     }
 
     @Test

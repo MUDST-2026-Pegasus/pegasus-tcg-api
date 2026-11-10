@@ -37,6 +37,7 @@ class OpenApiSwaggerSmokeTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.openapi").exists())
                 .andExpect(jsonPath("$.info.title").value("Pegasus TCG API"))
+                .andExpect(jsonPath("$.info.contact.email").value("pegasus.dev.teams@gmail.com"))
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth").exists())
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth.type").value("http"))
                 .andExpect(jsonPath("$.components.securitySchemes.BearerAuth.scheme").value("bearer"))
@@ -44,6 +45,25 @@ class OpenApiSwaggerSmokeTest {
                 .andExpect(jsonPath("$.info.description").value(org.hamcrest.Matchers.containsString("Total Endpoints:")))
                 .andExpect(jsonPath("$.paths['/api/v1/auth/login'].post.security").doesNotExist())
                 .andExpect(jsonPath("$.paths['/api/v1/auth/me'].get.security[0].BearerAuth").exists());
+    }
+
+    @Test
+    @DisplayName("documents bearer authentication for protected operations and keeps guest operations public")
+    void documentsAuthenticationRequirements() throws Exception {
+        mockMvc.perform(get("/v1/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/admin/pricing/market-run'].post.security[0].BearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/admin/games'].get.security[0].BearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/admin/catalog/products'].post.security[0].BearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/sellers/me/listings'].get.security[0].BearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/sellers/me/listings/stock-forecast'].get.security[0].BearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/sellers/me/units'].get.security[0].BearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/collection'].get.security[0].BearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/uploads/presign'].post.security[0].BearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/cart/items/batch'].post.security[0].BearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/cart/merge'].post.security[0].BearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/cart/items'].post.security").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/listings'].get.security").doesNotExist());
     }
 
     @Test
@@ -61,6 +81,23 @@ class OpenApiSwaggerSmokeTest {
                 .andExpect(jsonPath("$.paths['/api/v1/admin/refunds/{id}/transfers'].get.summary")
                         .value("List transfer attempts for a refund"))
                 .andExpect(jsonPath("$.paths['/api/v1/admin/refunds/{id}/failed'].post.responses['403']").exists());
+    }
+
+    @Test
+    @DisplayName("documents the secured Buyer, Seller and Admin order summary PDF downloads")
+    void documentsOrderSummaryPdfDownloads() throws Exception {
+        mockMvc.perform(get("/v1/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/summary.pdf'].get.responses['200'].content['application/pdf'].schema.format")
+                        .value("binary"))
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/summary.pdf'].get.responses['401']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/sellers/me/orders/{id}/summary.pdf'].get.responses['200'].content['application/pdf'].schema.format")
+                        .value("binary"))
+                .andExpect(jsonPath("$.paths['/api/v1/sellers/me/orders/{id}/summary.pdf'].get.responses['401']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/admin/orders/{sellerOrderId}/summary.pdf'].get.responses['200'].content['application/pdf'].schema.format")
+                        .value("binary"))
+                .andExpect(jsonPath("$.paths['/api/v1/admin/orders/{sellerOrderId}/summary.pdf'].get.responses['403']")
+                        .exists());
     }
 
     @Test
@@ -96,6 +133,16 @@ class OpenApiSwaggerSmokeTest {
     @DisplayName("serves Swagger UI endpoint without requiring authentication")
     void swaggerUiAvailableUnauthenticated() throws Exception {
         mockMvc.perform(get("/swagger-ui/index.html"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("index.css")));
+        mockMvc.perform(get("/swagger-ui/index.css"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("golden-council.png")));
+        mockMvc.perform(get("/swagger-ui/golden-council.png"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith("image/png"));
     }
 }

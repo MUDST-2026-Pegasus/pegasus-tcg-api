@@ -15,6 +15,7 @@ public record UserResponse(
         String bio,
         String phone,
         String avatarUrl,
+        String bannerUrl,
         UserStatus status,
         Set<RoleCode> roles,
         OffsetDateTime createdAt,
@@ -29,6 +30,7 @@ public record UserResponse(
                 user.bio(),
                 user.phone(),
                 user.avatarUrl(),
+                user.bannerUrl(),
                 user.status(),
                 user.roles(),
                 user.createdAt(),
@@ -41,6 +43,10 @@ public record UserResponse(
      * and the client needs a short-lived read URL.
      */
     public static UserResponse from(AuthUser user, String presignedAvatarUrl) {
+        return from(user, presignedAvatarUrl, null);
+    }
+
+    public static UserResponse from(AuthUser user, String presignedAvatarUrl, String presignedBannerUrl) {
         return new UserResponse(
                 user.id(),
                 user.email(),
@@ -49,9 +55,16 @@ public record UserResponse(
                 user.bio(),
                 user.phone(),
                 presignedAvatarUrl,
+                presignedBannerUrl,
                 user.status(),
                 user.roles(),
                 user.createdAt(),
                 user.lastLoginAt(), user.phonePublic());
+    }
+
+    @Override
+    public String toString() {
+        return "UserResponse[id=" + id + ", email=REDACTED, username=REDACTED, displayName=REDACTED, "
+                + "bio=REDACTED, phone=REDACTED, status=" + status + "]";
     }
 }

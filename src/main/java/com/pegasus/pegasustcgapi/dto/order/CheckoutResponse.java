@@ -92,7 +92,25 @@ public record CheckoutResponse(
             BigDecimal unitPrice,
             BigDecimal lineTotal,
             List<Long> unitIds,
-            String imageUrl) {
+            String imageUrl,
+            BigDecimal listPrice,
+            SaleDiscount saleDiscount) {
+
+        public OrderItemResponse(
+                long id,
+                Long listingId,
+                long catalogVariantId,
+                String productName,
+                String variantLabel,
+                String condition,
+                int quantity,
+                BigDecimal unitPrice,
+                BigDecimal lineTotal,
+                List<Long> unitIds,
+                String imageUrl) {
+            this(id, listingId, catalogVariantId, productName, variantLabel, condition, quantity, unitPrice, lineTotal,
+                    unitIds, imageUrl, unitPrice, SaleDiscount.NONE);
+        }
 
         public OrderItemResponse(
                 long id,

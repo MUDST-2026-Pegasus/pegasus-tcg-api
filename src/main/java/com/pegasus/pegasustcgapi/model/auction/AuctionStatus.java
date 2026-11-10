@@ -6,10 +6,7 @@ package com.pegasus.pegasustcgapi.model.auction;
  * <pre>
  * LIVE → AWAITING_PAYMENT → SOLD
  *   │          │
- *   │          └→ AWAITING_SELLER_DECISION → OFFERED_TO_SECOND → SOLD
- *   │                    │                          │
- *   │                    └→ UNSOLD (relist or        └→ UNSOLD (declined or
- *   │                       no choice in time)          no answer in time)
+ *   │          └→ UNSOLD  (winner did not pay in time; the card goes back to stock)
  *   ├→ UNSOLD     (no bids when time ran out)
  *   ├→ CANCELLED  (seller, only before the first bid)
  *   └→ SUSPENDED  (admin, from any open state)
@@ -21,13 +18,9 @@ public enum AuctionStatus {
     LIVE,
     /** Ended with a winner, or bought with buy-now; the buyer has 24 hours to pay. */
     AWAITING_PAYMENT,
-    /** The winner did not pay. The card stays locked while the seller picks what happens next. */
-    AWAITING_SELLER_DECISION,
-    /** Offered to the runner-up at their bid; they have 24 hours to answer. */
-    OFFERED_TO_SECOND,
     /** Paid. From here it is an ordinary order. */
     SOLD,
-    /** Ended without a sale. The card is back in the seller's stock. */
+    /** Ended without a sale: no bids, or the winner did not pay. The card is back in the seller's stock. */
     UNSOLD,
     /** Cancelled by the seller before anyone bid. */
     CANCELLED,

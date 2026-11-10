@@ -1,11 +1,14 @@
 package com.pegasus.pegasustcgapi.repository.seller;
 
+import static com.pegasus.pegasustcgapi.jooq.tables.Auction.AUCTION;
 import com.pegasus.pegasustcgapi.repository.metrics.AdminMetricsRepository;
 
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
+import static com.pegasus.pegasustcgapi.jooq.tables.CatalogImage.CATALOG_IMAGE;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.EscrowHold.ESCROW_HOLD;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
+import static com.pegasus.pegasustcgapi.jooq.tables.ListingImage.LISTING_IMAGE;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
@@ -42,6 +45,16 @@ public class SellerDashboardRepository {
 
     public SellerDashboardRepository(DSLContext dsl) {
         this.dsl = dsl;
+    }
+
+    public long liveAuctionCount(long sellerProfileId, OffsetDateTime now) {
+        return dsl.fetchCount(AUCTION, AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
+                .and(AUCTION.STATUS.eq("LIVE")).and(AUCTION.ENDS_AT.gt(now)));
+    }
+
+    public long awaitingAuctionPaymentCount(long sellerProfileId) {
+        return dsl.fetchCount(AUCTION, AUCTION.SELLER_PROFILE_ID.eq(sellerProfileId)
+                .and(AUCTION.STATUS.eq("AWAITING_PAYMENT")));
     }
 
     // ---------- sales ----------
@@ -107,6 +120,13 @@ public class SellerDashboardRepository {
                         .orderBy(ORDER_ITEM.ID.asc())
                         .limit(1))
                 .as("first_item");
+        Field<String> firstImageKey = DSL.field(
+                DSL.select(ORDER_ITEM.IMAGE_KEY_SNAPSHOT)
+                        .from(ORDER_ITEM)
+                        .where(ORDER_ITEM.SELLER_ORDER_ID.eq(SELLER_ORDER.ID))
+                        .orderBy(ORDER_ITEM.ID.asc())
+                        .limit(1))
+                .as("first_image_key");
         Field<BigDecimal> itemCount = DSL.field(
                 DSL.select(DSL.coalesce(DSL.sum(ORDER_ITEM.QUANTITY), BigDecimal.ZERO))
                         .from(ORDER_ITEM)
@@ -114,7 +134,7 @@ public class SellerDashboardRepository {
                 .as("item_count");
 
         return dsl.select(SELLER_ORDER.ID, SELLER_ORDER.SELLER_ORDER_NUMBER, USER_ACCOUNT.USERNAME,
-                        USER_ACCOUNT.DISPLAY_NAME, firstItem, itemCount, SELLER_ORDER.GRAND_TOTAL,
+                        USER_ACCOUNT.DISPLAY_NAME, firstItem, firstImageKey, itemCount, SELLER_ORDER.GRAND_TOTAL,
                         SELLER_ORDER.STATUS, SELLER_ORDER.CREATED_AT)
                 .from(SELLER_ORDER)
                 .join(SALES_ORDER).on(SALES_ORDER.ID.eq(SELLER_ORDER.SALES_ORDER_ID))
@@ -123,7 +143,7 @@ public class SellerDashboardRepository {
                 .orderBy(SELLER_ORDER.CREATED_AT.desc(), SELLER_ORDER.ID.desc())
                 .limit(limit)
                 .fetch(r -> new RecentOrderRow(r.value1(), r.value2(), r.value3(), r.value4(),
-                        r.value5(), r.value6().intValue(), r.value7(), r.value8(), r.value9()));
+                        r.value5(), r.value6(), r.value7().intValue(), r.value8(), r.value9(), r.value10()));
     }
 
     // ---------- listings ----------
@@ -146,8 +166,19 @@ public class SellerDashboardRepository {
 
     /** Fewest left first, so the most urgent restock is at the top. */
     public List<LowStockRow> lowStockListings(long sellerProfileId, int threshold, int limit) {
+        Field<String> listingImageKey = DSL.field(DSL.select(LISTING_IMAGE.IMAGE_KEY)
+                .from(LISTING_IMAGE)
+                .where(LISTING_IMAGE.LISTING_ID.eq(LISTING.ID))
+                .orderBy(LISTING_IMAGE.IS_PRIMARY.desc(), LISTING_IMAGE.SORT_ORDER.asc(), LISTING_IMAGE.ID.asc())
+                .limit(1));
+        Field<String> catalogImageKey = DSL.field(DSL.select(CATALOG_IMAGE.IMAGE_KEY)
+                .from(CATALOG_IMAGE)
+                .where(CATALOG_IMAGE.CATALOG_PRODUCT_ID.eq(CATALOG_PRODUCT.ID))
+                .orderBy(CATALOG_IMAGE.IS_PRIMARY.desc(), CATALOG_IMAGE.SORT_ORDER.asc(), CATALOG_IMAGE.ID.asc())
+                .limit(1));
+        Field<String> imageKey = DSL.coalesce(listingImageKey, catalogImageKey).as("image_key");
         return dsl.select(LISTING.ID, CATALOG_PRODUCT.NAME, LISTING.LOT_LABEL, LISTING.CONDITION_CODE,
-                        LISTING.QUANTITY_AVAILABLE, LISTING.QUANTITY_TOTAL)
+                        LISTING.QUANTITY_AVAILABLE, LISTING.QUANTITY_TOTAL, imageKey)
                 .from(LISTING)
                 .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
                 .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
@@ -155,7 +186,7 @@ public class SellerDashboardRepository {
                 .orderBy(LISTING.QUANTITY_AVAILABLE.asc(), LISTING.ID.asc())
                 .limit(limit)
                 .fetch(r -> new LowStockRow(r.value1(), r.value2(), r.value3(), r.value4(),
-                        r.value5(), r.value6()));
+                        r.value5(), r.value6(), r.value7()));
     }
 
     // ---------- reviews ----------
@@ -240,6 +271,7 @@ public class SellerDashboardRepository {
             String buyerUsername,
             String buyerDisplayName,
             String firstItemName,
+            String firstImageKey,
             int itemCount,
             BigDecimal grandTotal,
             String status,
@@ -252,7 +284,8 @@ public class SellerDashboardRepository {
             String lotLabel,
             String conditionCode,
             int quantityAvailable,
-            int quantityTotal) {
+            int quantityTotal,
+            String imageKey) {
     }
 
     /** @param average null before the first review */

@@ -26,7 +26,9 @@ public class RefreshOriginFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String path = request.getRequestURI();
         if ("POST".equals(request.getMethod())
-                && (path.equals(ApiPaths.AUTH + "/refresh") || path.equals(ApiPaths.AUTH + "/logout"))) {
+                && (path.equals(ApiPaths.AUTH + "/refresh")
+                        || path.equals(ApiPaths.AUTH + "/logout")
+                        || path.equals(ApiPaths.AUTH + "/google"))) {
             String origin = request.getHeader("Origin");
             String type = request.getContentType();
             boolean json;
@@ -35,7 +37,7 @@ public class RefreshOriginFilter extends OncePerRequestFilter {
             } catch (IllegalArgumentException invalidType) {
                 json = false;
             }
-            if (origin == null || !cors.allowedOrigins().contains(origin) || !json) {
+            if (!cors.allows(origin) || !json) {
                 errorHandler.handle(request, response, new AccessDeniedException("Invalid refresh origin or content type"));
                 return;
             }

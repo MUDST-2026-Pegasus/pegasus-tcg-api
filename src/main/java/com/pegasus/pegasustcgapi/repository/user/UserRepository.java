@@ -60,15 +60,40 @@ public class UserRepository {
                 .map(UserRepository::toAuthUser);
     }
 
+    /** The non-sensitive identity shown on a user's own order document. */
+    public Optional<UserIdentity> findIdentityById(long id) {
+        return dsl.select(USER_ACCOUNT.USERNAME, USER_ACCOUNT.DISPLAY_NAME)
+                .from(USER_ACCOUNT)
+                .where(USER_ACCOUNT.ID.eq(id))
+                .and(USER_ACCOUNT.DELETED_AT.isNull())
+                .fetchOptional(row -> new UserIdentity(row.value1(), row.value2()));
+    }
+
+    public record UserIdentity(String username, String displayName) {
+    }
+
     public boolean existsByEmail(String email) {
         return dsl.fetchExists(dsl.selectOne().from(USER_ACCOUNT).where(USER_ACCOUNT.EMAIL.eq(email)));
+    }
+
+    public boolean isEmailVerified(long userId) {
+        return dsl.fetchExists(dsl.selectOne()
+                .from(USER_ACCOUNT)
+                .where(USER_ACCOUNT.ID.eq(userId))
+                .and(USER_ACCOUNT.EMAIL_VERIFIED_AT.isNotNull())
+                .and(USER_ACCOUNT.DELETED_AT.isNull()));
     }
 
     public boolean existsByUsername(String username) {
         return dsl.fetchExists(dsl.selectOne().from(USER_ACCOUNT).where(USER_ACCOUNT.USERNAME.eq(username)));
     }
 
-    /** @return the generated id. */
+    /**
+     * The email counts as verified from sign-up, because the app has no email
+     * verification flow yet. Remove this once that flow exists.
+     *
+     * @return the generated id.
+     */
     public long insert(NewUser user) {
         return dsl.insertInto(USER_ACCOUNT)
                 .set(USER_ACCOUNT.EMAIL, user.email())
@@ -77,6 +102,7 @@ public class UserRepository {
                 .set(USER_ACCOUNT.DISPLAY_NAME, user.displayName())
                 .set(USER_ACCOUNT.PHONE, user.phone())
                 .set(USER_ACCOUNT.STATUS, UserStatus.ACTIVE)
+                .set(USER_ACCOUNT.EMAIL_VERIFIED_AT, DSL.currentOffsetDateTime())
                 .returningResult(USER_ACCOUNT.ID)
                 .fetchSingle(USER_ACCOUNT.ID);
     }
@@ -97,7 +123,7 @@ public class UserRepository {
      * different columns.
      *
      * <p>Recognised keys: {@code displayName}, {@code bio}, {@code phone},
-     * {@code avatarUrl}. A {@code null} value in the map sets the column to
+     * {@code avatarUrl}, {@code bannerUrl}. A {@code null} value in the map sets the column to
      * SQL {@code NULL} (clears the field).
      */
     public void updateProfileSelective(long userId, Map<String, Object> fields) {
@@ -109,6 +135,7 @@ public class UserRepository {
                 case "phone"       -> columns.put(USER_ACCOUNT.PHONE, value);
                 case "phonePublic" -> columns.put(USER_ACCOUNT.PHONE_PUBLIC, value);
                 case "avatarUrl"   -> columns.put(USER_ACCOUNT.AVATAR_URL, value);
+                case "bannerUrl"   -> columns.put(USER_ACCOUNT.BANNER_URL, value);
             }
         });
         if (columns.isEmpty()) return;
@@ -129,6 +156,12 @@ public class UserRepository {
                 .where(USER_ACCOUNT.AVATAR_URL.eq(avatarUrl))
                 .and(USER_ACCOUNT.ID.ne(userId))
                 .and(USER_ACCOUNT.DELETED_AT.isNull()));
+    }
+
+    public boolean bannerKeyUsedByAnother(String bannerUrl, long userId) {
+        return dsl.fetchExists(dsl.selectOne().from(USER_ACCOUNT)
+                .where(USER_ACCOUNT.BANNER_URL.eq(bannerUrl))
+                .and(USER_ACCOUNT.ID.ne(userId)));
     }
 
     public void recordSuccessfulLogin(long userId, OffsetDateTime at) {
@@ -252,7 +285,7 @@ public class UserRepository {
                 r.getLastLoginAt(),
                 r.getLockedUntil(),
                 r.getCreatedAt(),
-                Set.of(), r.getPhonePublic());
+                Set.of(), r.getPhonePublic(), r.getEmailVerifiedAt(), r.getBannerUrl());
     }
 
     /** Fields a registration supplies; everything else comes from column defaults. */

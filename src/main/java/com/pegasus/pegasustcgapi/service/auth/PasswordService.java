@@ -76,7 +76,7 @@ public class PasswordService {
     public AuthResponse change(long userId, ChangePasswordRequest request, ClientInfo client) {
         AuthUser user = authService.loadWithRoles(userId);
 
-        if (!passwordEncoder.matches(request.currentPassword(), user.passwordHash())) {
+        if (user.passwordHash() == null || !passwordEncoder.matches(request.currentPassword(), user.passwordHash())) {
             throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS, "Current password is incorrect");
         }
 
@@ -84,7 +84,7 @@ public class PasswordService {
         authTokens.revokeAll(userId, TokenPurpose.REFRESH);
 
         log.info("Password changed for user {}", userId);
-        return new AuthResponse(UserResponse.from(user), authService.startSession(user, client));
+        return new AuthResponse(authService.currentUser(user.id()), authService.startSession(user, client));
     }
 
     private static String normalize(String email) {

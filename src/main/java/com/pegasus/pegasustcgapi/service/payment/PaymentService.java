@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.payment;
 
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
@@ -12,15 +14,20 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.PaymentRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.repository.finance.escrow.EscrowRepository;
 import com.pegasus.pegasustcgapi.repository.payment.PaymentRepository;
+import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import com.pegasus.pegasustcgapi.storage.UploadPurpose;
+import com.pegasus.pegasustcgapi.config.PromptPayProperties;
+import com.pegasus.pegasustcgapi.dto.payment.PaymentInfoResponse;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Bank transfers are recorded only after an admin checks the real bank account. */
@@ -34,10 +41,18 @@ public class PaymentService {
     private final PlatformSettingService settings;
     private final StorageService storage;
     private final Clock clock;
+    private final AuctionRepository auctions;
+    private final PromptPayProperties promptPayProperties;
+    private final PromptPayQrService promptPayQrService;
+    private final AuditLogService audit;
 
+    @Autowired
     public PaymentService(PaymentRepository payments, EscrowRepository escrow,
             WalletLedgerService ledger, OrderLifecycleService orders,
-            PlatformSettingService settings, StorageService storage, Clock clock) {
+            PlatformSettingService settings, StorageService storage, Clock clock,
+            AuctionRepository auctions, PromptPayProperties promptPayProperties,
+            PromptPayQrService promptPayQrService,
+            AuditLogService audit) {
         this.payments = payments;
         this.escrow = escrow;
         this.ledger = ledger;
@@ -45,6 +60,10 @@ public class PaymentService {
         this.settings = settings;
         this.storage = storage;
         this.clock = clock;
+        this.auctions = auctions;
+        this.promptPayProperties = java.util.Objects.requireNonNull(promptPayProperties);
+        this.promptPayQrService = java.util.Objects.requireNonNull(promptPayQrService);
+        this.audit = audit;
     }
 
     @Transactional
@@ -123,11 +142,18 @@ public class PaymentService {
         }
         if (approved) {
             succeed(payment, adminId);
+            audit.record(adminId, AuditAction.PAYMENT_APPROVED, paymentId,
+                    "Approved payment #" + paymentId + " for order #" + order.getId(),
+                    AuditLogService.meta("orderId", order.getId(), "amount", payment.getAmount()));
         } else {
             if (reason == null || reason.isBlank()) throw new BadRequestException(ErrorCode.VALIDATION_FAILED);
             if (payments.reject(paymentId, adminId, reason, now()) != 1) {
                 throw new ConflictException(ErrorCode.PAYMENT_STATE);
             }
+            audit.record(adminId, AuditAction.PAYMENT_REJECTED, paymentId,
+                    "Rejected payment #" + paymentId + " for order #" + order.getId(),
+                    AuditLogService.meta("orderId", order.getId(), "amount", payment.getAmount(),
+                            "reason", reason));
         }
         return view(payments.find(paymentId).orElseThrow(), order);
     }
@@ -171,12 +197,90 @@ public class PaymentService {
         return order;
     }
 
+    @Transactional(readOnly = true)
+    public PaymentInfoResponse getPaymentInfo(AuthPrincipal buyer, long orderId) {
+        SalesOrderRecord order = payments.findOrder(orderId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
+        if (order.getBuyerId() != buyer.userId()) {
+            throw new NotFoundException(ErrorCode.ORDER_NOT_FOUND);
+        }
+        PaymentRecord active = payments.activeForOrder(orderId).orElse(null);
+        BigDecimal amount;
+        if (active != null) {
+            amount = active.getAmount();
+        } else {
+            amount = payments.unpaidTotal(orderId);
+            if (amount == null || amount.signum() <= 0) {
+                amount = order.getGrandTotal();
+            }
+        }
+        if (amount == null || amount.signum() <= 0) {
+            throw new ConflictException(ErrorCode.ORDER_NOT_PAYABLE);
+        }
+        amount = amount.setScale(2, RoundingMode.HALF_UP);
+        OffsetDateTime expiresAt = paymentDeadline(order);
+        String qrPayload = promptPayQrService.generatePayload(amount);
+        String promptpayId = promptPayQrService.maskedPromptPayId();
+        String bankName = (promptPayProperties != null && promptPayProperties.bank() != null && !promptPayProperties.bank().isBlank())
+                ? promptPayProperties.bank()
+                : "";
+        String accountName = (promptPayProperties != null && promptPayProperties.name() != null && !promptPayProperties.name().isBlank())
+                ? promptPayProperties.name()
+                : "PEGASUS TCG";
+        return new PaymentInfoResponse(qrPayload, promptpayId, bankName, accountName, amount, expiresAt);
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentInfoResponse getPaymentInfoByPaymentId(AuthPrincipal buyer, long paymentId) {
+        PaymentRecord payment = payments.find(paymentId)
+                .orElseThrow(() -> new NotFoundException(ErrorCode.PAYMENT_NOT_FOUND));
+        SalesOrderRecord order = payments.findOrder(payment.getSalesOrderId())
+                .orElseThrow(() -> new NotFoundException(ErrorCode.PAYMENT_NOT_FOUND));
+        if (order.getBuyerId() != buyer.userId()) {
+            throw new NotFoundException(ErrorCode.PAYMENT_NOT_FOUND);
+        }
+        BigDecimal amount = payment.getAmount() != null
+                ? payment.getAmount().setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        OffsetDateTime expiresAt = paymentDeadline(order);
+        String qrPayload = amount.signum() > 0 ? promptPayQrService.generatePayload(amount) : null;
+        String promptpayId = promptPayQrService.maskedPromptPayId();
+        String bankName = (promptPayProperties != null && promptPayProperties.bank() != null && !promptPayProperties.bank().isBlank())
+                ? promptPayProperties.bank()
+                : "";
+        String accountName = (promptPayProperties != null && promptPayProperties.name() != null && !promptPayProperties.name().isBlank())
+                ? promptPayProperties.name()
+                : "PEGASUS TCG";
+        return new PaymentInfoResponse(qrPayload, promptpayId, bankName, accountName, amount, expiresAt);
+    }
+
     private View view(PaymentRecord payment, SalesOrderRecord order) {
+        BigDecimal amount = payment.getAmount() != null
+                ? payment.getAmount().setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        String qr = promptPayQrService != null && amount.signum() > 0 ? promptPayQrService.generatePayload(amount) : null;
+        String promptPayId = promptPayQrService != null ? promptPayQrService.maskedPromptPayId() : "094-xxx-1119";
+        String bankName = (promptPayProperties != null && promptPayProperties.bank() != null && !promptPayProperties.bank().isBlank())
+                ? promptPayProperties.bank()
+                : "";
+        String accountName = (promptPayProperties != null && promptPayProperties.name() != null && !promptPayProperties.name().isBlank())
+                ? promptPayProperties.name()
+                : "PEGASUS TCG";
         return new View(payment.getId(), order.getId(), payment.getMethod(), payment.getStatus(),
-                payment.getAmount(), order.getPlacedAt().plus(settings.getMinutes(
-                        PlatformSettingService.ORDER_PAYMENT_TIMEOUT_MINUTES)),
+                payment.getAmount(), paymentDeadline(order),
                 settings.get(PlatformSettingService.PAYMENT_TRANSFER_ACCOUNT).value(),
-                payment.getReferenceCode(), payment.getFailureReason());
+                payment.getReferenceCode(), payment.getFailureReason(),
+                qr, promptPayId, bankName, accountName);
+    }
+
+    private OffsetDateTime paymentDeadline(SalesOrderRecord order) {
+        if (order.getAuctionId() != null) {
+            return auctions.findById(order.getAuctionId())
+                    .map(a -> a.paymentDueAt())
+                    .orElseThrow(() -> new NotFoundException(ErrorCode.AUCTION_NOT_FOUND));
+        }
+        return order.getPlacedAt().plus(settings.getMinutes(
+                PlatformSettingService.ORDER_PAYMENT_TIMEOUT_MINUTES));
     }
 
     private OffsetDateTime now() {
@@ -184,6 +288,7 @@ public class PaymentService {
     }
 
     public record View(long id, long salesOrderId, String method, String status, BigDecimal amount,
-            OffsetDateTime expiresAt, String transferAccountJson, String referenceCode, String failureReason) {
+            OffsetDateTime expiresAt, String transferAccountJson, String referenceCode, String failureReason,
+            String qrPayload, String promptpayId, String bankName, String accountName) {
     }
 }

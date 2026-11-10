@@ -10,6 +10,8 @@
 -- fails, this is rolled back with it and the database is left as it was.
 
 TRUNCATE TABLE
+    listing_sale_price, price_sale_listing, price_sale,
+    bidding_ban, bidder_strike, auction_bid, auction,
     promotion_claim, promotion_redemption, promotion,
     refund_transfer_attempt, refund, return_item, return_request,
     seller_review, seller_rating_summary, collection_item, wishlist_item,

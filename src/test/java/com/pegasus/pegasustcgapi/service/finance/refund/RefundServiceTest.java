@@ -1,5 +1,7 @@
 package com.pegasus.pegasustcgapi.service.finance.refund;
 
+import static org.mockito.Mockito.mock;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 import com.pegasus.pegasustcgapi.service.finance.escrow.EscrowReleaseService;
 import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
@@ -54,7 +56,7 @@ class RefundServiceTest {
 
     @BeforeEach void setUp() {
         service = new RefundService(refunds, transfers, payments, escrow, orders, ledger,
-                Clock.systemUTC(), returns, lifecycle, escrowRelease, collection);
+                Clock.systemUTC(), returns, lifecycle, escrowRelease, collection, mock(AuditLogService.class));
     }
 
     private RefundRecord refund(String status) {

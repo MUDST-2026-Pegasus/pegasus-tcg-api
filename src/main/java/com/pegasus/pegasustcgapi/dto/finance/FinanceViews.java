@@ -34,6 +34,13 @@ public final class FinanceViews {
             Long returnRequestId, BigDecimal amount, String reason, String status,
             String method, String bankName, String accountName, String accountNumber,
             String transferReference, OffsetDateTime requestedAt, OffsetDateTime processedAt) {
+        @Override
+        public String toString() {
+            return "Refund[id=" + id + ", salesOrderId=" + salesOrderId + ", sellerOrderId="
+                    + sellerOrderId + ", amount=" + amount + ", status=" + status
+                    + ", accountNumber=REDACTED]";
+        }
+
         public static Refund from(RefundRecord row) {
             return new Refund(row.getId(), row.getSalesOrderId(), row.getSellerOrderId(),
                     row.getReturnRequestId(), row.getAmount(), row.getReason(), row.getStatus(),
@@ -46,6 +53,12 @@ public final class FinanceViews {
             String accountName, String accountNumber, String status, long startedBy,
             OffsetDateTime startedAt, Long completedBy, OffsetDateTime completedAt,
             String transferReference, String failureReason) {
+        @Override
+        public String toString() {
+            return "RefundTransferAttempt[id=" + id + ", refundId=" + refundId
+                    + ", status=" + status + ", accountNumber=REDACTED]";
+        }
+
         public static RefundTransferAttempt from(RefundTransferAttemptRecord row) {
             return new RefundTransferAttempt(row.getId(), row.getRefundId(), row.getBankName(),
                     row.getAccountName(), row.getAccountNumber(), row.getStatus(), row.getStartedBy(),

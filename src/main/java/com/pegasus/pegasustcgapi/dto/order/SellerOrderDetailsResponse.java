@@ -38,13 +38,17 @@ public record SellerOrderDetailsResponse(
         BigDecimal sellerDiscount,
         /** What a Pegasus code took off this part; Pegasus pays it back at release. */
         BigDecimal platformDiscount,
-        /** What Pegasus will add to the shop's earnings at release, before any return. */
+        /**
+         * What Pegasus will add to the shop's earnings at release, before any return: its
+         * code's discount and its campaigns' sale discount [TCG-680].
+         */
         BigDecimal platformSubsidy,
-        /** Items less the shop's own discount: what commission is charged on. */
+        /** Items at the price Pegasus campaigns sold them against, less the shop's own discount: what commission is charged on. */
         BigDecimal commissionBase,
         List<AppliedPromotion> promotions,
         /** Cancelling now gives the codes back: true while the order is unpaid and holds a code. */
-        boolean promotionsRestoredOnCancel
+        boolean promotionsRestoredOnCancel,
+        String sellerUsername
 ) {
     public SellerOrderDetailsResponse(
             long id,
@@ -74,7 +78,7 @@ public record SellerOrderDetailsResponse(
                 itemsSubtotal, shippingFee, discountAmount, grandTotal, commissionAmount, sellerNetAmount,
                 acceptedAt, shippedAt, deliveredAt, autoCompleteAt, completedAt, cancelledAt, cancelReason,
                 createdAt, items, shipments, statusHistory, sellerName, BigDecimal.ZERO, BigDecimal.ZERO,
-                BigDecimal.ZERO, itemsSubtotal, List.of(), false);
+                BigDecimal.ZERO, itemsSubtotal, List.of(), false, null);
     }
 
     public SellerOrderDetailsResponse(

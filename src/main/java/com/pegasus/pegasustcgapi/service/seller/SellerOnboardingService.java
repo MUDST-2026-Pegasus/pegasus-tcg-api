@@ -1,6 +1,8 @@
 package com.pegasus.pegasustcgapi.service.seller;
 
 import com.pegasus.pegasustcgapi.service.user.RoleService;
+import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
+import com.pegasus.pegasustcgapi.model.audit.AuditAction;
 
 import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
@@ -48,6 +50,7 @@ public class SellerOnboardingService implements SellerPort {
     private final PayoutAccountRepository payoutAccounts;
     private final RoleService roles;
     private final StorageService storageService;
+    private final AuditLogService audit;
     private final Clock clock;
 
     public SellerOnboardingService(
@@ -57,6 +60,7 @@ public class SellerOnboardingService implements SellerPort {
             PayoutAccountRepository payoutAccounts,
             RoleService roles,
             StorageService storageService,
+            AuditLogService audit,
             Clock clock) {
 
         this.profiles = profiles;
@@ -65,6 +69,7 @@ public class SellerOnboardingService implements SellerPort {
         this.payoutAccounts = payoutAccounts;
         this.roles = roles;
         this.storageService = storageService;
+        this.audit = audit;
         this.clock = clock;
     }
 
@@ -144,6 +149,12 @@ public class SellerOnboardingService implements SellerPort {
             profiles.updateStatus(profile.id(), SellerStatus.PENDING, null, null);
         }
 
+        // Ids only: the request itself holds the name and bank account.
+        audit.record(userId, AuditAction.SELLER_VERIFICATION_SUBMITTED, id,
+                "Seller submitted verification #" + id,
+                AuditLogService.meta("sellerProfileId", profile.id(), "sellerUserId", userId,
+                        "bankChange", profile.status() == SellerStatus.VERIFIED));
+
         return verifications.findById(id).orElseThrow(
                 () -> new NotFoundException(ErrorCode.VERIFICATION_NOT_FOUND));
     }
@@ -174,8 +185,12 @@ public class SellerOnboardingService implements SellerPort {
     /** Claims a request so a second admin opening the queue can see it is taken. */
     @Transactional
     public SellerVerification startReview(long verificationId, long adminId) {
-        return decide(verificationId, VerificationStatus.SUBMITTED, VerificationStatus.UNDER_REVIEW,
-                adminId, null, null);
+        SellerVerification claimed = decide(verificationId, VerificationStatus.SUBMITTED,
+                VerificationStatus.UNDER_REVIEW, adminId, null, null);
+        audit.record(adminId, AuditAction.SELLER_VERIFICATION_REVIEW_STARTED, verificationId,
+                "Started reviewing seller verification #" + verificationId,
+                AuditLogService.meta("sellerProfileId", claimed.sellerProfileId()));
+        return claimed;
     }
 
     /**
@@ -209,6 +224,12 @@ public class SellerOnboardingService implements SellerPort {
         roles.grant(profile.userId(), Set.of(RoleCode.SELLER), adminId);
 
         registerVerifiedAccount(request);
+
+        // Ids only — never the legal name or bank account number on the request.
+        audit.record(adminId, AuditAction.SELLER_VERIFICATION_APPROVED, verificationId,
+                "Approved seller verification #" + verificationId,
+                AuditLogService.meta("sellerProfileId", request.sellerProfileId(),
+                        "sellerUserId", profile.userId(), "previousStatus", request.status().name()));
         return approved;
     }
 
@@ -234,6 +255,10 @@ public class SellerOnboardingService implements SellerPort {
                 VerificationStatus.REJECTED, adminId, OffsetDateTime.now(clock), reason);
 
         profiles.updateStatus(request.sellerProfileId(), SellerStatus.REJECTED, null, null);
+        audit.record(adminId, AuditAction.SELLER_VERIFICATION_REJECTED, verificationId,
+                "Rejected seller verification #" + verificationId,
+                AuditLogService.meta("sellerProfileId", request.sellerProfileId(),
+                        "previousStatus", request.status().name(), "reason", reason));
         return rejected;
     }
 

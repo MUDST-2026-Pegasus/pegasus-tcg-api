@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.dto.listing;
 
+import com.pegasus.pegasustcgapi.dto.sale.SalePricing;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
 import com.pegasus.pegasustcgapi.model.listing.Listing;
 import com.pegasus.pegasustcgapi.model.listing.ListingStatus;
@@ -13,7 +14,9 @@ import java.time.OffsetDateTime;
  * so a field added to the seller's view cannot leak here by default: no lot
  * label, pricing strategy, floor, ceiling, version or reserved count.
  *
- * @param seller the profile the listing is sold from — the storefront is the profile [RQ-2]
+ * @param seller  the profile the listing is sold from — the storefront is the profile [RQ-2]
+ * @param price   the seller's asking price; what a card sells for now is {@code pricing.salePrice}
+ * @param pricing the price now, sale included [TCG-679]
  */
 public record PublicListingResponse(
         long id,
@@ -29,10 +32,11 @@ public record PublicListingResponse(
         Seller seller,
         Delivery delivery,
         String primaryPhotoUrl,
-        OffsetDateTime publishedAt) {
+        OffsetDateTime publishedAt,
+        SalePricing pricing) {
 
     public static PublicListingResponse of(PublicListing row, ListingCard card, String primaryPhotoUrl,
-            String sellerAvatarUrl) {
+            String sellerAvatarUrl, SalePricing pricing) {
         Listing l = row.listing();
         return new PublicListingResponse(l.id(), card, l.condition(), l.gradingCompany(), l.gradeValue(),
                 l.price(), l.currency(), l.quantityAvailable(), l.status(), l.publicNote(),
@@ -40,7 +44,7 @@ public record PublicListingResponse(
                         row.verified(), row.ratingAvg(), row.ratingCount(), row.salesCount()),
                 new Delivery(row.delivery().fastestEstDaysMin(), row.delivery().fastestEstDaysMax(),
                         row.delivery().freeShipping(), row.delivery().optionCount()),
-                primaryPhotoUrl, l.publishedAt());
+                primaryPhotoUrl, l.publishedAt(), pricing == null ? SalePricing.none(l.price()) : pricing);
     }
 
     /** @param username links to {@code /u/{username}} */
