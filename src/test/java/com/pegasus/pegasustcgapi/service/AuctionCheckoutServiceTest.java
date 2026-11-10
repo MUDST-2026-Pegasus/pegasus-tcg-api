@@ -31,7 +31,9 @@ import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.repository.listing.ListingUnitRepository;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository.ListingSnapshotDetails;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository.ListingSnapshotDetails;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.auction.AuctionCheckoutService;
 import com.pegasus.pegasustcgapi.service.order.CheckoutService;
@@ -63,6 +65,8 @@ class AuctionCheckoutServiceTest {
     @Mock AuctionRepository auctions;
     @Mock ListingUnitRepository units;
     @Mock OrderRepository orders;
+    @Mock OrderTransitionRepository orderTransitions;
+    @Mock OrderReferenceQueryRepository orderReferences;
     @Mock CheckoutService checkout;
     @Mock AddressService addresses;
     @Mock ShippingOptionService shipping;
@@ -71,7 +75,7 @@ class AuctionCheckoutServiceTest {
     AuctionCheckoutService service;
 
     @BeforeEach void setUp() {
-        service = new AuctionCheckoutService(auctions, units, orders, checkout, addresses,
+        service = new AuctionCheckoutService(auctions, units, orders, orderTransitions, orderReferences, checkout, addresses,
                 shipping, inventory, ledger, CLOCK);
     }
 
@@ -100,7 +104,7 @@ class AuctionCheckoutServiceTest {
         when(shipping.resolveForCheckout(7L, 4L)).thenReturn(option);
         when(units.changeStatus(List.of(9L), ListingUnitStatus.ON_AUCTION,
                 ListingUnitStatus.RESERVED)).thenReturn(1);
-        when(orders.findAuctionCardDetails(9L)).thenReturn(Optional.of(new ListingSnapshotDetails(
+        when(orderReferences.findAuctionCardDetails(9L)).thenReturn(Optional.of(new ListingSnapshotDetails(
                 null, 11L, "NM", "Card", "EN", "Game", "image")));
         when(ledger.quoteCommission(7L, PRICE, List.of(11L)))
                 .thenReturn(new CommissionQuote(new BigDecimal("5.00"), new BigDecimal("425.00")));

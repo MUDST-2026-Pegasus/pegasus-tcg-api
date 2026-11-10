@@ -5,7 +5,7 @@ import com.pegasus.pegasustcgapi.model.audit.AuditAction;
 import com.pegasus.pegasustcgapi.service.audit.AuditLogService;
 
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import java.time.Clock;
 import java.time.OffsetDateTime;
@@ -38,7 +38,7 @@ public class OrderAutoReleaseScheduler {
     /** Stops a batch that keeps failing from looping forever on the same rows. */
     private static final int MAX_ROUNDS = 50;
 
-    private final OrderRepository orderRepository;
+    private final OrderQueryRepository orderQueryRepository;
     private final OrderLifecycleService orderLifecycleService;
     private final JobLock jobLock;
     private final Clock clock;
@@ -48,13 +48,13 @@ public class OrderAutoReleaseScheduler {
 
     @Autowired
     public OrderAutoReleaseScheduler(
-            OrderRepository orderRepository,
+            OrderQueryRepository orderQueryRepository,
             OrderLifecycleService orderLifecycleService,
             JobLock jobLock,
             Clock clock,
             @Value("${pegasus.order.auto-release-batch-size:200}") int batchSize,
             AuditLogService audit) {
-        this.orderRepository = orderRepository;
+        this.orderQueryRepository = orderQueryRepository;
         this.orderLifecycleService = orderLifecycleService;
         this.jobLock = jobLock;
         this.clock = clock != null ? clock : Clock.systemUTC();
@@ -63,11 +63,11 @@ public class OrderAutoReleaseScheduler {
     }
 
     public OrderAutoReleaseScheduler(
-            OrderRepository orderRepository,
+            OrderQueryRepository orderQueryRepository,
             OrderLifecycleService orderLifecycleService,
             JobLock jobLock,
             Clock clock) {
-        this(orderRepository, orderLifecycleService, jobLock, clock, 200, null);
+        this(orderQueryRepository, orderLifecycleService, jobLock, clock, 200, null);
     }
 
     @Scheduled(cron = "${pegasus.order.auto-release-cron:0 */5 * * * *}")
@@ -85,7 +85,7 @@ public class OrderAutoReleaseScheduler {
         int failed = 0;
         try {
             for (int round = 0; round < MAX_ROUNDS; round++) {
-                List<SellerOrderRecord> overdueOrders = orderRepository.findOverdueShippedOrders(now, batchSize);
+                List<SellerOrderRecord> overdueOrders = orderQueryRepository.findOverdueShippedOrders(now, batchSize);
                 if (overdueOrders.isEmpty()) {
                     return;
                 }

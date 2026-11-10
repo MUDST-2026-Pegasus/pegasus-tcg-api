@@ -45,7 +45,10 @@ import com.pegasus.pegasustcgapi.port.pricing.PricingPort;
 import com.pegasus.pegasustcgapi.port.pricing.PricingPort.ListingOffer;
 import com.pegasus.pegasustcgapi.repository.cart.CartRepository;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository.ListingSnapshotDetails;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository.ListingSnapshotDetails;
 import com.pegasus.pegasustcgapi.repository.seller.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import java.math.BigDecimal;
@@ -78,6 +81,12 @@ class CheckoutServiceTest {
 
     @Mock
     private OrderRepository orderRepository;
+    @Mock
+    private OrderTransitionRepository orderTransitionRepository;
+    @Mock
+    private OrderQueryRepository orderQueryRepository;
+    @Mock
+    private OrderReferenceQueryRepository orderReferenceQueryRepository;
 
     @Mock
     private AddressService addressService;
@@ -119,6 +128,9 @@ class CheckoutServiceTest {
                 cartRepository,
                 cartService,
                 orderRepository,
+                orderTransitionRepository,
+                orderQueryRepository,
+                orderReferenceQueryRepository,
                 addressService,
                 sellerProfileRepository,
                 shippingOptionService,
@@ -236,7 +248,7 @@ class CheckoutServiceTest {
 
             given(orderRepository.findSalesOrderByIdempotencyKey(idemKey)).willReturn(Optional.of(existingOrder));
             given(orderRepository.findSalesOrderById(1L)).willReturn(Optional.of(existingOrder));
-            given(orderRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of());
+            given(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of());
 
             CheckoutResponse response = checkoutService.checkout(buyer, idemKey, null, null);
 
@@ -290,7 +302,7 @@ class CheckoutServiceTest {
                     .willThrow(new DuplicateKeyException("duplicate key value"));
 
             given(orderRepository.findSalesOrderById(999L)).willReturn(Optional.of(winnerOrder));
-            given(orderRepository.findSellerOrdersBySalesOrderId(999L)).willReturn(List.of());
+            given(orderQueryRepository.findSellerOrdersBySalesOrderId(999L)).willReturn(List.of());
 
             CheckoutResponse response = checkoutService.checkout(buyer, idemKey, null, null);
 
@@ -437,7 +449,7 @@ class CheckoutServiceTest {
                     .willReturn(Map.of(100L, List.of(new ReservedUnit(1001L, UUID.randomUUID()))));
             given(ledgerPort.quoteCommission(anyLong(), any(), anyCollection()))
                     .willReturn(new CommissionQuote(RATE, BigDecimal.TEN));
-            given(orderRepository.findListingDetails(List.of(100L)))
+            given(orderReferenceQueryRepository.findListingDetails(List.of(100L)))
                     .willReturn(Map.of(100L, new ListingSnapshotDetails(100L, 1L, "NM", "Charizard", "EN / Foil", "Pokemon", "img1.jpg")));
             given(orderRepository.insertSalesOrder(anyString(), anyLong(), anyString(), any(), any(), any(), any(), any(), any(), any(), eq(idemKey)))
                     .willReturn(salesOrderRecord(1L, 42L, "PGS-20260920-000123", idemKey));
@@ -533,7 +545,7 @@ class CheckoutServiceTest {
             // Listing snapshot details
             ListingSnapshotDetails details1 = new ListingSnapshotDetails(100L, 1L, "NM", "Charizard", "EN / Foil", "Pokemon", "img1.jpg");
             ListingSnapshotDetails details2 = new ListingSnapshotDetails(101L, 2L, "LP", "Pikachu", "JP / Normal", "Pokemon", "img2.jpg");
-            given(orderRepository.findListingDetails(List.of(100L, 101L))).willReturn(Map.of(100L, details1, 101L, details2));
+            given(orderReferenceQueryRepository.findListingDetails(List.of(100L, 101L))).willReturn(Map.of(100L, details1, 101L, details2));
 
             // The seller's average cost, frozen into order_item.unit_cost_snapshot
             given(inventoryPort.averageUnitCost(77L, 1L, CardCondition.NM)).willReturn(new BigDecimal("90.0000"));
@@ -579,10 +591,10 @@ class CheckoutServiceTest {
 
             // Fetch order details query mocks
             given(orderRepository.findSalesOrderById(1L)).willReturn(Optional.of(salesOrder));
-            given(orderRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of(sellerOrder1, sellerOrder2));
-            given(orderRepository.findOrderItemsBySellerOrderIds(List.of(10L, 11L)))
+            given(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of(sellerOrder1, sellerOrder2));
+            given(orderQueryRepository.findOrderItemsBySellerOrderIds(List.of(10L, 11L)))
                     .willReturn(Map.of(10L, List.of(orderItem1), 11L, List.of(orderItem2)));
-            given(orderRepository.findUnitIdsByOrderItemIds(List.of(1000L, 1001L)))
+            given(orderQueryRepository.findUnitIdsByOrderItemIds(List.of(1000L, 1001L)))
                     .willReturn(Map.of(1000L, List.of(1001L, 1002L), 1001L, List.of(1003L)));
 
             CheckoutResponse response = checkoutService.checkout(buyer, idemKey, null, null);
@@ -622,7 +634,7 @@ class CheckoutServiceTest {
             given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
             given(ledgerPort.quoteCommission(anyLong(), any(), anyCollection()))
                     .willReturn(new CommissionQuote(new BigDecimal("5.0"), BigDecimal.TEN));
-            given(orderRepository.findListingDetails(List.of(100L)))
+            given(orderReferenceQueryRepository.findListingDetails(List.of(100L)))
                     .willReturn(Map.of(100L, new ListingSnapshotDetails(100L, 1L, "NM", "Charizard", "EN / Foil", "Pokemon", "img1.jpg")));
 
             SalesOrderRecord salesOrder = salesOrderRecord(1L, 42L, "ORD-123", idemKey);
@@ -637,10 +649,10 @@ class CheckoutServiceTest {
                     .willReturn(orderItem);
 
             given(orderRepository.findSalesOrderById(1L)).willReturn(Optional.of(salesOrder));
-            given(orderRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of(sellerOrder));
-            given(orderRepository.findOrderItemsBySellerOrderIds(List.of(10L)))
+            given(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of(sellerOrder));
+            given(orderQueryRepository.findOrderItemsBySellerOrderIds(List.of(10L)))
                     .willReturn(Map.of(10L, List.of(orderItem)));
-            given(orderRepository.findUnitIdsByOrderItemIds(List.of(1000L)))
+            given(orderQueryRepository.findUnitIdsByOrderItemIds(List.of(1000L)))
                     .willReturn(Map.of(1000L, List.of(1001L)));
 
             CheckoutRequest req = new CheckoutRequest(99L, "Please handle with care");
@@ -730,7 +742,7 @@ class CheckoutServiceTest {
             ListingSnapshotDetails d1 = new ListingSnapshotDetails(100L, 1L, "NM", "Card A", "EN", "Pokemon", null);
             ListingSnapshotDetails d2 = new ListingSnapshotDetails(101L, 2L, "NM", "Card B", "EN", "Pokemon", null);
             ListingSnapshotDetails d3 = new ListingSnapshotDetails(102L, 3L, "NM", "Card C", "EN", "Pokemon", null);
-            given(orderRepository.findListingDetails(List.of(100L, 101L, 102L))).willReturn(Map.of(100L, d1, 101L, d2, 102L, d3));
+            given(orderReferenceQueryRepository.findListingDetails(List.of(100L, 101L, 102L))).willReturn(Map.of(100L, d1, 101L, d2, 102L, d3));
 
             given(ledgerPort.quoteCommission(anyLong(), eq(new BigDecimal("100.00")), anyCollection()))
                     .willReturn(new CommissionQuote(RATE, new BigDecimal("10.00")));
@@ -775,10 +787,10 @@ class CheckoutServiceTest {
                     .willReturn(oi3);
 
             given(orderRepository.findSalesOrderById(1L)).willReturn(Optional.of(salesOrder));
-            given(orderRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of(so1, so2, so3));
-            given(orderRepository.findOrderItemsBySellerOrderIds(List.of(10L, 11L, 12L)))
+            given(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of(so1, so2, so3));
+            given(orderQueryRepository.findOrderItemsBySellerOrderIds(List.of(10L, 11L, 12L)))
                     .willReturn(Map.of(10L, List.of(oi1), 11L, List.of(oi2), 12L, List.of(oi3)));
-            given(orderRepository.findUnitIdsByOrderItemIds(List.of(1000L, 1001L, 1002L)))
+            given(orderQueryRepository.findUnitIdsByOrderItemIds(List.of(1000L, 1001L, 1002L)))
                     .willReturn(Map.of(1000L, List.of(1001L), 1001L, List.of(1002L), 1002L, List.of(1003L)));
 
             CheckoutResponse response = checkoutService.checkout(buyer, idemKey, null, null);
@@ -814,7 +826,7 @@ class CheckoutServiceTest {
             given(inventoryPort.reserve(any())).willReturn(Map.of(100L, List.of(unit)));
             given(ledgerPort.quoteCommission(anyLong(), any(), anyCollection()))
                     .willReturn(new CommissionQuote(new BigDecimal("5.0"), BigDecimal.TEN));
-            given(orderRepository.findListingDetails(List.of(100L)))
+            given(orderReferenceQueryRepository.findListingDetails(List.of(100L)))
                     .willReturn(Map.of(100L, new ListingSnapshotDetails(100L, 1L, "NM", "Charizard", "EN / Foil", "Pokemon", "img1.jpg")));
 
             SalesOrderRecord salesOrder = salesOrderRecord(1L, 42L, "ORD-DEF-ADDR", idemKey);
@@ -829,10 +841,10 @@ class CheckoutServiceTest {
                     .willReturn(orderItem);
 
             given(orderRepository.findSalesOrderById(1L)).willReturn(Optional.of(salesOrder));
-            given(orderRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of(sellerOrder));
-            given(orderRepository.findOrderItemsBySellerOrderIds(List.of(10L)))
+            given(orderQueryRepository.findSellerOrdersBySalesOrderId(1L)).willReturn(List.of(sellerOrder));
+            given(orderQueryRepository.findOrderItemsBySellerOrderIds(List.of(10L)))
                     .willReturn(Map.of(10L, List.of(orderItem)));
-            given(orderRepository.findUnitIdsByOrderItemIds(List.of(1000L)))
+            given(orderQueryRepository.findUnitIdsByOrderItemIds(List.of(1000L)))
                     .willReturn(Map.of(1000L, List.of(1001L)));
 
             CheckoutResponse response = checkoutService.checkout(buyer, idemKey, null, null);

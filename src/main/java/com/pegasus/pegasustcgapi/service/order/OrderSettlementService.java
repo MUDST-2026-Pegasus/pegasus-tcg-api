@@ -4,6 +4,8 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
 import com.pegasus.pegasustcgapi.model.order.SellerOrderStatus;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
 import com.pegasus.pegasustcgapi.service.promotion.CheckoutPromotionService;
 import com.pegasus.pegasustcgapi.service.sale.SaleCheckoutService;
 import java.time.Clock;
@@ -16,15 +18,19 @@ import java.util.stream.Collectors;
 /** Rolls up seller order states and settles discounts in the caller's transaction. */
 final class OrderSettlementService {
     private final OrderRepository orderRepository;
+    private final OrderTransitionRepository orderTransitionRepository;
+    private final OrderQueryRepository orderQueryRepository;
     private final Clock clock;
     /** Null when the service was built without flash sales, as the unit tests do. */
     private final SaleCheckoutService saleCheckout;
     /** Null when the service was built without discount codes, as the unit tests do. */
     private final CheckoutPromotionService checkoutPromotions;
 
-    OrderSettlementService(OrderRepository orderRepository, Clock clock,
+    OrderSettlementService(OrderRepository orderRepository, OrderTransitionRepository orderTransitionRepository, OrderQueryRepository orderQueryRepository, Clock clock,
             SaleCheckoutService saleCheckout, CheckoutPromotionService checkoutPromotions) {
         this.orderRepository = orderRepository;
+        this.orderTransitionRepository = orderTransitionRepository;
+        this.orderQueryRepository = orderQueryRepository;
         this.clock = clock;
         this.saleCheckout = saleCheckout;
         this.checkoutPromotions = checkoutPromotions;
@@ -40,7 +46,7 @@ final class OrderSettlementService {
             return;
         }
 
-        List<SellerOrderRecord> children = orderRepository.findSellerOrdersBySalesOrderId(salesOrderId);
+        List<SellerOrderRecord> children = orderQueryRepository.findSellerOrdersBySalesOrderId(salesOrderId);
         if (children.isEmpty()) {
             return;
         }
@@ -96,7 +102,7 @@ final class OrderSettlementService {
             }
         }
 
-        orderRepository.updateSalesOrderStatus(salesOrderId, newStatus, paidAt, completedAt, cancelledAt);
+        orderTransitionRepository.updateSalesOrderStatus(salesOrderId, newStatus, paidAt, completedAt, cancelledAt);
         settlePromotions(salesOrderId, newStatus, paidAt, children);
         settleSales(paidAt, children);
     }

@@ -43,7 +43,10 @@ import com.pegasus.pegasustcgapi.port.pricing.PricingPort;
 import com.pegasus.pegasustcgapi.port.pricing.PricingPort.ListingOffer;
 import com.pegasus.pegasustcgapi.repository.cart.CartRepository;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository.ListingSnapshotDetails;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository.ListingSnapshotDetails;
 import com.pegasus.pegasustcgapi.repository.seller.SellerProfileRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
@@ -91,6 +94,9 @@ public class CheckoutService {
     private final CartRepository cartRepository;
     private final CartService cartService;
     private final OrderRepository orderRepository;
+    private final OrderTransitionRepository orderTransitionRepository;
+    private final OrderQueryRepository orderQueryRepository;
+    private final OrderReferenceQueryRepository orderReferenceQueryRepository;
     private final AddressService addressService;
     private final SellerProfileRepository sellerProfileRepository;
     private final ShippingOptionService shippingOptionService;
@@ -122,6 +128,9 @@ public class CheckoutService {
             CartRepository cartRepository,
             CartService cartService,
             OrderRepository orderRepository,
+            OrderTransitionRepository orderTransitionRepository,
+            OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             ShippingOptionService shippingOptionService,
@@ -132,7 +141,7 @@ public class CheckoutService {
             ObjectMapper json,
             PlatformTransactionManager transactionManager,
             CheckoutPromotionService checkoutPromotions) {
-        this(cartRepository, cartService, orderRepository, addressService, sellerProfileRepository,
+        this(cartRepository, cartService, orderRepository, orderTransitionRepository, orderQueryRepository, orderReferenceQueryRepository, addressService, sellerProfileRepository,
                 shippingOptionService, storageService, pricingPort, inventoryPort, ledgerPort, json,
                 new TransactionTemplate(Objects.requireNonNull(
                         transactionManager, "a PlatformTransactionManager is required for checkout")),
@@ -143,6 +152,9 @@ public class CheckoutService {
             CartRepository cartRepository,
             CartService cartService,
             OrderRepository orderRepository,
+            OrderTransitionRepository orderTransitionRepository,
+            OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             ShippingOptionService shippingOptionService,
@@ -151,7 +163,7 @@ public class CheckoutService {
             LedgerPort ledgerPort,
             ObjectMapper json,
             PlatformTransactionManager transactionManager) {
-        this(cartRepository, cartService, orderRepository, addressService, sellerProfileRepository,
+        this(cartRepository, cartService, orderRepository, orderTransitionRepository, orderQueryRepository, orderReferenceQueryRepository, addressService, sellerProfileRepository,
                 shippingOptionService, null, pricingPort, inventoryPort, ledgerPort, json, transactionManager,
                 null);
     }
@@ -164,6 +176,9 @@ public class CheckoutService {
             CartRepository cartRepository,
             CartService cartService,
             OrderRepository orderRepository,
+            OrderTransitionRepository orderTransitionRepository,
+            OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             ShippingOptionService shippingOptionService,
@@ -173,7 +188,7 @@ public class CheckoutService {
             LedgerPort ledgerPort,
             ObjectMapper json,
             TransactionTemplate transactionTemplate) {
-        this(cartRepository, cartService, orderRepository, addressService, sellerProfileRepository,
+        this(cartRepository, cartService, orderRepository, orderTransitionRepository, orderQueryRepository, orderReferenceQueryRepository, addressService, sellerProfileRepository,
                 shippingOptionService, storageService, pricingPort, inventoryPort, ledgerPort, json,
                 transactionTemplate, null);
     }
@@ -182,6 +197,9 @@ public class CheckoutService {
             CartRepository cartRepository,
             CartService cartService,
             OrderRepository orderRepository,
+            OrderTransitionRepository orderTransitionRepository,
+            OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             ShippingOptionService shippingOptionService,
@@ -195,6 +213,9 @@ public class CheckoutService {
         this.cartRepository = cartRepository;
         this.cartService = cartService;
         this.orderRepository = orderRepository;
+        this.orderTransitionRepository = orderTransitionRepository;
+        this.orderQueryRepository = orderQueryRepository;
+        this.orderReferenceQueryRepository = orderReferenceQueryRepository;
         this.addressService = addressService;
         this.sellerProfileRepository = sellerProfileRepository;
         this.shippingOptionService = Objects.requireNonNull(shippingOptionService, "ShippingOptionService is required for checkout");
@@ -211,6 +232,9 @@ public class CheckoutService {
             CartRepository cartRepository,
             CartService cartService,
             OrderRepository orderRepository,
+            OrderTransitionRepository orderTransitionRepository,
+            OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
             AddressService addressService,
             SellerProfileRepository sellerProfileRepository,
             ShippingOptionService shippingOptionService,
@@ -219,7 +243,7 @@ public class CheckoutService {
             LedgerPort ledgerPort,
             ObjectMapper json,
             TransactionTemplate transactionTemplate) {
-        this(cartRepository, cartService, orderRepository, addressService, sellerProfileRepository,
+        this(cartRepository, cartService, orderRepository, orderTransitionRepository, orderQueryRepository, orderReferenceQueryRepository, addressService, sellerProfileRepository,
                 shippingOptionService, null, pricingPort, inventoryPort, ledgerPort, json, transactionTemplate);
     }
 
@@ -450,7 +474,7 @@ public class CheckoutService {
                 trimmedKey);
 
         // 7. Insert Seller Orders & Order Items & Units
-        Map<Long, ListingSnapshotDetails> snapshotDetails = orderRepository.findListingDetails(listingIds);
+        Map<Long, ListingSnapshotDetails> snapshotDetails = orderReferenceQueryRepository.findListingDetails(listingIds);
         Map<Long, Long> sellerOrderIdBySeller = new LinkedHashMap<>();
         // A listing split over two lines hands each its own cards, in reservation order.
         Map<Long, Integer> unitsTaken = new HashMap<>();
@@ -504,7 +528,7 @@ public class CheckoutService {
             sellerOrderIdBySeller.put(sc.sellerProfileId(), sellerOrder.getId());
 
             // The state machine starts here, so the audit trail does too [CR-7].
-            orderRepository.insertStatusHistory(
+            orderTransitionRepository.insertStatusHistory(
                     sellerOrder.getId(),
                     null,
                     SellerOrderStatus.PENDING_PAYMENT.name(),
@@ -907,19 +931,19 @@ public class CheckoutService {
         SalesOrderRecord salesOrder = orderRepository.findSalesOrderById(salesOrderId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
 
-        List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(salesOrderId);
+        List<SellerOrderRecord> sellerOrders = orderQueryRepository.findSellerOrdersBySalesOrderId(salesOrderId);
 
         // Three queries whatever the basket holds: one per level, not one per row.
         List<Long> sellerOrderIds = sellerOrders.stream().map(SellerOrderRecord::getId).toList();
         Map<Long, List<OrderItemRecord>> itemsBySellerOrder =
-                orderRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
+                orderQueryRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
         List<Long> orderItemIds = sellerOrders.stream()
                 .flatMap(so -> itemsBySellerOrder.getOrDefault(so.getId(), List.of()).stream())
                 .map(OrderItemRecord::getId)
                 .toList();
-        Map<Long, List<Long>> unitIdsByItem = orderRepository.findUnitIdsByOrderItemIds(orderItemIds);
+        Map<Long, List<Long>> unitIdsByItem = orderQueryRepository.findUnitIdsByOrderItemIds(orderItemIds);
         List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
-        Map<Long, String> sellerNames = orderRepository.findSellerNamesByProfileIds(profileIds);
+        Map<Long, String> sellerNames = orderReferenceQueryRepository.findSellerNamesByProfileIds(profileIds);
 
         List<SellerOrderResponse> sellerResponses = new ArrayList<>();
         for (SellerOrderRecord so : sellerOrders) {

@@ -59,11 +59,11 @@ final class OrderCancellationService {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
         support.requireWithinCancelWindow(salesOrder);
-        if (support.orderRepository.hasPaymentUnderReview(salesOrder.getId())) {
+        if (support.orderQueries.hasPaymentUnderReview(salesOrder.getId())) {
             throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
         }
 
-        List<SellerOrderRecord> sellerOrders = support.orderRepository.findSellerOrdersBySalesOrderId(salesOrder.getId());
+        List<SellerOrderRecord> sellerOrders = support.orderQueries.findSellerOrdersBySalesOrderId(salesOrder.getId());
         boolean anyShippedOrCompleted = sellerOrders.stream()
                 .anyMatch(so -> List.of("SHIPPED", "DELIVERED", "COMPLETED").contains(so.getStatus()));
         if (anyShippedOrCompleted) {
@@ -75,10 +75,10 @@ final class OrderCancellationService {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
         support.requireWithinCancelWindow(salesOrder);
-        sellerOrders = support.orderRepository.findSellerOrdersBySalesOrderId(salesOrder.getId());
+        sellerOrders = support.orderQueries.findSellerOrdersBySalesOrderId(salesOrder.getId());
         if (sellerOrders.stream().anyMatch(so -> List.of("SHIPPED", "DELIVERED", "COMPLETED")
                 .contains(so.getStatus()))) throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        if (support.orderRepository.hasPaymentUnderReview(salesOrder.getId())) {
+        if (support.orderQueries.hasPaymentUnderReview(salesOrder.getId())) {
             throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
         }
 
@@ -88,15 +88,15 @@ final class OrderCancellationService {
 
         for (SellerOrderRecord so : sellerOrders) {
             if (OrderTransitionSupport.CANCELLABLE_STATUSES.contains(so.getStatus())) {
-                int updated = support.orderRepository.updateSellerOrderStatus(
+                int updated = support.orderTransitions.updateSellerOrderStatus(
                         so.getId(),
                         OrderTransitionSupport.CANCELLABLE_STATUSES,
                         "CANCELLED",
                         null, null, null, null, now, reason);
 
                 if (updated > 0) {
-                    support.orderRepository.insertStatusHistory(so.getId(), so.getStatus(), "CANCELLED", principal.userId(), reason);
-                    allUnitsToRelease.addAll(support.orderRepository.findUnitIdsBySellerOrderId(so.getId()));
+                    support.orderTransitions.insertStatusHistory(so.getId(), so.getStatus(), "CANCELLED", principal.userId(), reason);
+                    allUnitsToRelease.addAll(support.orderQueries.findUnitIdsBySellerOrderId(so.getId()));
                     ledgerPort.refundOnCancel(so.getId(), reason, principal.userId());
                 }
             }
@@ -115,7 +115,7 @@ final class OrderCancellationService {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
         support.requireWithinCancelWindow(parentOrder);
-        if (support.orderRepository.hasPaymentUnderReview(parentOrder.getId())) {
+        if (support.orderQueries.hasPaymentUnderReview(parentOrder.getId())) {
             throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
         }
 
@@ -133,14 +133,14 @@ final class OrderCancellationService {
         if (!OrderTransitionSupport.CANCELLABLE_STATUSES.contains(sellerOrder.getStatus())) {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
-        if (support.orderRepository.hasPaymentUnderReview(parentOrder.getId())) {
+        if (support.orderQueries.hasPaymentUnderReview(parentOrder.getId())) {
             throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
         }
 
         String reason = support.cancelReason(request);
         OffsetDateTime now = support.now();
 
-        int updated = support.orderRepository.updateSellerOrderStatus(
+        int updated = support.orderTransitions.updateSellerOrderStatus(
                 sellerOrder.getId(),
                 OrderTransitionSupport.CANCELLABLE_STATUSES,
                 "CANCELLED",
@@ -150,8 +150,8 @@ final class OrderCancellationService {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
 
-        support.orderRepository.insertStatusHistory(sellerOrder.getId(), sellerOrder.getStatus(), "CANCELLED", principal.userId(), reason);
-        List<Long> unitIds = support.orderRepository.findUnitIdsBySellerOrderId(sellerOrder.getId());
+        support.orderTransitions.insertStatusHistory(sellerOrder.getId(), sellerOrder.getStatus(), "CANCELLED", principal.userId(), reason);
+        List<Long> unitIds = support.orderQueries.findUnitIdsBySellerOrderId(sellerOrder.getId());
         if (!unitIds.isEmpty()) {
             inventoryPort.release(unitIds);
         }
@@ -171,12 +171,12 @@ final class OrderCancellationService {
         if (!OrderTransitionSupport.CANCELLABLE_STATUSES.contains(sellerOrder.getStatus())) {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
-        if (support.orderRepository.hasPaymentUnderReview(sellerOrder.getSalesOrderId())) {
+        if (support.orderQueries.hasPaymentUnderReview(sellerOrder.getSalesOrderId())) {
             throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
         }
 
         String note = "Cancelled by seller: " + reason;
-        int updated = support.orderRepository.updateSellerOrderStatus(
+        int updated = support.orderTransitions.updateSellerOrderStatus(
                 sellerOrderId,
                 OrderTransitionSupport.CANCELLABLE_STATUSES,
                 "CANCELLED",
@@ -185,8 +185,8 @@ final class OrderCancellationService {
             throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
         }
 
-        support.orderRepository.insertStatusHistory(sellerOrderId, sellerOrder.getStatus(), "CANCELLED", principal.userId(), note);
-        List<Long> unitIds = support.orderRepository.findUnitIdsBySellerOrderId(sellerOrderId);
+        support.orderTransitions.insertStatusHistory(sellerOrderId, sellerOrder.getStatus(), "CANCELLED", principal.userId(), note);
+        List<Long> unitIds = support.orderQueries.findUnitIdsBySellerOrderId(sellerOrderId);
         if (!unitIds.isEmpty()) {
             inventoryPort.release(unitIds);
         }
@@ -205,10 +205,10 @@ final class OrderCancellationService {
         support.orderRepository.findSalesOrderByIdForUpdate(so.getSalesOrderId());
         so = support.orderRepository.findSellerOrderById(sellerOrderId).orElse(null);
         if (so == null || !SellerOrderStatus.PENDING_PAYMENT.name().equals(so.getStatus())) return;
-        if (support.orderRepository.hasPaymentUnderReview(so.getSalesOrderId())) return;
+        if (support.orderQueries.hasPaymentUnderReview(so.getSalesOrderId())) return;
 
         String reason = "Cancelled automatically: payment was not received in time";
-        int updated = support.orderRepository.updateSellerOrderStatus(
+        int updated = support.orderTransitions.updateSellerOrderStatus(
                 sellerOrderId,
                 List.of(SellerOrderStatus.PENDING_PAYMENT.name()),
                 "CANCELLED",
@@ -218,10 +218,10 @@ final class OrderCancellationService {
             return;
         }
 
-        support.orderRepository.insertStatusHistory(
+        support.orderTransitions.insertStatusHistory(
                 sellerOrderId, so.getStatus(), "CANCELLED", null, reason);
 
-        List<Long> unitIds = support.orderRepository.findUnitIdsBySellerOrderId(sellerOrderId);
+        List<Long> unitIds = support.orderQueries.findUnitIdsBySellerOrderId(sellerOrderId);
         if (!unitIds.isEmpty()) {
             inventoryPort.release(unitIds);
         }
@@ -235,22 +235,22 @@ final class OrderCancellationService {
         SalesOrderRecord sale = support.orderRepository.findSalesOrderByIdForUpdate(salesOrderId).orElse(null);
         if (sale == null || !"AUCTION".equals(sale.getSource())
                 || !java.util.Objects.equals(sale.getAuctionId(), auctionId)
-                || support.orderRepository.hasPaymentUnderReview(salesOrderId)) return false;
+                || support.orderQueries.hasPaymentUnderReview(salesOrderId)) return false;
 
         // A buyer may have cancelled an unpaid checkout already. Its card was released then.
         if ("CANCELLED".equals(sale.getStatus())) return true;
         if (!"PENDING_PAYMENT".equals(sale.getStatus())) return false;
 
-        List<SellerOrderRecord> children = support.orderRepository.findSellerOrdersBySalesOrderId(salesOrderId);
+        List<SellerOrderRecord> children = support.orderQueries.findSellerOrdersBySalesOrderId(salesOrderId);
         if (children.size() != 1 || !"PENDING_PAYMENT".equals(children.getFirst().getStatus())) return false;
 
         SellerOrderRecord child = children.getFirst();
         String reason = "Cancelled automatically: auction payment was not received in time";
-        int updated = support.orderRepository.updateSellerOrderStatus(child.getId(),
+        int updated = support.orderTransitions.updateSellerOrderStatus(child.getId(),
                 List.of("PENDING_PAYMENT"), "CANCELLED", null, null, null, null, support.now(), reason);
         if (updated != 1) return false;
-        support.orderRepository.insertStatusHistory(child.getId(), "PENDING_PAYMENT", "CANCELLED", null, reason);
-        List<Long> unitIds = support.orderRepository.findUnitIdsBySellerOrderId(child.getId());
+        support.orderTransitions.insertStatusHistory(child.getId(), "PENDING_PAYMENT", "CANCELLED", null, reason);
+        List<Long> unitIds = support.orderQueries.findUnitIdsBySellerOrderId(child.getId());
         if (!unitIds.isEmpty()) inventoryPort.release(unitIds);
         ledgerPort.refundOnCancel(child.getId(), reason, null);
         settlement.rollupSalesOrderStatus(salesOrderId);

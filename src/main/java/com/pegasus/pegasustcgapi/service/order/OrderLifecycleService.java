@@ -17,6 +17,9 @@ import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.time.Clock;
@@ -51,6 +54,9 @@ public class OrderLifecycleService {
      */
     public OrderLifecycleService(
             OrderRepository orderRepository,
+            OrderTransitionRepository orderTransitionRepository,
+            OrderQueryRepository orderQueryRepository,
+            OrderReferenceQueryRepository orderReferenceQueryRepository,
             SellerPort sellerPort,
             PlatformSettingService platformSettingService,
             InventoryPort inventoryPort,
@@ -60,9 +66,10 @@ public class OrderLifecycleService {
             @Autowired(required = false) StorageService storageService,
             AuctionRepository auctionRepository) {
         Clock effectiveClock = clock != null ? clock : Clock.systemUTC();
-        this.settlement = new OrderSettlementService(orderRepository, effectiveClock, null, null);
-        this.mapper = new OrderResponseMapper(orderRepository, platformSettingService, storageService, null);
-        OrderTransitionSupport support = new OrderTransitionSupport(orderRepository, sellerPort, platformSettingService, effectiveClock);
+        this.settlement = new OrderSettlementService(orderRepository, orderTransitionRepository, orderQueryRepository, effectiveClock, null, null);
+        this.mapper = new OrderResponseMapper(orderRepository, orderQueryRepository, orderReferenceQueryRepository, platformSettingService, storageService, null);
+        OrderTransitionSupport support = new OrderTransitionSupport(orderRepository, orderTransitionRepository,
+                orderQueryRepository, orderReferenceQueryRepository, sellerPort, platformSettingService, effectiveClock);
         this.queries = new OrderQueryService(support, mapper, storageService);
         this.cancellation = new OrderCancellationService(support, inventoryPort, ledgerPort, settlement, mapper);
         this.fulfillment = new OrderFulfillmentService(support, inventoryPort, ledgerPort, collectionPort, settlement, mapper);

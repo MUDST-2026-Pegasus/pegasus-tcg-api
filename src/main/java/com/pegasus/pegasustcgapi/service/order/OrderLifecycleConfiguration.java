@@ -6,6 +6,9 @@ import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderTransitionRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.service.promotion.CheckoutPromotionService;
 import com.pegasus.pegasustcgapi.service.sale.SaleCheckoutService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
@@ -19,24 +22,24 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 class OrderLifecycleConfiguration {
     @Bean
-    OrderTransitionSupport orderTransitionSupport(OrderRepository orders, SellerPort sellers,
+    OrderTransitionSupport orderTransitionSupport(OrderRepository orders, OrderTransitionRepository orderTransitions, OrderQueryRepository orderQueries, OrderReferenceQueryRepository orderReferences, SellerPort sellers,
             PlatformSettingService settings, Clock clock) {
-        return new OrderTransitionSupport(orders, sellers, settings, clock);
+        return new OrderTransitionSupport(orders, orderTransitions, orderQueries, orderReferences, sellers, settings, clock);
     }
 
     @Bean
-    OrderSettlementService orderSettlementService(OrderRepository orders, Clock clock,
+    OrderSettlementService orderSettlementService(OrderRepository orders, OrderTransitionRepository orderTransitions, OrderQueryRepository orderQueries, OrderReferenceQueryRepository orderReferences, Clock clock,
             ObjectProvider<SaleCheckoutService> saleCheckout,
             ObjectProvider<CheckoutPromotionService> checkoutPromotions) {
-        return new OrderSettlementService(orders, clock,
+        return new OrderSettlementService(orders, orderTransitions, orderQueries, clock,
                 saleCheckout.getIfAvailable(), checkoutPromotions.getIfAvailable());
     }
 
     @Bean
-    OrderResponseMapper orderResponseMapper(OrderRepository orders, PlatformSettingService settings,
+    OrderResponseMapper orderResponseMapper(OrderRepository orders, OrderTransitionRepository orderTransitions, OrderQueryRepository orderQueries, OrderReferenceQueryRepository orderReferences, PlatformSettingService settings,
             @Autowired(required = false) StorageService storage,
             ObjectProvider<CheckoutPromotionService> checkoutPromotions) {
-        return new OrderResponseMapper(orders, settings, storage, checkoutPromotions.getIfAvailable());
+        return new OrderResponseMapper(orders, orderQueries, orderReferences, settings, storage, checkoutPromotions.getIfAvailable());
     }
 
     @Bean

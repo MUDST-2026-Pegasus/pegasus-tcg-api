@@ -7,7 +7,8 @@ import com.pegasus.pegasustcgapi.dto.order.SellerOrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipmentResponse;
 import com.pegasus.pegasustcgapi.exception.ErrorCode;
 import com.pegasus.pegasustcgapi.exception.NotFoundException;
-import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderQueryRepository;
+import com.pegasus.pegasustcgapi.repository.order.OrderReferenceQueryRepository;
 import com.pegasus.pegasustcgapi.repository.user.UserRepository;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.order.AdminOrderService;
@@ -35,7 +36,8 @@ public class OrderSummaryPdfService {
     private final OrderLifecycleService buyerOrders;
     private final SellerOrderDeskService sellerOrders;
     private final AdminOrderService adminOrders;
-    private final OrderRepository orderRecords;
+    private final OrderQueryRepository orderQueries;
+    private final OrderReferenceQueryRepository orderReferences;
     private final UserRepository users;
     private final OrderSummaryPdfRenderer renderer;
     private final ObjectMapper json;
@@ -45,7 +47,8 @@ public class OrderSummaryPdfService {
             OrderLifecycleService buyerOrders,
             SellerOrderDeskService sellerOrders,
             AdminOrderService adminOrders,
-            OrderRepository orderRecords,
+            OrderQueryRepository orderQueries,
+            OrderReferenceQueryRepository orderReferences,
             UserRepository users,
             OrderSummaryPdfRenderer renderer,
             ObjectMapper json,
@@ -53,7 +56,8 @@ public class OrderSummaryPdfService {
         this.buyerOrders = buyerOrders;
         this.sellerOrders = sellerOrders;
         this.adminOrders = adminOrders;
-        this.orderRecords = orderRecords;
+        this.orderQueries = orderQueries;
+        this.orderReferences = orderReferences;
         this.users = users;
         this.renderer = renderer;
         this.json = json;
@@ -66,7 +70,7 @@ public class OrderSummaryPdfService {
         UserRepository.UserIdentity identity = users.findIdentityById(order.buyerId())
                 .orElse(new UserRepository.UserIdentity(principal.username(), principal.username()));
         AddressSnapshot address = address(order.shippingAddressSnapshot());
-        Map<Long, OrderRepository.SellerIdentity> sellerIdentities = orderRecords.findSellerIdentitiesByProfileIds(order.sellerOrders().stream()
+        Map<Long, OrderReferenceQueryRepository.SellerIdentity> sellerIdentities = orderReferences.findSellerIdentitiesByProfileIds(order.sellerOrders().stream()
                 .map(SellerOrderDetailsResponse::sellerProfileId).distinct().toList());
         List<OrderSummaryPdfDocument.SellerSection> sections = order.sellerOrders().stream()
                 .map(sellerOrder -> buyerSection(sellerOrder,
@@ -193,7 +197,7 @@ public class OrderSummaryPdfService {
     }
 
     private OrderSummaryPdfDocument.SellerSection buyerSection(
-            SellerOrderDetailsResponse order, OrderRepository.SellerIdentity identity) {
+            SellerOrderDetailsResponse order, OrderReferenceQueryRepository.SellerIdentity identity) {
         String displayName = identity == null ? order.sellerName() : identity.displayName();
         String username = identity == null ? null : identity.username();
         return new OrderSummaryPdfDocument.SellerSection(
@@ -294,7 +298,7 @@ public class OrderSummaryPdfService {
     }
 
     private String currencyForSalesOrder(long salesOrderId) {
-        return orderRecords.findCurrencyBySalesOrderId(salesOrderId)
+        return orderQueries.findCurrencyBySalesOrderId(salesOrderId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
     }
 
