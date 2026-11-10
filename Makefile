@@ -29,9 +29,9 @@ help: ## Show this help message (Command: awk … Makefile)
 build: ## Build the project, skip tests (Command: ./gradlew build -x test)
 	$(gd) build -x test
 
-run: ## Start the application with dev env, or prod env on main
+run: ## Start the application with the dev env (local never touches prod)
 	@branch=$$(git symbolic-ref --quiet --short HEAD) || { echo 'Cannot run from detached HEAD'; exit 1; }; \
-	env_file=.env.dev; [ "$$branch" = main ] && env_file=.env.prod; \
+	env_file=.env.dev; \
 	[ -f "$$env_file" ] || { echo "Missing $$env_file"; exit 1; }; \
 	echo "Using $$env_file for $$branch"; \
 	APP_ENV_FILE="$$env_file" $(gd) bootRun
