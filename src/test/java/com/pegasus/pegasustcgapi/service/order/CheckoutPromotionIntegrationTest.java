@@ -125,6 +125,31 @@ class CheckoutPromotionIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void previewAndCheckoutAgreeForTheSameBasketAndDelivery() {
+        AuthPrincipal buyer = buyerWithFigmaCart();
+        Map<Long, String> sellerCodes = Map.of(minmin.profileId(), minmin50);
+        PromoPreview preview = checkout.promoPreview(buyer, null,
+                new PromoPreviewRequest(null, deliveries(), pegasus10, sellerCodes, null));
+
+        CheckoutResponse order = checkout.checkout(buyer, key(), null,
+                request(pegasus10, sellerCodes, preview.grandTotal()));
+
+        assertThat(order.itemsSubtotal()).isEqualByComparingTo(preview.itemsSubtotal());
+        assertThat(order.shippingTotal()).isEqualByComparingTo(preview.shippingTotal());
+        assertThat(order.discountTotal()).isEqualByComparingTo(
+                preview.sellerDiscountTotal().add(preview.platformDiscountTotal()));
+        assertThat(order.grandTotal()).isEqualByComparingTo(preview.grandTotal());
+        for (var seller : preview.sellers()) {
+            assertThat(order.sellerOrders()).anySatisfy(placed -> {
+                assertThat(placed.sellerProfileId()).isEqualTo(seller.sellerProfileId());
+                assertThat(placed.itemsSubtotal()).isEqualByComparingTo(seller.itemsSubtotal());
+                assertThat(placed.shippingFee()).isEqualByComparingTo(seller.shippingFee());
+                assertThat(placed.grandTotal()).isEqualByComparingTo(seller.grandTotal());
+            });
+        }
+    }
+
+    @Test
     void autoPickOnCartC1ChoosesPegasus10AndMinmin50() {
         AuthPrincipal buyer = buyerWithFigmaCart();
         // Other tests leave equally good 10% codes behind; ending first wins the tie.
