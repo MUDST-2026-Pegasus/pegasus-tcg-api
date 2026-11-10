@@ -5,102 +5,46 @@ import com.pegasus.pegasustcgapi.repository.auction.AuctionRepository;
 import com.pegasus.pegasustcgapi.service.promotion.CheckoutPromotionService;
 import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 
-import com.pegasus.pegasustcgapi.common.LogSanitizer;
 import com.pegasus.pegasustcgapi.common.PageResponse;
-import com.pegasus.pegasustcgapi.common.Paging;
-import com.pegasus.pegasustcgapi.dto.promotion.AppliedPromotion;
 import com.pegasus.pegasustcgapi.dto.order.CancelOrderRequest;
 import com.pegasus.pegasustcgapi.dto.order.OrderDetailsResponse;
-import com.pegasus.pegasustcgapi.dto.order.OrderItemDetailsResponse;
-import com.pegasus.pegasustcgapi.dto.order.OrderStatusHistoryResponse;
 import com.pegasus.pegasustcgapi.dto.order.ReorderItemsResponse;
-import com.pegasus.pegasustcgapi.exception.ForbiddenException;
 import com.pegasus.pegasustcgapi.dto.order.SellerOrderDetailsResponse;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipOrderRequest;
-import com.pegasus.pegasustcgapi.dto.shipping.ShipmentResponse;
 import com.pegasus.pegasustcgapi.exception.BadRequestException;
-import com.pegasus.pegasustcgapi.exception.ConflictException;
-import com.pegasus.pegasustcgapi.exception.ErrorCode;
-import com.pegasus.pegasustcgapi.exception.NotFoundException;
-import com.pegasus.pegasustcgapi.exception.UnauthorizedException;
-import com.pegasus.pegasustcgapi.jooq.tables.records.OrderItemRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
-import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderStatusHistoryRecord;
-import com.pegasus.pegasustcgapi.jooq.tables.records.ShipmentRecord;
-import com.pegasus.pegasustcgapi.model.promotion.Promotion;
 import com.pegasus.pegasustcgapi.model.order.SellerOrderStatus;
-import com.pegasus.pegasustcgapi.model.seller.SellerProfile;
 import com.pegasus.pegasustcgapi.port.collection.CollectionPort;
 import com.pegasus.pegasustcgapi.port.inventory.InventoryPort;
 import com.pegasus.pegasustcgapi.port.finance.wallet.LedgerPort;
 import com.pegasus.pegasustcgapi.port.seller.SellerPort;
 import com.pegasus.pegasustcgapi.repository.order.OrderRepository;
-import com.pegasus.pegasustcgapi.repository.promotion.PromotionRedemptionRepository;
 import com.pegasus.pegasustcgapi.service.sale.SaleCheckoutService;
-import com.pegasus.pegasustcgapi.dto.order.SaleDiscount;
 import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.storage.StorageService;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Clock;
-import java.time.Duration;
-import java.time.OffsetDateTime;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Service orchestrating order lifecycle, state transitions, ownership validation,
- * inventory movements, ledger payouts, and collection grants.
- *
- * <p>The response mappers all go through {@link #sellerDetailsById}, which loads a
- * whole page of orders with a fixed number of queries. Mapping one order at a time
- * used to cost three queries per sub-order plus one per item, so a buyer with a
- * long history could make a single GET run hundreds of statements.
+ * Transactional facade for order queries and lifecycle transitions.
  */
 @Service
 public class OrderLifecycleService {
 
     private final OrderSettlementService settlement;
+    private final OrderResponseMapper mapper;
+    private final OrderQueryService queries;
+    private final OrderCancellationService cancellation;
+    private final OrderFulfillmentService fulfillment;
+    private final OrderPaymentLifecycleService paymentLifecycle;
 
-    private static final Logger log = LoggerFactory.getLogger(OrderLifecycleService.class);
-
-    /**
-     * The compare-and-set guards, as names because the column stores names. Which
-     * statuses belong in each set lives on {@link SellerOrderStatus}, so a new
-     * transition is described in one place rather than in a string list per method.
-     */
-    private static final List<String> CANCELLABLE_STATUSES =
-            SellerOrderStatus.namesOf(SellerOrderStatus.CANCELLABLE);
-    private static final List<String> CONFIRMABLE_STATUSES =
-            SellerOrderStatus.namesOf(SellerOrderStatus.CONFIRMABLE);
-    private static final List<String> SHIPPABLE_STATUSES =
-            SellerOrderStatus.namesOf(SellerOrderStatus.SHIPPABLE);
-
-    private final OrderRepository orderRepository;
-    private final SellerPort sellerPort;
-    private final PlatformSettingService platformSettingService;
-    private final InventoryPort inventoryPort;
-    private final LedgerPort ledgerPort;
-    private final CollectionPort collectionPort;
-    private final Clock clock;
-    private final StorageService storageService;
-    private CheckoutPromotionService checkoutPromotions;
-    private final AuctionRepository auctionRepository;
-
-    @Autowired
     public OrderLifecycleService(
             OrderRepository orderRepository,
             SellerPort sellerPort,
@@ -111,16 +55,26 @@ public class OrderLifecycleService {
             Clock clock,
             @Autowired(required = false) StorageService storageService,
             AuctionRepository auctionRepository) {
-        this.orderRepository = orderRepository;
-        this.sellerPort = sellerPort;
-        this.platformSettingService = platformSettingService;
-        this.inventoryPort = inventoryPort;
-        this.ledgerPort = ledgerPort;
-        this.collectionPort = collectionPort;
-        this.clock = clock != null ? clock : Clock.systemUTC();
-        this.storageService = storageService;
-        this.auctionRepository = auctionRepository;
-        this.settlement = new OrderSettlementService(orderRepository, this.clock);
+        Clock effectiveClock = clock != null ? clock : Clock.systemUTC();
+        this.settlement = new OrderSettlementService(orderRepository, effectiveClock);
+        this.mapper = new OrderResponseMapper(orderRepository, platformSettingService, storageService);
+        OrderTransitionSupport support = new OrderTransitionSupport(orderRepository, sellerPort, platformSettingService, effectiveClock);
+        this.queries = new OrderQueryService(support, mapper, storageService);
+        this.cancellation = new OrderCancellationService(support, inventoryPort, ledgerPort, settlement, mapper);
+        this.fulfillment = new OrderFulfillmentService(support, inventoryPort, ledgerPort, collectionPort, settlement, mapper);
+        this.paymentLifecycle = new OrderPaymentLifecycleService(support, auctionRepository, settlement, mapper);
+    }
+
+    @Autowired
+    OrderLifecycleService(OrderSettlementService settlement, OrderResponseMapper mapper,
+            OrderQueryService queries, OrderCancellationService cancellation,
+            OrderFulfillmentService fulfillment, OrderPaymentLifecycleService paymentLifecycle) {
+        this.settlement = settlement;
+        this.mapper = mapper;
+        this.queries = queries;
+        this.cancellation = cancellation;
+        this.fulfillment = fulfillment;
+        this.paymentLifecycle = paymentLifecycle;
     }
 
     // ==========================================
@@ -129,364 +83,49 @@ public class OrderLifecycleService {
 
     @Transactional(readOnly = true)
     public PageResponse<OrderDetailsResponse> listBuyerOrders(AuthPrincipal principal, int page, int size) {
-        requireAuthenticated(principal);
-        Paging paging = Paging.of(page, size);
-        List<SalesOrderRecord> orders = orderRepository.findSalesOrdersByBuyerId(
-                principal.userId(), paging.size(), paging.offset());
-        return PageResponse.of(
-                toOrderDetailsResponses(orders),
-                paging.page(),
-                paging.size(),
-                orderRepository.countSalesOrdersByBuyerId(principal.userId()));
+        return queries.listBuyerOrders(principal, page, size);
     }
 
     @Transactional(readOnly = true)
     public OrderDetailsResponse getBuyerOrder(AuthPrincipal principal, long orderId) {
-        requireAuthenticated(principal);
-        SalesOrderRecord order = orderRepository.findSalesOrderByIdAndBuyerId(orderId, principal.userId())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-        return toOrderDetailsResponse(order);
+        return queries.getBuyerOrder(principal, orderId);
     }
 
     @Transactional(readOnly = true)
     public ReorderItemsResponse getReorderItems(AuthPrincipal principal, long orderId) {
-        requireAuthenticated(principal);
-        return getReorderItems(orderId, principal.userId());
+        return queries.getReorderItems(principal, orderId);
     }
 
     @Transactional(readOnly = true)
     public ReorderItemsResponse getReorderItems(Long orderId, Long buyerId) {
-        if (orderId == null || buyerId == null) {
-            throw new NotFoundException(ErrorCode.ORDER_NOT_FOUND);
-        }
-
-        SalesOrderRecord order = orderRepository.findSalesOrderByIdAndBuyerId(orderId, buyerId)
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-
-        if (!SellerOrderStatus.COMPLETED.name().equalsIgnoreCase(order.getStatus())) {
-            throw new BadRequestException(ErrorCode.INVALID_ORDER_STATUS, "Only completed orders can be reordered");
-        }
-
-        List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(order.getId());
-        if (sellerOrders.isEmpty()) {
-            return new ReorderItemsResponse(order.getId(), order.getOrderNumber(), List.of());
-        }
-
-        List<Long> sellerOrderIds = sellerOrders.stream().map(SellerOrderRecord::getId).toList();
-        Map<Long, List<OrderItemRecord>> itemsBySellerOrder = orderRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
-
-        List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
-        Map<Long, String> sellerNames = orderRepository.findSellerNamesByProfileIds(profileIds);
-
-        List<OrderItemRecord> allOrderItems = sellerOrders.stream()
-                .filter(so -> so.getStatus() == null || !SellerOrderStatus.CANCELLED.name().equalsIgnoreCase(so.getStatus()))
-                .flatMap(so -> itemsBySellerOrder.getOrDefault(so.getId(), List.of()).stream())
-                .toList();
-
-        List<Long> variantIds = allOrderItems.stream()
-                .map(OrderItemRecord::getCatalogVariantId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-
-        Map<Long, OrderRepository.ReorderProductMetadata> metadataMap = variantIds.isEmpty()
-                ? Map.of()
-                : orderRepository.findReorderProductMetadata(variantIds);
-
-        List<ReorderItemsResponse.ReorderItemDto> items = new ArrayList<>();
-        for (SellerOrderRecord so : sellerOrders) {
-            if (so.getStatus() != null && SellerOrderStatus.CANCELLED.name().equalsIgnoreCase(so.getStatus())) {
-                continue;
-            }
-            String sellerName = sellerNames.get(so.getSellerProfileId());
-            List<OrderItemRecord> orderItems = itemsBySellerOrder.getOrDefault(so.getId(), List.of());
-            for (OrderItemRecord oi : orderItems) {
-                OrderRepository.ReorderProductMetadata meta = metadataMap.get(oi.getCatalogVariantId());
-                String productSlug = meta != null ? meta.productSlug() : null;
-                String rarity = meta != null ? meta.rarity() : null;
-
-                String imageUrl = null;
-                if (storageService != null && oi.getImageKeySnapshot() != null && !oi.getImageKeySnapshot().isBlank()) {
-                    try {
-                        imageUrl = storageService.presignDownload(oi.getImageKeySnapshot());
-                    } catch (Exception e) {
-                        log.warn("Failed to presign download for image key='{}'",
-                                LogSanitizer.sanitize(oi.getImageKeySnapshot()), e);
-                    }
-                }
-
-                items.add(new ReorderItemsResponse.ReorderItemDto(
-                        oi.getId(),
-                        oi.getCatalogVariantId(),
-                        productSlug,
-                        oi.getProductNameSnapshot(),
-                        oi.getVariantLabelSnapshot(),
-                        rarity,
-                        imageUrl,
-                        oi.getConditionSnapshot(),
-                        oi.getUnitPrice(),
-                        oi.getQuantity(),
-                        sellerName
-                ));
-            }
-        }
-
-        return new ReorderItemsResponse(order.getId(), order.getOrderNumber(), items);
+        return queries.getReorderItems(orderId, buyerId);
     }
 
     @Transactional
     public OrderDetailsResponse cancelBuyerOrder(AuthPrincipal principal, long orderId, CancelOrderRequest request) {
-        requireAuthenticated(principal);
-
-        // Check if orderId is a sales_order belonging to current buyer
-        SalesOrderRecord salesOrder = orderRepository.findSalesOrderByIdAndBuyerId(orderId, principal.userId()).orElse(null);
-        if (salesOrder != null) {
-            return cancelSalesOrder(principal, salesOrder, request);
-        }
-
-        // Check if orderId is a child seller_order belonging to this buyer
-        SellerOrderRecord sellerOrder = resolveBuyerSellerOrder(principal, orderId);
-        if (sellerOrder != null) {
-            SalesOrderRecord parentOrder = orderRepository
-                    .findSalesOrderByIdAndBuyerId(sellerOrder.getSalesOrderId(), principal.userId())
-                    .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-            return cancelSingleSellerOrder(principal, parentOrder, sellerOrder, request);
-        }
-
-        throw new NotFoundException(ErrorCode.ORDER_NOT_FOUND);
-    }
-
-    private OrderDetailsResponse cancelSalesOrder(AuthPrincipal principal, SalesOrderRecord salesOrder, CancelOrderRequest request) {
-        if ("AUCTION".equals(salesOrder.getSource())) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-        requireWithinCancelWindow(salesOrder);
-        if (orderRepository.hasPaymentUnderReview(salesOrder.getId())) {
-            throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
-        }
-
-        List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(salesOrder.getId());
-        boolean anyShippedOrCompleted = sellerOrders.stream()
-                .anyMatch(so -> List.of("SHIPPED", "DELIVERED", "COMPLETED").contains(so.getStatus()));
-        if (anyShippedOrCompleted) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-        salesOrder = orderRepository.findSalesOrderByIdForUpdate(salesOrder.getId())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-        if ("AUCTION".equals(salesOrder.getSource())) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-        requireWithinCancelWindow(salesOrder);
-        sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(salesOrder.getId());
-        if (sellerOrders.stream().anyMatch(so -> List.of("SHIPPED", "DELIVERED", "COMPLETED")
-                .contains(so.getStatus()))) throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        if (orderRepository.hasPaymentUnderReview(salesOrder.getId())) {
-            throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
-        }
-
-        String reason = cancelReason(request);
-        OffsetDateTime now = now();
-        List<Long> allUnitsToRelease = new ArrayList<>();
-
-        for (SellerOrderRecord so : sellerOrders) {
-            if (CANCELLABLE_STATUSES.contains(so.getStatus())) {
-                int updated = orderRepository.updateSellerOrderStatus(
-                        so.getId(),
-                        CANCELLABLE_STATUSES,
-                        "CANCELLED",
-                        null, null, null, null, now, reason);
-
-                if (updated > 0) {
-                    orderRepository.insertStatusHistory(so.getId(), so.getStatus(), "CANCELLED", principal.userId(), reason);
-                    allUnitsToRelease.addAll(orderRepository.findUnitIdsBySellerOrderId(so.getId()));
-                    ledgerPort.refundOnCancel(so.getId(), reason, principal.userId());
-                }
-            }
-        }
-
-        if (!allUnitsToRelease.isEmpty()) {
-            inventoryPort.release(allUnitsToRelease);
-        }
-
-        rollupSalesOrderStatus(salesOrder.getId());
-        return toOrderDetailsResponse(salesOrder.getId());
-    }
-
-    private OrderDetailsResponse cancelSingleSellerOrder(AuthPrincipal principal, SalesOrderRecord parentOrder, SellerOrderRecord sellerOrder, CancelOrderRequest request) {
-        if ("AUCTION".equals(parentOrder.getSource())) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-        requireWithinCancelWindow(parentOrder);
-        if (orderRepository.hasPaymentUnderReview(parentOrder.getId())) {
-            throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
-        }
-
-        if (!CANCELLABLE_STATUSES.contains(sellerOrder.getStatus())) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-        parentOrder = orderRepository.findSalesOrderByIdForUpdate(parentOrder.getId())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-        if ("AUCTION".equals(parentOrder.getSource())) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-        requireWithinCancelWindow(parentOrder);
-        sellerOrder = orderRepository.findSellerOrderById(sellerOrder.getId())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-        if (!CANCELLABLE_STATUSES.contains(sellerOrder.getStatus())) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-        if (orderRepository.hasPaymentUnderReview(parentOrder.getId())) {
-            throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
-        }
-
-        String reason = cancelReason(request);
-        OffsetDateTime now = now();
-
-        int updated = orderRepository.updateSellerOrderStatus(
-                sellerOrder.getId(),
-                CANCELLABLE_STATUSES,
-                "CANCELLED",
-                null, null, null, null, now, reason);
-
-        if (updated == 0) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-
-        orderRepository.insertStatusHistory(sellerOrder.getId(), sellerOrder.getStatus(), "CANCELLED", principal.userId(), reason);
-        List<Long> unitIds = orderRepository.findUnitIdsBySellerOrderId(sellerOrder.getId());
-        if (!unitIds.isEmpty()) {
-            inventoryPort.release(unitIds);
-        }
-        ledgerPort.refundOnCancel(sellerOrder.getId(), reason, principal.userId());
-
-        rollupSalesOrderStatus(parentOrder.getId());
-        return toOrderDetailsResponse(parentOrder.getId());
+        return cancellation.cancelBuyerOrder(principal, orderId, request);
     }
 
     @Transactional
     public OrderDetailsResponse confirmBuyerOrderReceived(AuthPrincipal principal, long orderId) {
-        requireAuthenticated(principal);
-
-        // Resolved in the same order as cancellation: sales_order first, then a
-        // sub-order of one. The two id spaces overlap, so reading them the other way
-        // round here would let the same id mean a different order on each endpoint.
-        SalesOrderRecord salesOrder = orderRepository.findSalesOrderByIdAndBuyerId(orderId, principal.userId()).orElse(null);
-        if (salesOrder != null) {
-            List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(salesOrder.getId());
-            List<SellerOrderRecord> eligibleOrders = sellerOrders.stream()
-                    .filter(so -> CONFIRMABLE_STATUSES.contains(so.getStatus()))
-                    .toList();
-
-            if (eligibleOrders.isEmpty()) {
-                throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-            }
-
-            for (SellerOrderRecord so : eligibleOrders) {
-                confirmSellerOrder(principal.userId(), so);
-            }
-
-            rollupSalesOrderStatus(salesOrder.getId());
-            return toOrderDetailsResponse(salesOrder.getId());
-        }
-
-        SellerOrderRecord sellerOrder = resolveBuyerSellerOrder(principal, orderId);
-        if (sellerOrder != null) {
-            SalesOrderRecord parentOrder = orderRepository
-                    .findSalesOrderByIdAndBuyerId(sellerOrder.getSalesOrderId(), principal.userId())
-                    .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-            confirmSellerOrder(principal.userId(), sellerOrder);
-            rollupSalesOrderStatus(parentOrder.getId());
-            return toOrderDetailsResponse(parentOrder.getId());
-        }
-
-        throw new NotFoundException(ErrorCode.ORDER_NOT_FOUND);
-    }
-
-    /** A sub-order this buyer paid for, or null when the id is not theirs. */
-    private SellerOrderRecord resolveBuyerSellerOrder(AuthPrincipal principal, long sellerOrderId) {
-        SellerOrderRecord sellerOrder = orderRepository.findSellerOrderById(sellerOrderId).orElse(null);
-        if (sellerOrder == null) {
-            return null;
-        }
-        boolean ownedByCaller = orderRepository
-                .findSalesOrderByIdAndBuyerId(sellerOrder.getSalesOrderId(), principal.userId())
-                .isPresent();
-        return ownedByCaller ? sellerOrder : null;
-    }
-
-    private void confirmSellerOrder(long buyerUserId, SellerOrderRecord sellerOrder) {
-        if (!CONFIRMABLE_STATUSES.contains(sellerOrder.getStatus())) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-
-        OffsetDateTime now = now();
-        int updated = orderRepository.updateSellerOrderStatus(
-                sellerOrder.getId(),
-                CONFIRMABLE_STATUSES,
-                "COMPLETED",
-                null, now, null, now, null, null);
-
-        if (updated == 0) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-
-        orderRepository.insertStatusHistory(sellerOrder.getId(), sellerOrder.getStatus(), "COMPLETED", buyerUserId, "Buyer confirmed receipt");
-        ledgerPort.release(sellerOrder.getId());
-        collectionPort.grant(buyerUserId, sellerOrder.getId());
+        return fulfillment.confirmBuyerOrderReceived(principal, orderId);
     }
 
     /** Legacy test helper; production payment goes through PaymentService and its ledger. */
     @Transactional
     public OrderDetailsResponse markOrderPaid(AuthPrincipal principal, long orderId) {
-        requireAuthenticated(principal);
-        SalesOrderRecord salesOrder = orderRepository.findSalesOrderByIdAndBuyerId(orderId, principal.userId())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-        if (!"PENDING_PAYMENT".equals(salesOrder.getStatus())) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-        markOrderPaidBySystem(salesOrder.getId(), principal.userId());
-        return toOrderDetailsResponse(salesOrder.getId());
+        return paymentLifecycle.markOrderPaid(principal, orderId);
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void markOrderPaidBySystem(long orderId, Long actorUserId) {
-        SalesOrderRecord salesOrder = orderRepository.findSalesOrderById(orderId)
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-        if (!"PENDING_PAYMENT".equals(salesOrder.getStatus())) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-
-        List<SellerOrderRecord> sellerOrders = orderRepository.findSellerOrdersBySalesOrderId(salesOrder.getId());
-        for (SellerOrderRecord so : sellerOrders) {
-            if ("PENDING_PAYMENT".equals(so.getStatus())) {
-                orderRepository.updateSellerOrderStatus(
-                        so.getId(),
-                        List.of("PENDING_PAYMENT"),
-                        "PAID",
-                        null, null, null, null, null, null);
-                orderRepository.insertStatusHistory(so.getId(), "PENDING_PAYMENT", "PAID", actorUserId, "Payment completed");
-            }
-        }
-
-        rollupSalesOrderStatus(salesOrder.getId());
-        if (salesOrder.getAuctionId() != null) {
-            auctionRepository.markSoldForOrder(salesOrder.getAuctionId(), salesOrder.getId());
-        }
+        paymentLifecycle.markOrderPaidBySystem(orderId, actorUserId);
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void transitionAfterSales(long sellerOrderId, SellerOrderStatus target, Long actorUserId,
             String reason) {
-        SellerOrderRecord order = orderRepository.findSellerOrderById(sellerOrderId)
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-        SellerOrderStatus current = SellerOrderStatus.of(order.getStatus());
-        if (!current.canMoveTo(target)) throw new ConflictException(ErrorCode.RETURN_STATE);
-        if (orderRepository.updateSellerOrderStatus(sellerOrderId, List.of(current.name()), target.name(),
-                null, null, null, target == SellerOrderStatus.COMPLETED ? now() : null, null, null) != 1) {
-            throw new ConflictException(ErrorCode.RETURN_STATE);
-        }
-        orderRepository.insertStatusHistory(sellerOrderId, current.name(), target.name(), actorUserId, reason);
-        rollupSalesOrderStatus(order.getSalesOrderId());
+        paymentLifecycle.transitionAfterSales(sellerOrderId, target, actorUserId, reason);
     }
 
     // ==========================================
@@ -502,95 +141,17 @@ public class OrderLifecycleService {
      */
     public PageResponse<SellerOrderDetailsResponse> listSellerOrders(
             AuthPrincipal principal, String status, int page, int size) {
-        requireAuthenticated(principal);
-        SellerProfile profile = requireSellerProfile(principal.userId());
-        String filter = normalizeStatusFilter(status);
-        Paging paging = Paging.of(page, size);
-        List<SellerOrderRecord> orders = orderRepository.findSellerOrdersBySellerProfileId(
-                profile.id(), filter, paging.size(), paging.offset());
-        return PageResponse.of(
-                List.copyOf(sellerDetailsById(orders).values()),
-                paging.page(),
-                paging.size(),
-                orderRepository.countSellerOrdersBySellerProfileId(profile.id(), filter));
-    }
-
-    private static String normalizeStatusFilter(String status) {
-        if (status == null || status.isBlank()) {
-            return null;
-        }
-        SellerOrderStatus parsed = SellerOrderStatus.parseOrNull(status);
-        if (parsed == null) {
-            throw new BadRequestException(ErrorCode.VALIDATION_FAILED,
-                    "status must be one of " + java.util.Arrays.toString(SellerOrderStatus.values()));
-        }
-        return parsed.name();
+        return queries.listSellerOrders(principal, status, page, size);
     }
 
     @Transactional(readOnly = true)
     public SellerOrderDetailsResponse getSellerOrder(AuthPrincipal principal, long sellerOrderId) {
-        requireAuthenticated(principal);
-        SellerProfile profile = requireSellerProfile(principal.userId());
-        SellerOrderRecord sellerOrder = orderRepository.findSellerOrderByIdAndSellerProfileId(sellerOrderId, profile.id())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-        return toSellerOrderDetailsResponse(sellerOrder);
+        return queries.getSellerOrder(principal, sellerOrderId);
     }
 
     @Transactional
     public SellerOrderDetailsResponse shipSellerOrder(AuthPrincipal principal, long sellerOrderId, ShipOrderRequest request) {
-        requireAuthenticated(principal);
-        SellerProfile profile = requireSellerProfile(principal.userId());
-        SellerOrderRecord sellerOrder = orderRepository.findSellerOrderByIdAndSellerProfileId(sellerOrderId, profile.id())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-
-        if (!SHIPPABLE_STATUSES.contains(sellerOrder.getStatus())) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-
-        Duration escrowWindow = platformSettingService.getDays(PlatformSettingService.ESCROW_AUTO_RELEASE_DAYS);
-        OffsetDateTime now = now();
-        OffsetDateTime autoCompleteAt = now.plus(escrowWindow);
-
-        int updated = orderRepository.updateSellerOrderStatus(
-                sellerOrderId,
-                SHIPPABLE_STATUSES,
-                "SHIPPED",
-                now, null, autoCompleteAt, null, null, null);
-
-        if (updated == 0) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-
-        orderRepository.insertShipment(
-                sellerOrderId,
-                request.carrierCode(),
-                request.carrierName(),
-                request.trackingNumber(),
-                "IN_TRANSIT",
-                now,
-                request.estimatedDeliveryDate(),
-                request.proofImageKey(),
-                principal.userId());
-
-        // One query for the whole parcel's cards rather than one per line.
-        Map<Long, List<Long>> unitsByItem = orderRepository.findUnitIdsGroupedBySellerOrderId(sellerOrderId);
-        for (Map.Entry<Long, List<Long>> entry : unitsByItem.entrySet()) {
-            if (!entry.getValue().isEmpty()) {
-                inventoryPort.commitSale(entry.getKey(), entry.getValue(), principal.userId());
-            }
-        }
-
-        orderRepository.insertStatusHistory(
-                sellerOrderId,
-                sellerOrder.getStatus(),
-                "SHIPPED",
-                principal.userId(),
-                "Order shipped with tracking " + request.trackingNumber());
-
-        ledgerPort.scheduleRelease(sellerOrderId, autoCompleteAt);
-
-        rollupSalesOrderStatus(sellerOrder.getSalesOrderId());
-        return toSellerOrderDetailsResponse(sellerOrderId);
+        return fulfillment.shipSellerOrder(principal, sellerOrderId, request);
     }
 
     /**
@@ -601,19 +162,7 @@ public class OrderLifecycleService {
      */
     @Transactional
     public SellerOrderDetailsResponse acceptSellerOrder(AuthPrincipal principal, long sellerOrderId) {
-        requireAuthenticated(principal);
-        SellerProfile profile = requireSellerProfile(principal.userId());
-        SellerOrderRecord sellerOrder = orderRepository.findSellerOrderByIdAndSellerProfileId(sellerOrderId, profile.id())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-
-        if (!SellerOrderStatus.of(sellerOrder.getStatus()).canMoveTo(SellerOrderStatus.PREPARING)
-                || orderRepository.markSellerOrderAccepted(sellerOrderId, now()) == 0) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-
-        orderRepository.insertStatusHistory(
-                sellerOrderId, sellerOrder.getStatus(), "PREPARING", principal.userId(), "Seller accepted the order");
-        return toSellerOrderDetailsResponse(sellerOrderId);
+        return fulfillment.acceptSellerOrder(principal, sellerOrderId);
     }
 
     /**
@@ -631,38 +180,7 @@ public class OrderLifecycleService {
     @Transactional
     public SellerOrderDetailsResponse cancelSellerOrderBySeller(
             AuthPrincipal principal, long sellerOrderId, String reason) {
-        requireAuthenticated(principal);
-        SellerProfile profile = requireSellerProfile(principal.userId());
-        SellerOrderRecord sellerOrder = orderRepository.findSellerOrderByIdAndSellerProfileId(sellerOrderId, profile.id())
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-
-        if (!CANCELLABLE_STATUSES.contains(sellerOrder.getStatus())) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-        if (orderRepository.hasPaymentUnderReview(sellerOrder.getSalesOrderId())) {
-            throw new ConflictException(ErrorCode.PAYMENT_UNDER_REVIEW);
-        }
-
-        String note = "Cancelled by seller: " + reason;
-        int updated = orderRepository.updateSellerOrderStatus(
-                sellerOrderId,
-                CANCELLABLE_STATUSES,
-                "CANCELLED",
-                null, null, null, null, now(), reason);
-        if (updated == 0) {
-            throw new ConflictException(ErrorCode.ORDER_STATUS_TRANSITION);
-        }
-
-        orderRepository.insertStatusHistory(sellerOrderId, sellerOrder.getStatus(), "CANCELLED", principal.userId(), note);
-        List<Long> unitIds = orderRepository.findUnitIdsBySellerOrderId(sellerOrderId);
-        if (!unitIds.isEmpty()) {
-            inventoryPort.release(unitIds);
-        }
-        // The bare reason, not the note: refund.reason is varchar(255) like cancel_reason.
-        ledgerPort.refundOnCancel(sellerOrderId, reason, principal.userId());
-
-        rollupSalesOrderStatus(sellerOrder.getSalesOrderId());
-        return toSellerOrderDetailsResponse(sellerOrderId);
+        return cancellation.cancelSellerOrderBySeller(principal, sellerOrderId, reason);
     }
 
     // ==========================================
@@ -671,36 +189,7 @@ public class OrderLifecycleService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void autoCompleteSellerOrder(long sellerOrderId) {
-        SellerOrderRecord so = orderRepository.findSellerOrderById(sellerOrderId).orElse(null);
-        if (so == null || !CONFIRMABLE_STATUSES.contains(so.getStatus())) {
-            return;
-        }
-
-        OffsetDateTime now = now();
-        int updated = orderRepository.updateSellerOrderStatus(
-                sellerOrderId,
-                CONFIRMABLE_STATUSES,
-                "COMPLETED",
-                null, now, null, now, null, null);
-
-        if (updated == 0) {
-            return;
-        }
-
-        orderRepository.insertStatusHistory(
-                sellerOrderId,
-                so.getStatus(),
-                "COMPLETED",
-                null,
-                "Auto-completed by escrow release scheduler");
-
-        ledgerPort.release(sellerOrderId);
-
-        SalesOrderRecord parent = orderRepository.findSalesOrderById(so.getSalesOrderId()).orElse(null);
-        if (parent != null) {
-            collectionPort.grant(parent.getBuyerId(), sellerOrderId);
-            rollupSalesOrderStatus(parent.getId());
-        }
+        fulfillment.autoCompleteSellerOrder(sellerOrderId);
     }
 
     /**
@@ -712,65 +201,13 @@ public class OrderLifecycleService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void expireUnpaidSellerOrder(long sellerOrderId) {
-        SellerOrderRecord so = orderRepository.findSellerOrderById(sellerOrderId).orElse(null);
-        if (so == null || !SellerOrderStatus.PENDING_PAYMENT.name().equals(so.getStatus())) {
-            return;
-        }
-        orderRepository.findSalesOrderByIdForUpdate(so.getSalesOrderId());
-        so = orderRepository.findSellerOrderById(sellerOrderId).orElse(null);
-        if (so == null || !SellerOrderStatus.PENDING_PAYMENT.name().equals(so.getStatus())) return;
-        if (orderRepository.hasPaymentUnderReview(so.getSalesOrderId())) return;
-
-        String reason = "Cancelled automatically: payment was not received in time";
-        int updated = orderRepository.updateSellerOrderStatus(
-                sellerOrderId,
-                List.of(SellerOrderStatus.PENDING_PAYMENT.name()),
-                "CANCELLED",
-                null, null, null, null, now(), reason);
-
-        if (updated == 0) {
-            return;
-        }
-
-        orderRepository.insertStatusHistory(
-                sellerOrderId, so.getStatus(), "CANCELLED", null, reason);
-
-        List<Long> unitIds = orderRepository.findUnitIdsBySellerOrderId(sellerOrderId);
-        if (!unitIds.isEmpty()) {
-            inventoryPort.release(unitIds);
-        }
-
-        ledgerPort.refundOnCancel(sellerOrderId, reason, null);
-
-        rollupSalesOrderStatus(so.getSalesOrderId());
+        cancellation.expireUnpaidSellerOrder(sellerOrderId);
     }
 
     /** Called inside the auction timeout transaction after the parent order row is locked. */
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean expireUnpaidAuctionOrder(long salesOrderId, long auctionId) {
-        SalesOrderRecord sale = orderRepository.findSalesOrderByIdForUpdate(salesOrderId).orElse(null);
-        if (sale == null || !"AUCTION".equals(sale.getSource())
-                || !java.util.Objects.equals(sale.getAuctionId(), auctionId)
-                || orderRepository.hasPaymentUnderReview(salesOrderId)) return false;
-
-        // A buyer may have cancelled an unpaid checkout already. Its card was released then.
-        if ("CANCELLED".equals(sale.getStatus())) return true;
-        if (!"PENDING_PAYMENT".equals(sale.getStatus())) return false;
-
-        List<SellerOrderRecord> children = orderRepository.findSellerOrdersBySalesOrderId(salesOrderId);
-        if (children.size() != 1 || !"PENDING_PAYMENT".equals(children.getFirst().getStatus())) return false;
-
-        SellerOrderRecord child = children.getFirst();
-        String reason = "Cancelled automatically: auction payment was not received in time";
-        int updated = orderRepository.updateSellerOrderStatus(child.getId(),
-                List.of("PENDING_PAYMENT"), "CANCELLED", null, null, null, null, now(), reason);
-        if (updated != 1) return false;
-        orderRepository.insertStatusHistory(child.getId(), "PENDING_PAYMENT", "CANCELLED", null, reason);
-        List<Long> unitIds = orderRepository.findUnitIdsBySellerOrderId(child.getId());
-        if (!unitIds.isEmpty()) inventoryPort.release(unitIds);
-        ledgerPort.refundOnCancel(child.getId(), reason, null);
-        rollupSalesOrderStatus(salesOrderId);
-        return true;
+        return cancellation.expireUnpaidAuctionOrder(salesOrderId, auctionId);
     }
 
     // ==========================================
@@ -797,313 +234,33 @@ public class OrderLifecycleService {
         settlement.setSaleCheckout(saleCheckout);
     }
 
-    /** Codes still on these orders; none when the service was built without discount codes. */
-    private Map<Long, List<PromotionRedemptionRepository.Applied>> appliedPromotions(List<Long> salesOrderIds) {
-        return checkoutPromotions == null ? Map.of() : checkoutPromotions.appliedBySalesOrder(salesOrderIds);
-    }
-
-    /** One shop's view: its own code, and its share of the Pegasus code. */
-    private static List<AppliedPromotion> shopShare(SellerOrderRecord so,
-            List<PromotionRedemptionRepository.Applied> applied) {
-        List<AppliedPromotion> out = new ArrayList<>();
-        for (PromotionRedemptionRepository.Applied a : applied) {
-            if ("SELLER".equals(a.ownerType()) && Objects.equals(a.sellerOrderId(), so.getId())) {
-                out.add(toApplied(a));
-            } else if ("PLATFORM".equals(a.ownerType()) && money(so.getPlatformDiscountAmount()).signum() > 0) {
-                out.add(new AppliedPromotion(a.code(), Promotion.OwnerType.PLATFORM, null,
-                        money(so.getPlatformDiscountAmount()), a.status()));
-            }
-        }
-        return out;
-    }
-
-    /** The columns are NOT NULL; records a test builds by hand may leave them unset. */
-    private static BigDecimal money(BigDecimal amount) {
-        return amount == null ? BigDecimal.ZERO : amount;
-    }
-
-    private static AppliedPromotion toApplied(PromotionRedemptionRepository.Applied a) {
-        return new AppliedPromotion(a.code(), Promotion.OwnerType.valueOf(a.ownerType()), a.sellerProfileId(),
-                a.amount(), a.status());
-    }
-
     /**
      * Optional so the constructors the unit tests use stay as they are; Spring always
      * supplies it.
      */
     @Autowired(required = false)
     void setCheckoutPromotions(CheckoutPromotionService checkoutPromotions) {
-        this.checkoutPromotions = checkoutPromotions;
+        mapper.setCheckoutPromotions(checkoutPromotions);
         settlement.setCheckoutPromotions(checkoutPromotions);
     }
 
-    // ==========================================
-    // Helpers & DTO Mappers
-    // ==========================================
-
-    /**
-     * The cancellation window only runs once money is involved.
-     *
-     * <p>An unpaid order is holding stock and nothing else, so there is no reason
-     * to make the buyer keep it; the deadline that matters for those is the payment
-     * timeout, which cancels them on its own.
-     */
-    private void requireWithinCancelWindow(SalesOrderRecord salesOrder) {
-        if (salesOrder.getPaidAt() == null) {
-            return;
-        }
-        Duration window = platformSettingService.getHours(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS);
-        if (salesOrder.getPaidAt().plus(window).isBefore(now())) {
-            throw new ConflictException(ErrorCode.CANCEL_WINDOW_CLOSED);
-        }
+    public OrderDetailsResponse toOrderDetailsResponse(long id) {
+        return mapper.toOrderDetailsResponse(id);
+    }
+    public OrderDetailsResponse toOrderDetailsResponse(SalesOrderRecord order) {
+        return mapper.toOrderDetailsResponse(order);
+    }
+    public List<OrderDetailsResponse> toOrderDetailsResponses(List<SalesOrderRecord> orders) {
+        return mapper.toOrderDetailsResponses(orders);
+    }
+    public SellerOrderDetailsResponse toSellerOrderDetailsResponse(long id) {
+        return mapper.toSellerOrderDetailsResponse(id);
+    }
+    public SellerOrderDetailsResponse toSellerOrderDetailsResponse(SellerOrderRecord order) {
+        return mapper.toSellerOrderDetailsResponse(order);
+    }
+    public Map<Long, SellerOrderDetailsResponse> toSellerOrderDetailsResponses(List<Long> ids) {
+        return mapper.toSellerOrderDetailsResponses(ids);
     }
 
-    private OffsetDateTime now() {
-        return OffsetDateTime.now(clock);
-    }
-
-    private static String cancelReason(CancelOrderRequest request) {
-        return (request != null && request.reason() != null && !request.reason().isBlank())
-                ? request.reason() : "Cancelled by buyer";
-    }
-
-    private void requireAuthenticated(AuthPrincipal principal) {
-        if (principal == null) {
-            throw new UnauthorizedException(ErrorCode.UNAUTHENTICATED);
-        }
-    }
-
-    /**
-     * Read from the seller module, not from the token: a profile that was suspended
-     * after the token was minted must not still pass as a seller.
-     */
-    private SellerProfile requireSellerProfile(long userId) {
-        return sellerPort.requireProfile(userId);
-    }
-
-    public OrderDetailsResponse toOrderDetailsResponse(long salesOrderId) {
-        SalesOrderRecord so = orderRepository.findSalesOrderById(salesOrderId)
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-        return toOrderDetailsResponse(so);
-    }
-
-    public OrderDetailsResponse toOrderDetailsResponse(SalesOrderRecord so) {
-        return toOrderDetailsResponses(List.of(so)).getFirst();
-    }
-
-    /** A whole page of orders in a fixed number of queries, whatever it holds. */
-    public List<OrderDetailsResponse> toOrderDetailsResponses(List<SalesOrderRecord> salesOrders) {
-        if (salesOrders.isEmpty()) {
-            return List.of();
-        }
-
-        List<Long> salesOrderIds = salesOrders.stream().map(SalesOrderRecord::getId).toList();
-        Map<Long, List<SellerOrderRecord>> sellerOrdersByParent =
-                orderRepository.findSellerOrdersBySalesOrderIds(salesOrderIds);
-
-        List<SellerOrderRecord> allSellerOrders = salesOrders.stream()
-                .flatMap(so -> sellerOrdersByParent.getOrDefault(so.getId(), List.of()).stream())
-                .toList();
-        Map<Long, SellerOrderDetailsResponse> sellerResponsesById = sellerDetailsById(allSellerOrders);
-        Set<Long> underReview = orderRepository.findSalesOrderIdsWithPaymentUnderReview(salesOrderIds);
-        Map<Long, List<PromotionRedemptionRepository.Applied>> appliedBySalesOrder = appliedPromotions(salesOrderIds);
-        Map<Long, String> auctionNumbers = orderRepository.findAuctionNumbers(salesOrders.stream()
-                .map(SalesOrderRecord::getAuctionId).filter(java.util.Objects::nonNull).toList());
-        Duration cancelWindow = platformSettingService.getHours(PlatformSettingService.ORDER_CANCEL_WINDOW_HOURS);
-
-        return salesOrders.stream().map(so -> {
-            List<SellerOrderDetailsResponse> sellerResponses =
-                    sellerOrdersByParent.getOrDefault(so.getId(), List.of()).stream()
-                            .map(child -> sellerResponsesById.get(child.getId()))
-                            .toList();
-            List<AppliedPromotion> promotions = appliedBySalesOrder.getOrDefault(so.getId(), List.of()).stream()
-                    .map(OrderLifecycleService::toApplied)
-                    .toList();
-
-            return new OrderDetailsResponse(
-                    so.getId(),
-                    so.getOrderNumber(),
-                    so.getBuyerId(),
-                    so.getStatus(),
-                    so.getCurrency(),
-                    so.getItemsSubtotal(),
-                    so.getShippingTotal(),
-                    so.getDiscountTotal(),
-                    so.getGrandTotal(),
-                    so.getShippingAddressId(),
-                    so.getShippingAddressSnapshot() != null ? so.getShippingAddressSnapshot().data() : null,
-                    so.getBuyerNote(),
-                    so.getPlacedAt(),
-                    so.getPaidAt(),
-                    so.getCompletedAt(),
-                    so.getCancelledAt(),
-                    sellerResponses,
-                    underReview.contains(so.getId()),
-                    so.getPaidAt() != null ? so.getPaidAt().plus(cancelWindow) : null,
-                    sellerResponses.stream().map(SellerOrderDetailsResponse::sellerDiscount)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add),
-                    sellerResponses.stream().map(SellerOrderDetailsResponse::platformDiscount)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add),
-                    promotions,
-                    so.getPaidAt() == null && "PENDING_PAYMENT".equals(so.getStatus()) && !promotions.isEmpty(),
-                    so.getSource(), so.getAuctionId(),
-                    so.getAuctionId() == null ? null : auctionNumbers.get(so.getAuctionId()));
-        }).toList();
-    }
-
-    public SellerOrderDetailsResponse toSellerOrderDetailsResponse(long sellerOrderId) {
-        SellerOrderRecord so = orderRepository.findSellerOrderById(sellerOrderId)
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND));
-        return toSellerOrderDetailsResponse(so);
-    }
-
-    public SellerOrderDetailsResponse toSellerOrderDetailsResponse(SellerOrderRecord so) {
-        return sellerDetailsById(List.of(so)).get(so.getId());
-    }
-
-    /**
-     * A page of sub-orders in the same fixed number of queries as one, keyed by id.
-     * Ids that do not exist are simply absent.
-     */
-    public Map<Long, SellerOrderDetailsResponse> toSellerOrderDetailsResponses(List<Long> sellerOrderIds) {
-        return sellerDetailsById(orderRepository.findSellerOrdersByIds(sellerOrderIds));
-    }
-
-    /**
-     * Items, shipments and history for any number of sub-orders: four queries in
-     * total, in the order the sub-orders were given.
-     */
-    private Map<Long, SellerOrderDetailsResponse> sellerDetailsById(List<SellerOrderRecord> sellerOrders) {
-        if (sellerOrders.isEmpty()) {
-            return Map.of();
-        }
-
-        List<Long> sellerOrderIds = sellerOrders.stream().map(SellerOrderRecord::getId).toList();
-        Map<Long, List<OrderItemRecord>> itemsBySellerOrder =
-                orderRepository.findOrderItemsBySellerOrderIds(sellerOrderIds);
-        List<Long> orderItemIds = sellerOrders.stream()
-                .flatMap(so -> itemsBySellerOrder.getOrDefault(so.getId(), List.of()).stream())
-                .map(OrderItemRecord::getId)
-                .toList();
-        Map<Long, List<Long>> unitIdsByItem = orderRepository.findUnitIdsByOrderItemIds(orderItemIds);
-        Map<Long, List<ShipmentRecord>> shipmentsBySellerOrder =
-                orderRepository.findShipmentsBySellerOrderIds(sellerOrderIds);
-        Map<Long, List<SellerOrderStatusHistoryRecord>> historyBySellerOrder =
-                orderRepository.findStatusHistoryBySellerOrderIds(sellerOrderIds);
-
-        List<Long> profileIds = sellerOrders.stream().map(SellerOrderRecord::getSellerProfileId).distinct().toList();
-        Map<Long, OrderRepository.SellerIdentity> sellerIdentities = orderRepository.findSellerIdentitiesByProfileIds(profileIds);
-        Map<Long, List<PromotionRedemptionRepository.Applied>> appliedBySalesOrder = appliedPromotions(
-                sellerOrders.stream().map(SellerOrderRecord::getSalesOrderId).distinct().toList());
-
-        Map<Long, SellerOrderDetailsResponse> responses = new LinkedHashMap<>();
-        for (SellerOrderRecord so : sellerOrders) {
-            List<OrderItemDetailsResponse> itemResponses =
-                    itemsBySellerOrder.getOrDefault(so.getId(), List.of()).stream()
-                            .map(oi -> {
-                                String imageUrl = null;
-                                if (storageService != null && oi.getImageKeySnapshot() != null && !oi.getImageKeySnapshot().isBlank()) {
-                                    try {
-                                        imageUrl = storageService.presignDownload(oi.getImageKeySnapshot());
-                                    } catch (Exception e) {
-                                        // Ignore storage failure, keep imageUrl null
-                                    }
-                                }
-                                return new OrderItemDetailsResponse(
-                                        oi.getId(),
-                                        oi.getListingId(),
-                                        oi.getCatalogVariantId(),
-                                        oi.getQuantity(),
-                                        oi.getUnitPrice(),
-                                        oi.getLineTotal(),
-                                        oi.getProductNameSnapshot(),
-                                        oi.getVariantLabelSnapshot(),
-                                        oi.getConditionSnapshot(),
-                                        oi.getGameNameSnapshot(),
-                                        oi.getImageKeySnapshot(),
-                                        imageUrl,
-                                        unitIdsByItem.getOrDefault(oi.getId(), List.of()),
-                                        money(oi.getDiscountAllocated()),
-                                        money(oi.getSellerDiscountAllocated()),
-                                        money(oi.getDiscountAllocated())
-                                                .subtract(money(oi.getSellerDiscountAllocated())),
-                                        oi.getLineTotal().subtract(money(oi.getDiscountAllocated()))
-                                                .divide(BigDecimal.valueOf(oi.getQuantity()), 2,
-                                                        RoundingMode.HALF_UP),
-                                        SaleDiscount.listPrice(oi),
-                                        SaleDiscount.of(oi));
-                            })
-                            .toList();
-
-            List<ShipmentResponse> shipmentResponses =
-                    shipmentsBySellerOrder.getOrDefault(so.getId(), List.of()).stream()
-                            .map(s -> new ShipmentResponse(
-                                    s.getId(),
-                                    s.getSellerOrderId(),
-                                    s.getCarrierCode(),
-                                    s.getCarrierName(),
-                                    s.getTrackingNumber(),
-                                    s.getStatus(),
-                                    s.getShippedAt(),
-                                    s.getEstimatedDeliveryDate(),
-                                    s.getDeliveredAt(),
-                                    s.getProofImageKey(),
-                                    s.getCreatedBy(),
-                                    s.getCreatedAt(),
-                                    s.getUpdatedAt()))
-                            .toList();
-
-            List<OrderStatusHistoryResponse> historyResponses =
-                    historyBySellerOrder.getOrDefault(so.getId(), List.of()).stream()
-                            .map(h -> new OrderStatusHistoryResponse(
-                                    h.getId(),
-                                    h.getSellerOrderId(),
-                                    h.getFromStatus(),
-                                    h.getToStatus(),
-                                    h.getChangedBy(),
-                                    h.getNote(),
-                                    h.getCreatedAt()))
-                            .toList();
-
-            List<AppliedPromotion> promotions = shopShare(so,
-                    appliedBySalesOrder.getOrDefault(so.getSalesOrderId(), List.of()));
-            responses.put(so.getId(), new SellerOrderDetailsResponse(
-                    so.getId(),
-                    so.getSalesOrderId(),
-                    so.getSellerProfileId(),
-                    so.getSellerOrderNumber(),
-                    so.getStatus(),
-                    so.getItemsSubtotal(),
-                    so.getShippingFee(),
-                    so.getDiscountAmount(),
-                    so.getGrandTotal(),
-                    so.getCommissionAmount(),
-                    so.getSellerNetAmount(),
-                    so.getAcceptedAt(),
-                    so.getShippedAt(),
-                    so.getDeliveredAt(),
-                    so.getAutoCompleteAt(),
-                    so.getCompletedAt(),
-                    so.getCancelledAt(),
-                    so.getCancelReason(),
-                    so.getCreatedAt(),
-                    itemResponses,
-                    shipmentResponses,
-                    historyResponses,
-                    sellerIdentities.containsKey(so.getSellerProfileId())
-                            ? Objects.requireNonNullElse(sellerIdentities.get(so.getSellerProfileId()).displayName(),
-                                    sellerIdentities.get(so.getSellerProfileId()).username()) : null,
-                    money(so.getSellerDiscountAmount()),
-                    money(so.getPlatformDiscountAmount()),
-                    // A Pegasus code and a Pegasus campaign are both paid back at release [TCG-680].
-                    money(so.getPlatformDiscountAmount()).add(money(so.getSaleSubsidyAmount())),
-                    so.getItemsSubtotal().add(money(so.getSaleSubsidyAmount()))
-                            .subtract(money(so.getSellerDiscountAmount())),
-                    promotions,
-                    SellerOrderStatus.PENDING_PAYMENT.name().equals(so.getStatus()) && !promotions.isEmpty(),
-                    sellerIdentities.containsKey(so.getSellerProfileId())
-                            ? sellerIdentities.get(so.getSellerProfileId()).username() : null));
-        }
-        return responses;
-    }
 }
