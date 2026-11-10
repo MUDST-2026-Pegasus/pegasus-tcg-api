@@ -53,6 +53,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The seller-order state machine [CR-7 US-40..49], against the real schema.
@@ -82,6 +83,9 @@ class OrderStateTransitionIntegrationTest extends PostgresIntegrationTest {
 
     @Autowired
     private OrderLifecycleService orders;
+
+    @Autowired
+    private TransactionTemplate transactions;
 
     @Autowired
     private PendingPaymentTimeoutScheduler paymentTimeout;
@@ -373,6 +377,28 @@ class OrderStateTransitionIntegrationTest extends PostgresIntegrationTest {
 
             assertThat(sellerOrder(order).getStatus()).isEqualTo("REFUNDED");
             verify(ledgerPort, never()).release(anyLong());
+        }
+
+        @Test
+        @DisplayName("After-sales transitions persist history and reject an invalid move")
+        void afterSalesTransitionsPersistAndRejectInvalidMoves() {
+            PlacedOrder order = shipped();
+            long actor = order.buyer().userId();
+            transactions.executeWithoutResult(status -> orders.transitionAfterSales(
+                    order.sellerOrderId(), SellerOrderStatus.RETURN_REQUESTED, actor, "Return requested"));
+            assertThat(sellerOrder(order).getStatus()).isEqualTo("RETURN_REQUESTED");
+            assertThat(history(order).getLast().getNote()).isEqualTo("Return requested");
+
+            assertThatThrownBy(() -> transactions.executeWithoutResult(status -> orders.transitionAfterSales(
+                    order.sellerOrderId(), SellerOrderStatus.PAID, actor, "Invalid")))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.RETURN_STATE));
+            assertThat(sellerOrder(order).getStatus()).isEqualTo("RETURN_REQUESTED");
+
+            transactions.executeWithoutResult(status -> orders.transitionAfterSales(
+                    order.sellerOrderId(), SellerOrderStatus.REFUNDED, actor, "Refunded"));
+            assertThat(sellerOrder(order).getStatus()).isEqualTo("REFUNDED");
+            assertThat(history(order).getLast().getNote()).isEqualTo("Refunded");
         }
 
         @Test
