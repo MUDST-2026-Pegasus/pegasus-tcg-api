@@ -150,6 +150,39 @@ class CheckoutPromotionIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void httpResponsesMatchPreRefactorGoldenSnapshots() throws Exception {
+        AuthPrincipal buyer = buyerWithFigmaCart();
+        ApiClient api = new ApiClient(port);
+        Map<String, Object> payload = Map.of("shippingOptionBySeller", deliveries(),
+                "platformCode", pegasus10, "sellerCodes", Map.of(minmin.profileId(), minmin50));
+        Response preview = api.post("/api/v1/checkout/promo-preview", data.bearer(buyer), payload);
+        Response placed = api.post("/api/v1/checkout", data.bearer(buyer), payload,
+                Map.of("Idempotency-Key", key()));
+        assertThat(preview.status()).isEqualTo(200);
+        assertThat(placed.status()).isEqualTo(201);
+        assertThat(normalizeResponse(preview.body().toString())).isEqualTo(golden("preview"));
+        assertThat(normalizeResponse(placed.body().toString())).isEqualTo(golden("checkout"));
+    }
+
+    private String golden(String name) throws Exception {
+        try (var stream = getClass().getResourceAsStream("/golden/checkout-" + name + ".json")) {
+            return new String(java.util.Objects.requireNonNull(stream).readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8).trim();
+        }
+    }
+
+    private String normalizeResponse(String json) {
+        return json.replace(pegasus10, "PLATFORM_CODE").replace(minmin50, "SELLER_CODE")
+                .replaceAll("(\"(?:id|[A-Za-z]+Id)\":)\\d+", "$1\"<id>\"")
+                .replaceAll("(\"unitIds\":)\\[[^\\]]*\\]", "$1\"<ids>\"")
+                .replaceAll("(?<=\"placedAt\":\")[^\"]*", "<time>")
+                .replaceAll("(?<=\"orderNumber\":\")[^\"]*", "<order>")
+                .replaceAll("(?<=\"sellerOrderNumber\":\")[^\"]*", "<seller-order>")
+                .replaceAll("(?<=\"sellerName\":\")[^\"]*", "<seller>")
+                .replaceAll("(?<=\"productName\":\")[^\"]*", "<product>");
+    }
+
+    @Test
     void autoPickOnCartC1ChoosesPegasus10AndMinmin50() {
         AuthPrincipal buyer = buyerWithFigmaCart();
         // Other tests leave equally good 10% codes behind; ending first wins the tie.
