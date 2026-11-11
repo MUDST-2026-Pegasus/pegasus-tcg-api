@@ -208,7 +208,10 @@ public class CheckoutPromotionService {
             Long shop = p == null ? c.shopSlot() : p.sellerProfileId();
             return new CodeOutcome(p == null ? c.code() : p.code(), p == null ? null : p.ownerType(), shop,
                     shop == null ? null : sellerNames.get(shop), c.applied() ? "APPLIED" : c.error().name(),
-                    pending ? null : c.discount(), c.shortfall(), pending);
+                    pending ? null : c.discount(), c.shortfall(), pending,
+                    // Where it was typed, which the code's owner may not be: the cart pairs the
+                    // outcome with its slot by this, wrong-slot and unknown codes included [TCG-769].
+                    c.shopSlot() == null ? OwnerType.PLATFORM : OwnerType.SELLER, c.shopSlot());
         }).toList();
         return new PromoPreview(sellers, items, shippingEstimated ? null : shipping, own, pegasus, grand,
                 shippingEstimated, codes, bestPick);

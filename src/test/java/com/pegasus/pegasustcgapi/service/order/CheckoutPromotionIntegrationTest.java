@@ -384,6 +384,35 @@ class CheckoutPromotionIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
+    void everyOutcomeNamesTheSlotItWasTypedIn() {
+        AuthPrincipal buyer = buyerWithFigmaCart();
+
+        // Unknown in the Pegasus slot: no owner, but the slot is still Pegasus's [TCG-769].
+        CodeOutcome unknown = outcome(buyer, "NOSUCH" + data.tag(), null);
+        assertThat(unknown.ownerType()).isNull();
+        assertThat(unknown.slotOwnerType()).isEqualTo(OwnerType.PLATFORM);
+        assertThat(unknown.slotSellerProfileId()).isNull();
+
+        // A shop code in the Pegasus slot keeps its owner for the message, the slot for the cart.
+        CodeOutcome shopInPegasus = outcome(buyer, minmin50, null);
+        assertThat(shopInPegasus.ownerType()).isEqualTo(OwnerType.SELLER);
+        assertThat(shopInPegasus.sellerProfileId()).isEqualTo(minmin.profileId());
+        assertThat(shopInPegasus.slotOwnerType()).isEqualTo(OwnerType.PLATFORM);
+        assertThat(shopInPegasus.slotSellerProfileId()).isNull();
+
+        // A Pegasus code in a shop slot.
+        CodeOutcome pegasusInShop = outcome(buyer, null, pegasus10);
+        assertThat(pegasusInShop.ownerType()).isEqualTo(OwnerType.PLATFORM);
+        assertThat(pegasusInShop.slotOwnerType()).isEqualTo(OwnerType.SELLER);
+        assertThat(pegasusInShop.slotSellerProfileId()).isEqualTo(minmin.profileId());
+
+        // An applied code: owner and slot agree.
+        CodeOutcome applied = outcome(buyer, pegasus10, null);
+        assertThat(applied.status()).isEqualTo("APPLIED");
+        assertThat(applied.slotOwnerType()).isEqualTo(OwnerType.PLATFORM);
+    }
+
+    @Test
     void paymentTimeoutGivesTheUseBack() {
         AuthPrincipal buyer = buyerWithFigmaCart();
         CheckoutResponse order = checkout.checkout(buyer, key(), null, request(pegasus10,

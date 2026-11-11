@@ -35,6 +35,10 @@ public final class CheckoutPromotionViews {
      * @param discount        what it takes off; null while a FREE_SHIPPING code waits for shipping
      * @param shortfall       how much more to buy, for PROMO_MIN_SPEND_NOT_MET
      * @param pendingShipping a FREE_SHIPPING code that will apply once delivery is chosen
+     * @param ownerType       whose code it is; null when no such code is shown
+     * @param sellerProfileId the shop that owns the code, or the slot's shop when the code is not shown
+     * @param slotOwnerType   the slot it was typed in: PLATFORM, or SELLER for a shop's slot [TCG-769]
+     * @param slotSellerProfileId the shop of that slot; null for the Pegasus slot
      */
     public record CodeOutcome(
             String code,
@@ -44,7 +48,9 @@ public final class CheckoutPromotionViews {
             String status,
             BigDecimal discount,
             BigDecimal shortfall,
-            boolean pendingShipping) {
+            boolean pendingShipping,
+            OwnerType slotOwnerType,
+            Long slotSellerProfileId) {
     }
 
     /** The codes autoPick chose: one Pegasus code and one per shop. */
