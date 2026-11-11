@@ -168,6 +168,9 @@ tasks.named('compileJava') {
 tasks.named('test') {
     useJUnitPlatform()
     systemProperty 'file.encoding', 'UTF-8'
+    // CI gates must represent an executed suite, not a cached result.
+    outputs.cacheIf { !System.getenv('CI') }
+    outputs.upToDateWhen { !System.getenv('CI') }
     finalizedBy tasks.named('jacocoTestReport')
 }
 
