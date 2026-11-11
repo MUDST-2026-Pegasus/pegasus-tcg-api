@@ -87,18 +87,25 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
     }
 
     private void drawBuyer(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
-        canvas.ensure(106f);
         float cardWidth = (CONTENT_WIDTH - 16f) / 2f;
         OrderSummaryPdfDocument.Party buyer = document.buyer();
         List<String> buyerDetails = new ArrayList<>();
-        if (buyer != null && buyer.username() != null) buyerDetails.add(buyer.username());
-        if (buyer != null && buyer.displayName() != null) buyerDetails.add(buyer.displayName());
+        if (document.role() == OrderSummaryPdfRole.SELLER) {
+            String recipient = document.shipping() == null ? null : document.shipping().recipientName();
+            if (recipient == null && buyer != null) recipient = buyer.displayName();
+            if (recipient != null) buyerDetails.addAll(wrap(recipient, cardWidth - 26f, canvas.fonts.regular, 8.25f));
+            if (document.shipping() != null && document.shipping().recipientPhone() != null) {
+                buyerDetails.addAll(wrap("Phone: " + document.shipping().recipientPhone(), cardWidth - 26f, canvas.fonts.regular, 8.25f));
+            }
+        } else {
+            if (buyer != null && buyer.username() != null) buyerDetails.addAll(wrap(buyer.username(), cardWidth - 26f, canvas.fonts.regular, 8.25f));
+            if (buyer != null && buyer.displayName() != null) buyerDetails.addAll(wrap(buyer.displayName(), cardWidth - 26f, canvas.fonts.regular, 8.25f));
+        }
         if (document.shipping() != null && document.shipping().address() != null) {
             buyerDetails.addAll(wrap(document.shipping().address(), cardWidth - 26f, canvas.fonts.regular, 8.25f));
         }
         String buyerTitle = document.role() == OrderSummaryPdfRole.SELLER ? "SHIP TO"
                 : document.role() == OrderSummaryPdfRole.ADMIN ? "BUYER ACCOUNT" : "BUYER";
-        canvas.partyCard(MARGIN, cardWidth, buyerTitle, buyerDetails);
         String sellerName = "Seller unavailable";
         String sellerOrder = null;
         if (!canvas.document.sellerSections().isEmpty()) {
@@ -120,8 +127,15 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             sellerDetails.add("Tracking: " + document.shipping().trackingNumber());
         }
         String sellerTitle = document.role() == OrderSummaryPdfRole.BUYER ? "SELLER" : "SELLER ACCOUNT";
-        canvas.partyCard(MARGIN + cardWidth + 16f, cardWidth, sellerTitle, sellerDetails);
-        canvas.move(106f);
+        List<String> wrappedSellerDetails = new ArrayList<>();
+        for (String detail : sellerDetails) {
+            wrappedSellerDetails.addAll(wrap(detail, cardWidth - 26f, canvas.fonts.regular, 8.25f));
+        }
+        float cardHeight = Math.max(88f, 38f + 11.5f * Math.max(buyerDetails.size(), wrappedSellerDetails.size()));
+        canvas.ensure(cardHeight + 18f);
+        canvas.partyCard(MARGIN, cardWidth, cardHeight, buyerTitle, buyerDetails);
+        canvas.partyCard(MARGIN + cardWidth + 16f, cardWidth, cardHeight, sellerTitle, wrappedSellerDetails);
+        canvas.move(cardHeight + 18f);
     }
 
     private void drawSellerSections(Canvas canvas, OrderSummaryPdfDocument document) throws IOException {
@@ -205,7 +219,7 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             row -= 17f;
             drawTotalRow(canvas, "Seller merchandise gross", totals.itemsSubtotal(), document.currency(), labelX, amountX, row, false);
             row -= 17f;
-            drawTotalRow(canvas, "Platform commission (5%)", totals.commissionAmount().negate(), document.currency(), labelX, amountX, row, false);
+            drawTotalRow(canvas, "Platform commission", totals.commissionAmount().negate(), document.currency(), labelX, amountX, row, false);
             row -= 20f;
             drawTotalRow(canvas, "SELLER NET", totals.sellerNetAmount(), document.currency(), labelX, amountX, row, true);
         }
@@ -231,6 +245,7 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
                     case SELLER -> "PEGASUS TCG · Seller Operations";
                     case ADMIN -> "PEGASUS TCG · Internal Use Only";
                 };
+                text(content, "This order summary is not a receipt or tax invoice.", MARGIN, FOOTER_Y + 15f, 8f, fonts.regular, MUTED);
                 text(content, footer, MARGIN, FOOTER_Y, 8.5f, fonts.regular, MUTED);
                 right(content, "Page " + (index + 1) + " of " + pageCount, PAGE_WIDTH - MARGIN, FOOTER_Y, 8.5f, fonts.regular, MUTED);
             }
@@ -501,15 +516,15 @@ public class PdfBoxOrderSummaryPdfRenderer implements OrderSummaryPdfRenderer {
             text(value, textX, top - 13.5f, 8f, fonts.bold, Color.WHITE);
         }
 
-        private void partyCard(float x, float width, String title, List<String> details) throws IOException {
-            whitePanelAt(x, y, width, 88f);
+        private void partyCard(float x, float width, float height, String title, List<String> details) throws IOException {
+            whitePanelAt(x, y, width, height);
             text(title, x + 14f, y - 16f, 9f, fonts.bold, INK);
             float detailY = y - 31f;
             if (details.isEmpty()) {
                 text("Not available", x + 14f, detailY, 8.25f, fonts.regular, MUTED);
                 return;
             }
-            for (int index = 0; index < Math.min(details.size(), 4); index++) {
+            for (int index = 0; index < details.size(); index++) {
                 text(details.get(index), x + 14f, detailY, 8.25f, fonts.regular, MUTED);
                 detailY -= 11.5f;
             }

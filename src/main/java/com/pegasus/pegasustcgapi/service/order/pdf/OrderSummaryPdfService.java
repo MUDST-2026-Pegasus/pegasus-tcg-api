@@ -93,7 +93,7 @@ public class OrderSummaryPdfService {
                 order.paidAt(),
                 new OrderSummaryPdfDocument.Party(identity.displayName(), identity.username()),
                 sections,
-                shipping(address, order.sellerOrders().stream()
+                shipping(address, false, order.sellerOrders().stream()
                         .flatMap(sellerOrder -> safe(sellerOrder.shipments()).stream()).toList()),
                 null,
                 new OrderSummaryPdfDocument.Totals(
@@ -131,7 +131,7 @@ public class OrderSummaryPdfService {
                 new OrderSummaryPdfDocument.Party(
                         detail.summary().buyer().displayName(), detail.summary().buyer().username()),
                 List.of(section),
-                shipping(address, order.shipments()),
+                shipping(address, true, order.shipments()),
                 detail.payment() == null
                         ? null
                         : new OrderSummaryPdfDocument.Payment(null, detail.payment().status(), null,
@@ -183,7 +183,7 @@ public class OrderSummaryPdfService {
                 new OrderSummaryPdfDocument.Party(
                         detail.summary().buyer().displayName(), detail.summary().buyer().username()),
                 List.of(section),
-                shipping(address, shipment == null ? List.of() : List.of(shipment)),
+                shipping(address, false, shipment == null ? List.of() : List.of(shipment)),
                 payment == null
                         ? null
                         : new OrderSummaryPdfDocument.Payment(
@@ -223,7 +223,7 @@ public class OrderSummaryPdfService {
                 .toList();
     }
 
-    private OrderSummaryPdfDocument.Shipping shipping(AddressSnapshot address, List<ShipmentResponse> shipments) {
+    private OrderSummaryPdfDocument.Shipping shipping(AddressSnapshot address, boolean includePhone, List<ShipmentResponse> shipments) {
         List<ShipmentResponse> rows = safe(shipments);
         String carriers = rows.stream().map(ShipmentResponse::carrierName).filter(OrderSummaryPdfService::present)
                 .distinct().collect(Collectors.joining(" / "));
@@ -232,22 +232,23 @@ public class OrderSummaryPdfService {
         String estimatedDelivery = rows.stream().map(ShipmentResponse::estimatedDeliveryDate)
                 .filter(Objects::nonNull).max(Comparator.naturalOrder()).map(Object::toString).orElse(null);
         return new OrderSummaryPdfDocument.Shipping(
-                address.recipientName(), address.formattedAddress(), blankToNull(carriers),
+                address.recipientName(), includePhone ? address.phone() : null, address.formattedAddress(), blankToNull(carriers),
                 blankToNull(trackingNumbers), estimatedDelivery);
     }
 
     private AddressSnapshot address(String snapshot) {
         if (!present(snapshot)) {
-            return new AddressSnapshot(null, null);
+            return new AddressSnapshot(null, null, null);
         }
         try {
             JsonNode root = json.readTree(snapshot);
             return new AddressSnapshot(
                     value(root, "recipientName"),
+                    value(root, "phone"),
                     joinAddress(root));
         } catch (JacksonException invalidSnapshot) {
             // Do not print the raw snapshot: it contains the buyer's phone number.
-            return new AddressSnapshot(null, null);
+            return new AddressSnapshot(null, null, null);
         }
     }
 
@@ -306,6 +307,6 @@ public class OrderSummaryPdfService {
         return values == null ? List.of() : values;
     }
 
-    private record AddressSnapshot(String recipientName, String formattedAddress) {
+    private record AddressSnapshot(String recipientName, String phone, String formattedAddress) {
     }
 }

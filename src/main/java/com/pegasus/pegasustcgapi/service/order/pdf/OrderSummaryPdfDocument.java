@@ -80,6 +80,7 @@ public record OrderSummaryPdfDocument(
 
     public record Shipping(
             String recipientName,
+            String recipientPhone,
             String address,
             String carrierName,
             String trackingNumber,
@@ -87,6 +88,7 @@ public record OrderSummaryPdfDocument(
 
         public Shipping {
             recipientName = blankToNull(recipientName);
+            recipientPhone = blankToNull(recipientPhone);
             address = blankToNull(address);
             carrierName = blankToNull(carrierName);
             trackingNumber = blankToNull(trackingNumber);
@@ -94,7 +96,7 @@ public record OrderSummaryPdfDocument(
         }
 
         public boolean hasAnyValue() {
-            return recipientName != null || address != null || carrierName != null
+            return recipientName != null || recipientPhone != null || address != null || carrierName != null
                     || trackingNumber != null || estimatedDelivery != null;
         }
     }
