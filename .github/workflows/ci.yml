@@ -68,9 +68,16 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 .github/scripts/verify_test_results.py
 
+      - name: Redact known credentials from reports
+        id: report-redaction
+        if: ${{ !cancelled() }}
+        run: |
+          python3 .github/scripts/redact_report_secrets.py build/test-results/test build/reports/tests/test build/reports/jacoco
+          python3 .github/scripts/verify_test_results.py
+
       - name: Check report text for secrets
         id: report-safety
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.report-redaction.outcome == 'success' }}
         run: python3 .github/scripts/check_report_secrets.py build/test-results/test build/reports/tests/test build/reports/jacoco
 
       - name: Publish BE test results

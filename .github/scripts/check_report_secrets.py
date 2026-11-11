@@ -16,8 +16,10 @@ SUFFIXES = {".xml", ".html", ".json", ".txt"}
 
 
 def main() -> int:
-    values = [os.environ[name] for name in SECRET_NAMES
-              if len(os.environ.get(name, "")) >= 8]
+    values = {name: os.environ[name] for name in SECRET_NAMES
+              if len(os.environ.get(name, "")) >= 8}
+    categories = {name: 0 for name in values}
+    categories.update({"private_key": 0, "jwt": 0, "bearer": 0})
     matches = files = 0
     for argument in sys.argv[1:]:
         root = Path(argument)
@@ -31,9 +33,20 @@ def main() -> int:
                 return 1
             files += 1
             content = html.unescape(content)
-            if any(value in content for value in values) or any(p.search(content) for p in PATTERNS):
+            matched = False
+            for name, value in values.items():
+                if value in content:
+                    categories[name] += 1
+                    matched = True
+            for name, pattern in zip(("private_key", "jwt", "bearer"), PATTERNS):
+                if pattern.search(content):
+                    categories[name] += 1
+                    matched = True
+            if matched:
                 matches += 1
     print(f"Report safety: scanned {files} text files; {matches} files matched.")
+    if matches:
+        print("Match categories (file counts): " + ", ".join(f"{name}={count}" for name, count in categories.items() if count))
     if matches:
         print("Publication blocked; inspect reports privately without copying secrets into logs.", file=sys.stderr)
     return int(matches > 0)
