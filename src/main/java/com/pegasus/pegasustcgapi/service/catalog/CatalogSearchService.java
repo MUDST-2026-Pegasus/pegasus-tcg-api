@@ -17,6 +17,7 @@ import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository;
 import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository.Offer;
 import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository.TrendingRow;
 import com.pegasus.pegasustcgapi.repository.catalog.ProductSearchQuery;
+import com.pegasus.pegasustcgapi.repository.catalog.SearchAliasRepository;
 import com.pegasus.pegasustcgapi.repository.catalog.SearchText;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
@@ -61,6 +62,7 @@ public class CatalogSearchService {
     private final GameService games;
     private final StorageService storage;
     private final Clock clock;
+    private SearchAliasRepository aliases;
 
     public CatalogSearchService(
             CatalogProductRepository products,
@@ -78,6 +80,11 @@ public class CatalogSearchService {
         this.games = games;
         this.storage = storage;
         this.clock = clock;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setAliases(SearchAliasRepository aliases) {
+        this.aliases = aliases;
     }
 
     /**
@@ -98,8 +105,13 @@ public class CatalogSearchService {
             return found;
         }
 
-        // Nothing contains the text as typed: try it spelled right, then typed on the other keyboard layout.
-        PageResponse<ProductSummaryResponse> corrected = firstHit(browse, corrections(requested.trim()), "TYPO");
+        // Nothing contains the text as typed: try a known alias (โปเกมอน → Pokemon), then it spelled right,
+        // then typed on the other keyboard layout.
+        PageResponse<ProductSummaryResponse> corrected = viaAlias(browse, requested.trim());
+        if (corrected != null) {
+            return corrected;
+        }
+        corrected = firstHit(browse, corrections(requested.trim()), "TYPO");
         if (corrected != null) {
             return corrected;
         }
@@ -113,6 +125,72 @@ public class CatalogSearchService {
             }
         }
         return found;
+    }
+
+    /**
+     * The whole query, or else each word, swapped for the target of an alias it
+     * matches (same normalising, or one edit away from four letters on). An alias
+     * tied to a game only applies within that game, and narrows an all-games search to it.
+     */
+    private PageResponse<ProductSummaryResponse> viaAlias(ProductBrowse browse, String requested) {
+        if (aliases == null) {
+            return null;
+        }
+        List<SearchAliasRepository.Alias> usable = aliases.all().stream()
+                .filter(a -> a.gameId() == null || browse.gameIds().isEmpty() || browse.gameIds().contains(a.gameId()))
+                .toList();
+        if (usable.isEmpty()) {
+            return null;
+        }
+        List<SearchAliasRepository.Alias> used = new ArrayList<>();
+        String phrase = SearchText.normalize(requested);
+        SearchAliasRepository.Alias whole = closestAlias(phrase, usable);
+        String expanded;
+        if (whole != null) {
+            used.add(whole);
+            expanded = whole.target();
+        } else {
+            StringBuilder words = new StringBuilder();
+            for (String word : requested.split("\\s+")) {
+                SearchAliasRepository.Alias match = closestAlias(SearchText.normalize(word), usable);
+                if (match != null) {
+                    used.add(match);
+                }
+                words.append(words.isEmpty() ? "" : " ").append(match == null ? word : match.target());
+            }
+            expanded = words.toString();
+        }
+        if (used.isEmpty()) {
+            return null;
+        }
+        Set<Short> games = browse.gameIds();
+        if (games.isEmpty()) {
+            Set<Short> tied = new java.util.HashSet<>();
+            used.forEach(a -> { if (a.gameId() != null) tied.add(a.gameId()); });
+            games = tied;
+        }
+        ProductBrowse narrowed = new ProductBrowse(games, browse.categoryId(), browse.cardSetId(),
+                browse.productType(), browse.nameQuery(), browse.rawParameters(), browse.sort(), browse.activeOnly(),
+                browse.inStockOnly(), browse.conditions(), browse.minPrice(), browse.maxPrice(), browse.page(),
+                browse.size(), browse.saleStatus());
+        if (products.count(query(narrowed, expanded, true)) == 0) {
+            return null;
+        }
+        return searchAs(narrowed, expanded, true).withCorrectedQuery(expanded, "ALIAS");
+    }
+
+    private static SearchAliasRepository.Alias closestAlias(String normalized, List<SearchAliasRepository.Alias> all) {
+        SearchAliasRepository.Alias best = null;
+        int bestDistance = 2;
+        for (SearchAliasRepository.Alias alias : all) {
+            int limit = normalized.codePointCount(0, normalized.length()) >= 4 ? 1 : 0;
+            int distance = editDistance(normalized, alias.aliasNorm(), limit);
+            if (distance <= limit && distance < bestDistance) {
+                best = alias;
+                bestDistance = distance;
+            }
+        }
+        return best;
     }
 
     private PageResponse<ProductSummaryResponse> firstHit(ProductBrowse browse, List<String> tries, String reason) {

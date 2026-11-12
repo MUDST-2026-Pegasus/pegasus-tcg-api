@@ -12,6 +12,7 @@ public enum AuditTargetType {
     GAME,
     CATALOG_CATEGORY,
     CARD_SET,
+    SEARCH_ALIAS,
     SETTING,
     USER,
     MARKET_PRICING,
