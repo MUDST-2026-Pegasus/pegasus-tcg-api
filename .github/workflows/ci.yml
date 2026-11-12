@@ -18,7 +18,8 @@ jobs:
   quality:
     name: Test / Build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Full uncached tests plus service startup can approach 20 minutes.
+    timeout-minutes: 30
     permissions:
       contents: read
       checks: write
@@ -59,10 +60,28 @@ jobs:
           docker compose up -d --wait postgres minio
 
       - name: Test and build
-        run: ./gradlew build --build-cache
+        run: |
+          rm -rf build/reports/cucumber
+          ./gradlew cleanTest build --build-cache
+
+      - name: Verify required test reports
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/verify_test_results.py
+
+      - name: Redact known credentials from reports
+        id: report-redaction
+        if: ${{ !cancelled() }}
+        run: |
+          python3 .github/scripts/redact_report_secrets.py build/test-results/test build/reports/tests/test build/reports/jacoco
+          python3 .github/scripts/verify_test_results.py
+
+      - name: Check report text for secrets
+        id: report-safety
+        if: ${{ !cancelled() && steps.report-redaction.outcome == 'success' }}
+        run: python3 .github/scripts/check_report_secrets.py build/test-results/test build/reports/tests/test build/reports/jacoco
 
       - name: Publish BE test results
-        if: always() && hashFiles('build/test-results/test/*.xml') != ''
+        if: ${{ !cancelled() && steps.report-safety.outcome == 'success' && hashFiles('build/test-results/test/*.xml') != '' }}
         uses: EnricoMi/publish-unit-test-result-action/linux@v2.26.0
         with:
           files: build/test-results/test/*.xml
@@ -73,7 +92,7 @@ jobs:
 
       - name: Summarize BE tests
         id: be-report
-        if: always()
+        if: ${{ !cancelled() && steps.report-safety.outcome == 'success' }}
         run: |
           python3 .github/scripts/be_test_summary.py > "$RUNNER_TEMP/be-tests.md"
           cat "$RUNNER_TEMP/be-tests.md" >> "$GITHUB_STEP_SUMMARY"
@@ -96,7 +115,7 @@ jobs:
           fi
 
       - name: Publish JaCoCo coverage
-        if: always() && hashFiles('build/reports/jacoco/test/jacocoTestReport.xml') != ''
+        if: ${{ !cancelled() && steps.report-safety.outcome == 'success' && hashFiles('build/reports/jacoco/test/jacocoTestReport.xml') != '' }}
         uses: madrapps/jacoco-report@v1.8.0
         with:
           paths: build/reports/jacoco/test/jacocoTestReport.xml
@@ -130,7 +149,7 @@ jobs:
           retention-days: 1
 
       - name: Upload test reports
-        if: always()
+        if: ${{ !cancelled() && steps.report-safety.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: test-reports

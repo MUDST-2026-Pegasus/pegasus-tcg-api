@@ -91,6 +91,9 @@ management:
       probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
 
 pegasus:
+  search:
+    # word_similarity a name must reach to show up as a fuzzy match (TCG-772)
+    fuzzy-threshold: 0.45
   auth:
     # No default: the app refuses to start without a real key.
     jwt-secret: ${JWT_SECRET}

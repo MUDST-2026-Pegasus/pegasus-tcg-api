@@ -8,6 +8,8 @@ import com.pegasus.pegasustcgapi.dto.catalog.ProductDetailResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductDetailResponse.Auctions;
 import com.pegasus.pegasustcgapi.dto.pricing.ProductMarketResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductSummaryResponse;
+import com.pegasus.pegasustcgapi.dto.catalog.SearchFacetsResponse;
+import com.pegasus.pegasustcgapi.dto.catalog.SearchShopResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.TrendingProductResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.VariantLookupResponse;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
@@ -80,6 +82,7 @@ public class CatalogProductController {
      * @param condition  repeat for several; only cards on sale in one of them, priced by those listings
      * @param minPrice   THB, against the cheapest matching listing on sale
      * @param maxPrice   THB, same
+     * @param onSale     true for only cards with a listing in a running sale
      */
     @GetMapping("/products")
     public ApiResult<PageResponse<ProductSummaryResponse>> browse(
@@ -93,15 +96,60 @@ public class CatalogProductController {
             @RequestParam(required = false) List<CardCondition> condition,
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
+            @RequestParam(defaultValue = "false") boolean onSale,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam Map<String, String> allParameters) {
 
-        return ApiResult.success(search.search(new ProductBrowse(
-                gameId == null ? null : new HashSet<>(gameId), categoryId, cardSetId, productType, q,
-                allParameters, sort, true, inStock,
-                condition == null ? null : new HashSet<>(condition),
-                minPrice, maxPrice, page, size)));
+        return ApiResult.success(search.search(toBrowse(gameId, categoryId, cardSetId, productType, q, sort, inStock,
+                condition, minPrice, maxPrice, onSale, page, size, allParameters)));
+    }
+
+    /** Sidebar counts and tab totals for the same parameters as {@code /products}. */
+    @GetMapping("/products/facets")
+    public ApiResult<SearchFacetsResponse> facets(
+            @RequestParam(required = false) List<Short> gameId,
+            @RequestParam(required = false) Integer categoryId,
+            @RequestParam(required = false) Integer cardSetId,
+            @RequestParam(required = false) ProductType productType,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "false") boolean inStock,
+            @RequestParam(required = false) List<CardCondition> condition,
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
+            @RequestParam(defaultValue = "false") boolean onSale,
+            @RequestParam Map<String, String> allParameters) {
+
+        return ApiResult.success(search.facets(toBrowse(gameId, categoryId, cardSetId, productType, q, null, inStock,
+                condition, minPrice, maxPrice, onSale, 0, 1, allParameters)));
+    }
+
+    /**
+     * Shops selling something a search for {@code q} finds.
+     *
+     * @param minRating e.g. 4.0 or 4.5
+     * @param sort      MATCHES (default) or RATING
+     */
+    @GetMapping("/shops")
+    public ApiResult<PageResponse<SearchShopResponse>> shops(
+            @RequestParam(required = false) List<Short> gameId,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) BigDecimal minRating,
+            @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        return ApiResult.success(search.shops(toBrowse(gameId, null, null, null, q, null, false, null, null, null,
+                false, page, size, Map.of()), minRating, sort));
+    }
+
+    private static ProductBrowse toBrowse(List<Short> gameId, Integer categoryId, Integer cardSetId,
+            ProductType productType, String q, String sort, boolean inStock, List<CardCondition> condition,
+            BigDecimal minPrice, BigDecimal maxPrice, boolean onSale, int page, int size,
+            Map<String, String> allParameters) {
+        return new ProductBrowse(gameId == null ? null : new HashSet<>(gameId), categoryId, cardSetId, productType,
+                q, allParameters, sort, true, inStock, condition == null ? null : new HashSet<>(condition),
+                minPrice, maxPrice, page, size, null, onSale);
     }
 
     /**

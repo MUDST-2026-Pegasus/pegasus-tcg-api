@@ -88,7 +88,7 @@ public class AdminCardListingService {
                     s.blockedListingCount());
         }).toList();
         return new PageResponse<>(items, page.page(), page.size(), page.totalItems(), page.totalPages(),
-                page.correctedQuery());
+                page.correctedQuery(), page.correctionReason());
     }
 
     @Transactional
