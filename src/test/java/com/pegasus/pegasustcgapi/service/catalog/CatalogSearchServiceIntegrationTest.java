@@ -62,7 +62,8 @@ class CatalogSearchServiceIntegrationTest extends PostgresIntegrationTest {
 
         PageResponse<ProductSummaryResponse> page = publicSearch(null, unique.toLowerCase());
 
-        assertThat(page.items()).singleElement().satisfies(found -> {
+        // Fuzzy matches (other tagged test games) may follow; the exact hit leads.
+        assertThat(page.items()).first().satisfies(found -> {
             assertThat(found.id()).isEqualTo(zekrom.productId());
             assertThat(found.rarityCode()).isEqualTo("UR");
             assertThat(found.variantCount()).isEqualTo(1);
@@ -199,5 +200,119 @@ class CatalogSearchServiceIntegrationTest extends PostgresIntegrationTest {
                     .as("search for %s", typo)
                     .extracting(ProductSummaryResponse::id).containsExactly(card.productId());
         }
+    }
+
+    // --- TCG-772 tolerant search v2 ---
+
+    private void setNames(Card card, String nameLocal, String cardNumber) {
+        dsl.update(CATALOG_PRODUCT).set(CATALOG_PRODUCT.NAME_LOCAL, nameLocal)
+                .set(CATALOG_PRODUCT.CARD_NUMBER, cardNumber)
+                .where(CATALOG_PRODUCT.ID.eq(card.productId())).execute();
+    }
+
+    @ParameterizedTest(name = "typo \"{0}\" finds the Pokémon shelf as a TYPO correction")
+    @ValueSource(strings = {"pokamon", "pokemn", "pokmeon"})
+    void typosOfPokemonAreCorrected(String q) {
+        short pokemon = data.game("Pokémon " + data.tag());
+        Card pikachu = data.card(pokemon, "Pikachu", "C");
+
+        PageResponse<ProductSummaryResponse> page = publicSearch(pokemon, q);
+
+        assertThat(page.items()).extracting(ProductSummaryResponse::id).containsExactly(pikachu.productId());
+        assertThat(page.correctionReason()).isEqualTo("TYPO");
+    }
+
+    @Test
+    void plainSpellingFindsAccentedNameWithoutACorrection() {
+        short game = data.game("Pokemon");
+        Card card = data.card(game, "Pokémon Center Box", "C");
+
+        PageResponse<ProductSummaryResponse> page = publicSearch(game, "pokemon center");
+
+        assertThat(page.items()).extracting(ProductSummaryResponse::id).containsExactly(card.productId());
+        assertThat(page.correctedQuery()).isNull();
+    }
+
+    @Test
+    void eachMisspelledWordIsCorrectedOnItsOwn() {
+        short game = data.game("Pokemon");
+        Card charizard = data.card(game, "Charizard ex", "SAR");
+
+        PageResponse<ProductSummaryResponse> page = publicSearch(game, "charzard ex");
+
+        assertThat(page.items()).extracting(ProductSummaryResponse::id).contains(charizard.productId());
+        assertThat(page.correctedQuery()).isEqualToIgnoringCase("charizard ex");
+        assertThat(page.correctionReason()).isEqualTo("TYPO");
+    }
+
+    @Test
+    void thaiToneMarksAreIgnored() {
+        short game = data.game("Pokemon");
+        dsl.update(GAME).set(GAME.NAME_LOCAL, "โปเกมอนการ์ดเกม").where(GAME.ID.eq(game)).execute();
+        Card card = data.card(game, "Pikachu", "C");
+
+        assertThat(publicSearch(game, "โปเกม่อน").items())
+                .extracting(ProductSummaryResponse::id).containsExactly(card.productId());
+    }
+
+    @Test
+    void thaiKeyboardLayoutIsReadAsEnglish() {
+        short game = data.game("Pokemon");
+        Card card = data.card(game, "Pikachu", "C");
+
+        PageResponse<ProductSummaryResponse> page = publicSearch(game, "ยนาำทนื");
+
+        assertThat(page.items()).extracting(ProductSummaryResponse::id).containsExactly(card.productId());
+        assertThat(page.correctedQuery()).isEqualTo("pokemon");
+        assertThat(page.correctionReason()).isEqualTo("KEYBOARD_LAYOUT");
+    }
+
+    @Test
+    void cardNumbersMatchWithoutLeadingZeros() {
+        short game = data.game("Pokemon");
+        Card card = data.card(game, "Charizard ex", "SAR");
+        setNames(card, null, "020/189");
+
+        for (String q : new String[] {"20/189", "020-189", "#020/189"}) {
+            assertThat(publicSearch(game, q).items()).as(q)
+                    .extracting(ProductSummaryResponse::id).containsExactly(card.productId());
+        }
+    }
+
+    @Test
+    void exactMatchComesFirstAndCloseNamesFollow() {
+        short game = data.game("Pokemon");
+        Card exact = data.card(game, "Charizard", "SR");
+        Card close = data.card(game, "Charizerd", "C");
+
+        PageResponse<ProductSummaryResponse> page = publicSearch(game, "Charizard");
+
+        assertThat(page.items()).extracting(ProductSummaryResponse::id)
+                .containsExactly(exact.productId(), close.productId());
+        assertThat(page.totalItems()).isEqualTo(2);
+        assertThat(page.correctedQuery()).isNull();
+    }
+
+    @Test
+    void typoWithGameFilterStaysInThatGame() {
+        short pokemon = data.game("Pokemon");
+        data.card(pokemon, "Pikachu", "C");
+        short onePiece = data.game("One Piece");
+        Card luffy = data.card(onePiece, "Monkey D. Luffy", "SEC");
+
+        assertThat(publicSearch(onePiece, "pokamon").items()).isEmpty();
+        assertThat(publicSearch(onePiece, "lufyy").items())
+                .extracting(ProductSummaryResponse::id).containsExactly(luffy.productId());
+    }
+
+    @Test
+    void nonsenseIsNotCorrected() {
+        short game = data.game("Pokemon");
+        data.card(game, "Pikachu", "C");
+
+        PageResponse<ProductSummaryResponse> page = publicSearch(game, "zzqxv");
+
+        assertThat(page.items()).isEmpty();
+        assertThat(page.correctedQuery()).isNull();
     }
 }

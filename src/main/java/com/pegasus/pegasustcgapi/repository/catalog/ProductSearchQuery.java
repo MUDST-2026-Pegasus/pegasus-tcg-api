@@ -25,6 +25,7 @@ import java.util.Set;
  * @param maxPrice    same, for the ceiling
  * @param now         which sale prices still run; prices are what a buyer pays now
  * @param saleStatus  an admin's filter on who sells it; null for no filter
+ * @param fuzzy       also match names that are close to {@code nameQuery}, not only ones containing it
  */
 public record ProductSearchQuery(
         Set<Short> gameIds,
@@ -42,7 +43,8 @@ public record ProductSearchQuery(
         int limit,
         int offset,
         OffsetDateTime now,
-        AdminSaleStatus saleStatus) {
+        AdminSaleStatus saleStatus,
+        boolean fuzzy) {
 
     public ProductSearchQuery(
             Set<Short> gameIds,
@@ -61,7 +63,7 @@ public record ProductSearchQuery(
             int offset,
             OffsetDateTime now) {
         this(gameIds, categoryId, cardSetId, productType, nameQuery, attributes, activeOnly, inStockOnly,
-                conditions, minPrice, maxPrice, sort, limit, offset, now, null);
+                conditions, minPrice, maxPrice, sort, limit, offset, now, null, false);
     }
 
     public ProductSearchQuery {
