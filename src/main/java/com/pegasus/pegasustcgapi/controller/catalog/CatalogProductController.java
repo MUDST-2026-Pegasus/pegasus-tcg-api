@@ -10,6 +10,13 @@ import com.pegasus.pegasustcgapi.dto.pricing.ProductMarketResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductSummaryResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.SearchFacetsResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.SearchShopResponse;
+import com.pegasus.pegasustcgapi.dto.catalog.SearchSuggestResponse;
+import com.pegasus.pegasustcgapi.security.ClientAddress;
+import com.pegasus.pegasustcgapi.service.catalog.SearchSuggestService;
+import jakarta.servlet.http.HttpServletRequest;
+import java.time.Duration;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import com.pegasus.pegasustcgapi.dto.catalog.TrendingProductResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.VariantLookupResponse;
 import com.pegasus.pegasustcgapi.model.catalog.CardCondition;
@@ -52,11 +59,13 @@ public class CatalogProductController {
     private final CatalogSearchService search;
     private final ProductMarketService market;
     private final AuctionBrowseService auctions;
+    private final SearchSuggestService suggestions;
 
     public CatalogProductController(CatalogProductService products, CatalogVariantService variants,
             CatalogImageService images, CatalogSearchService search, ProductMarketService market,
-            AuctionBrowseService auctions) {
+            AuctionBrowseService auctions, SearchSuggestService suggestions) {
 
+        this.suggestions = suggestions;
         this.products = products;
         this.variants = variants;
         this.images = images;
@@ -99,10 +108,31 @@ public class CatalogProductController {
             @RequestParam(defaultValue = "false") boolean onSale,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam Map<String, String> allParameters) {
+            @RequestParam Map<String, String> allParameters,
+            HttpServletRequest request) {
 
-        return ApiResult.success(search.search(toBrowse(gameId, categoryId, cardSetId, productType, q, sort, inStock,
-                condition, minPrice, maxPrice, onSale, page, size, allParameters)));
+        PageResponse<ProductSummaryResponse> found = search.search(toBrowse(gameId, categoryId, cardSetId,
+                productType, q, sort, inStock, condition, minPrice, maxPrice, onSale, page, size, allParameters));
+        if (q != null && !q.isBlank() && page == 0) {
+            suggestions.record(q, found, ClientAddress.of(request) + "|" + request.getHeader("User-Agent"));
+        }
+        return ApiResult.success(found);
+    }
+
+    /** The search box dropdown; an empty {@code q} gives empty lists (show trending instead). */
+    @GetMapping("/search/suggest")
+    public ResponseEntity<ApiResult<SearchSuggestResponse>> suggest(
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Short gameId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.maxAge(Duration.ofSeconds(30)).cachePublic())
+                .body(ApiResult.success(suggestions.suggest(q, gameId)));
+    }
+
+    /** What people searched most this week (at least three different people, something found). */
+    @GetMapping("/search/trending")
+    public ApiResult<List<SearchSuggestResponse.Trending>> trendingSearches(
+            @RequestParam(required = false) Integer limit) {
+        return ApiResult.success(suggestions.trending(limit));
     }
 
     /** Sidebar counts and tab totals for the same parameters as {@code /products}. */
