@@ -73,8 +73,12 @@ public class ProductMarketRepository {
         Field<Long> productId = CATALOG_VARIANT.CATALOG_PRODUCT_ID;
         Field<BigDecimal> lowest = DSL.min(ListingConditions.EFFECTIVE_PRICE);
         Field<Integer> listings = DSL.count();
+        Field<BigDecimal> highest = DSL.max(ListingConditions.EFFECTIVE_PRICE);
+        Field<BigDecimal> regular = DSL.min(LISTING.PRICE);
+        Field<Integer> sellers = DSL.countDistinct(LISTING.SELLER_PROFILE_ID);
+        Field<Boolean> onSale = DSL.boolOr(LISTING_SALE_PRICE.LISTING_ID.isNotNull());
 
-        return dsl.select(productId, lowest, listings)
+        return dsl.select(productId, lowest, listings, highest, regular, sellers, onSale)
                 .from(LISTING)
                 .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
                 .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
@@ -84,7 +88,8 @@ public class ProductMarketRepository {
                 .and(inCondition(conditions))
                 .and(productId.in(productIds))
                 .groupBy(productId)
-                .fetchMap(productId, r -> new Offer(r.get(lowest), r.get(listings)));
+                .fetchMap(productId, r -> new Offer(r.get(lowest), r.get(listings), r.get(highest),
+                        r.get(regular), r.get(sellers), Boolean.TRUE.equals(r.get(onSale))));
     }
 
     /**
@@ -170,8 +175,19 @@ public class ProductMarketRepository {
                 .and(LISTING.QUANTITY_AVAILABLE.gt(0));
     }
 
-    /** @param listingCount listings on sale in the conditions asked for (every condition when none were) */
-    public record Offer(BigDecimal lowestPrice, int listingCount) {
+    /**
+     * @param listingCount       listings on sale in the conditions asked for (every condition when none were)
+     * @param highestPrice       the dearest of those, at what a buyer pays now
+     * @param lowestRegularPrice the cheapest asking price before any sale, to show what a sale takes off
+     * @param sellerCount        distinct shops selling it
+     * @param onSale             at least one of those listings is in a running sale
+     */
+    public record Offer(BigDecimal lowestPrice, int listingCount, BigDecimal highestPrice,
+            BigDecimal lowestRegularPrice, int sellerCount, boolean onSale) {
+
+        public Offer(BigDecimal lowestPrice, int listingCount) {
+            this(lowestPrice, listingCount, lowestPrice, lowestPrice, listingCount > 0 ? 1 : 0, false);
+        }
     }
 
     public record TrendingRow(long productId, long unitsSold) {
