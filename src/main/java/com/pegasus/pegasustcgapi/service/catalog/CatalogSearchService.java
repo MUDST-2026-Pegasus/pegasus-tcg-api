@@ -172,7 +172,7 @@ public class CatalogSearchService {
         ProductBrowse narrowed = new ProductBrowse(games, browse.categoryId(), browse.cardSetId(),
                 browse.productType(), browse.nameQuery(), browse.rawParameters(), browse.sort(), browse.activeOnly(),
                 browse.inStockOnly(), browse.conditions(), browse.minPrice(), browse.maxPrice(), browse.page(),
-                browse.size(), browse.saleStatus());
+                browse.size(), browse.saleStatus(), browse.onSale());
         if (products.count(query(narrowed, expanded, true)) == 0) {
             return null;
         }
