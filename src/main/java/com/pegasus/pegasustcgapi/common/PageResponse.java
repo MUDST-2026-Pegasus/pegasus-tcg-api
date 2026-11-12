@@ -13,10 +13,11 @@ public record PageResponse<T>(
         int size,
         long totalItems,
         int totalPages,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String correctedQuery) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String correctedQuery,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String correctionReason) {
 
     public PageResponse(List<T> items, int page, int size, long totalItems, int totalPages) {
-        this(items, page, size, totalItems, totalPages, null);
+        this(items, page, size, totalItems, totalPages, null, null);
     }
 
     public static <T> PageResponse<T> of(List<T> items, int page, int size, long totalItems) {
@@ -24,7 +25,8 @@ public record PageResponse<T>(
         return new PageResponse<>(items, page, size, totalItems, totalPages);
     }
 
-    public PageResponse<T> withCorrectedQuery(String query) {
-        return new PageResponse<>(items, page, size, totalItems, totalPages, query);
+    /** @param reason why the query was changed: TYPO, KEYBOARD_LAYOUT or ALIAS */
+    public PageResponse<T> withCorrectedQuery(String query, String reason) {
+        return new PageResponse<>(items, page, size, totalItems, totalPages, query, reason);
     }
 }

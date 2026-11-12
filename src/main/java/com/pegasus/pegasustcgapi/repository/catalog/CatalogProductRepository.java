@@ -37,6 +37,7 @@ import org.jooq.Record1;
 import org.jooq.Select;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -56,6 +57,10 @@ public class CatalogProductRepository {
 
     private final DSLContext dsl;
     private final ObjectMapper json;
+
+    /** How close a word must be for fuzzy search, 0–1 ({@code word_similarity}). */
+    @Value("${pegasus.search.fuzzy-threshold:0.45}")
+    private double fuzzyThreshold = 0.45;
 
     public CatalogProductRepository(DSLContext dsl, ObjectMapper json) {
         this.dsl = dsl;
@@ -204,7 +209,7 @@ public class CatalogProductRepository {
             condition = condition.and(CATALOG_PRODUCT.PRODUCT_TYPE.eq(query.productType().name()));
         }
         if (query.nameQuery() != null && !query.nameQuery().isBlank()) {
-            condition = condition.and(nameMatches(query.nameQuery()));
+            condition = condition.and(nameMatches(query.nameQuery(), query.fuzzy()));
         }
         if (!query.attributes().isEmpty()) {
             condition = condition.and(attributesContain(query.attributes()));
@@ -257,23 +262,33 @@ public class CatalogProductRepository {
     }
 
     /**
-     * Emitted as a real {@code ILIKE} rather than jOOQ's {@code lower(x) like lower(?)},
-     * because the trigram indexes are on the columns themselves: wrapping them in
-     * {@code lower()} would put the search back on a sequential scan.
+     * Both sides go through {@code f_search_norm}, so case, Latin accents, Thai tone
+     * marks and zero-padded card numbers do not stop a match. The product names have
+     * expression trigram indexes; the joined fields are small tables.
      *
-     * <p>The card number is matched too, so "OP09-119" typed off the card finds it.
+     * <p>Fuzzy adds names whose words are close to the query ({@code word_similarity}),
+     * so "pokamon" still finds the Pokémon shelf; bare numbers and short text never go fuzzy.
      */
-    private static Condition nameMatches(String text) {
-        String pattern = "%" + text.trim()
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_") + "%";
-
-        Condition match = DSL.falseCondition();
-        for (Field<String> field : searchFields()) {
-            match = match.or(DSL.condition("{0} ILIKE {1} ESCAPE '\\'", field, DSL.val(pattern)));
+    private Condition nameMatches(String text, boolean fuzzy) {
+        String normalized = SearchText.normalize(text);
+        Condition match = containsAny(normalized);
+        if (fuzzy && SearchText.fuzzyEligible(normalized)) {
+            // shortcut: word_similarity() as a function cannot use the trigram index; switch to the <% operator
+            // with a per-session threshold if the catalogue outgrows a sequential scan.
+            for (Field<String> field : fuzzyFields()) {
+                match = match.or(DSL.condition("word_similarity({0}, f_search_norm({1})) >= {2}",
+                        DSL.val(normalized), field, DSL.val(fuzzyThreshold)));
+            }
         }
         return match;
+    }
+
+    private static String escapeLike(String text) {
+        return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    private static List<Field<String>> fuzzyFields() {
+        return List.of(CATALOG_PRODUCT.NAME, CATALOG_PRODUCT.NAME_LOCAL, GAME.NAME, GAME.NAME_LOCAL);
     }
 
     private static List<Field<String>> searchFields() {
@@ -286,17 +301,18 @@ public class CatalogProductRepository {
         // shortcut: this scans searchable text on a miss; add indexed candidate lookup if the catalogue grows large.
         String sql = """
                 SELECT term FROM (
-                    SELECT name AS term FROM game WHERE is_active AND word_similarity(?, name) >= 0.3
-                    UNION ALL SELECT name_local FROM game WHERE is_active AND word_similarity(?, name_local) >= 0.3
-                    UNION ALL SELECT name FROM catalog_category WHERE is_active AND word_similarity(?, name) >= 0.3
-                    UNION ALL SELECT name FROM card_set WHERE word_similarity(?, name) >= 0.3
-                    UNION ALL SELECT name_local FROM card_set WHERE word_similarity(?, name_local) >= 0.3
-                    UNION ALL SELECT name FROM catalog_product WHERE is_active AND word_similarity(?, name) >= 0.3
-                    UNION ALL SELECT name_local FROM catalog_product WHERE is_active AND word_similarity(?, name_local) >= 0.3
-                    UNION ALL SELECT card_number FROM catalog_product WHERE is_active AND word_similarity(?, card_number) >= 0.3
-                ) terms ORDER BY word_similarity(?, term) DESC, length(term), term LIMIT 100
+                    SELECT name AS term FROM game WHERE is_active AND word_similarity(?, f_search_norm(name)) >= 0.3
+                    UNION ALL SELECT name_local FROM game WHERE is_active AND word_similarity(?, f_search_norm(name_local)) >= 0.3
+                    UNION ALL SELECT name FROM catalog_category WHERE is_active AND word_similarity(?, f_search_norm(name)) >= 0.3
+                    UNION ALL SELECT name FROM card_set WHERE word_similarity(?, f_search_norm(name)) >= 0.3
+                    UNION ALL SELECT name_local FROM card_set WHERE word_similarity(?, f_search_norm(name_local)) >= 0.3
+                    UNION ALL SELECT name FROM catalog_product WHERE is_active AND word_similarity(?, f_search_norm(name)) >= 0.3
+                    UNION ALL SELECT name_local FROM catalog_product WHERE is_active AND word_similarity(?, f_search_norm(name_local)) >= 0.3
+                    UNION ALL SELECT card_number FROM catalog_product WHERE is_active AND word_similarity(?, f_search_norm(card_number)) >= 0.3
+                ) terms ORDER BY word_similarity(?, f_search_norm(term)) DESC, length(term), term LIMIT 100
                 """;
-        return dsl.fetch(sql, text, text, text, text, text, text, text, text, text)
+        String q = SearchText.normalize(text);
+        return dsl.fetch(sql, q, q, q, q, q, q, q, q, q)
                 .map(record -> record.get(0, String.class));
     }
 
@@ -318,15 +334,7 @@ public class CatalogProductRepository {
         return switch (query.sort()) {
             case RELEVANCE -> query.nameQuery() == null || query.nameQuery().isBlank()
                     ? new OrderField<?>[] { CATALOG_PRODUCT.NAME.asc(), CATALOG_PRODUCT.ID.asc() }
-                    : new OrderField<?>[] {
-                        DSL.field("greatest(similarity({0},{1}), similarity({0},{2}), "
-                                + "similarity({0},{3}), similarity({0},{4}), "
-                                + "similarity({0},{5}), similarity({0},{6}), "
-                                + "similarity({0},{7}), similarity({0},{8}))", Double.class,
-                                DSL.val(query.nameQuery()), CATALOG_PRODUCT.NAME, CATALOG_PRODUCT.NAME_LOCAL,
-                                CATALOG_PRODUCT.CARD_NUMBER, GAME.NAME, GAME.NAME_LOCAL,
-                                CATALOG_CATEGORY.NAME, CARD_SET.NAME, CARD_SET.NAME_LOCAL).desc(),
-                        CATALOG_PRODUCT.ID.asc() };
+                    : relevance(SearchText.normalize(query.nameQuery()));
             case PRICE_ASC -> new OrderField<?>[] {
                 offers.lowestPrice.asc().nullsLast(), CATALOG_PRODUCT.NAME.asc(), CATALOG_PRODUCT.ID.asc() };
             case PRICE_DESC -> new OrderField<?>[] {
@@ -340,6 +348,42 @@ public class CatalogProductRepository {
             case NAME -> new OrderField<?>[] {
                 CATALOG_PRODUCT.NAME.asc(), CATALOG_PRODUCT.ID.asc() };
         };
+    }
+
+    /**
+     * Tiers, then closeness: the whole name, a name starting with the query, the
+     * query anywhere, and last the fuzzy matches. Id breaks ties so pages are stable.
+     */
+    private static OrderField<?>[] relevance(String normalized) {
+        String prefix = escapeLike(normalized) + "%";
+        Field<Integer> tier = DSL.field("""
+                CASE WHEN f_search_norm({0}) = {2} OR f_search_norm({1}) = {2} THEN 0
+                     WHEN f_search_norm({0}) LIKE {3} ESCAPE '\\' OR f_search_norm({1}) LIKE {3} ESCAPE '\\' THEN 1
+                     WHEN {4} THEN 2
+                     ELSE 3 END""", Integer.class,
+                CATALOG_PRODUCT.NAME, CATALOG_PRODUCT.NAME_LOCAL, DSL.val(normalized), DSL.val(prefix),
+                containsAny(normalized));
+        Field<Double> closeness = DSL.field("greatest(similarity({0},{1}), similarity({0},{2}), "
+                        + "similarity({0},{3}), similarity({0},{4}), "
+                        + "similarity({0},{5}), similarity({0},{6}), "
+                        + "similarity({0},{7}), similarity({0},{8}))", Double.class,
+                DSL.val(normalized), norm(CATALOG_PRODUCT.NAME), norm(CATALOG_PRODUCT.NAME_LOCAL),
+                norm(CATALOG_PRODUCT.CARD_NUMBER), norm(GAME.NAME), norm(GAME.NAME_LOCAL),
+                norm(CATALOG_CATEGORY.NAME), norm(CARD_SET.NAME), norm(CARD_SET.NAME_LOCAL));
+        return new OrderField<?>[] { tier.asc(), closeness.desc(), CATALOG_PRODUCT.ID.asc() };
+    }
+
+    private static Field<String> norm(Field<String> field) {
+        return DSL.field("f_search_norm({0})", String.class, field);
+    }
+
+    private static Condition containsAny(String normalized) {
+        Field<String> pattern = DSL.val("%" + escapeLike(normalized) + "%");
+        Condition match = DSL.falseCondition();
+        for (Field<String> field : searchFields()) {
+            match = match.or(DSL.condition("f_search_norm({0}) ILIKE {1} ESCAPE '\\'", field, pattern));
+        }
+        return match;
     }
 
     public long insert(ProductFields fields, Long createdBy) {

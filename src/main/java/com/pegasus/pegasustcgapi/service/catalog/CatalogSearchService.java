@@ -20,6 +20,7 @@ import com.pegasus.pegasustcgapi.repository.catalog.ProductSearchQuery;
 import com.pegasus.pegasustcgapi.repository.catalog.SearchFacetRepository;
 import com.pegasus.pegasustcgapi.dto.catalog.SearchFacetsResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.SearchShopResponse;
+import com.pegasus.pegasustcgapi.repository.catalog.SearchText;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -99,52 +100,112 @@ public class CatalogSearchService {
     public PageResponse<ProductSummaryResponse> search(ProductBrowse browse) {
         requirePriceRange(browse.minPrice(), browse.maxPrice());
 
-        PageResponse<ProductSummaryResponse> exact = searchExact(browse);
         String requested = browse.nameQuery();
-        if (!browse.activeOnly() || requested == null || requested.isBlank() || exact.totalItems() > 0
-                || !requested.trim().matches("[A-Za-z0-9][A-Za-z0-9 /#.'_-]*")) {
-            return exact;
+        boolean tolerant = browse.activeOnly() && requested != null && !requested.isBlank();
+        PageResponse<ProductSummaryResponse> found = searchAs(browse, requested, tolerant);
+        if (!tolerant || products.count(query(browse, requested, false)) > 0) {
+            return found;
         }
 
-        for (String correction : closestTerms(requested.trim(), products.correctionCandidates(requested.trim()))) {
-            ProductBrowse corrected = new ProductBrowse(browse.gameIds(), browse.categoryId(), browse.cardSetId(),
-                    browse.productType(), correction, browse.rawParameters(), browse.sort(), browse.activeOnly(),
-                    browse.inStockOnly(), browse.conditions(), browse.minPrice(), browse.maxPrice(),
-                    browse.page(), browse.size(), browse.saleStatus(), browse.onSale());
-            PageResponse<ProductSummaryResponse> found = searchExact(corrected);
-            if (found.totalItems() > 0) {
-                return found.withCorrectedQuery(correction);
+        // Nothing contains the text as typed: try it spelled right, then typed on the other keyboard layout.
+        PageResponse<ProductSummaryResponse> corrected = firstHit(browse, corrections(requested.trim()), "TYPO");
+        if (corrected != null) {
+            return corrected;
+        }
+        String switched = SearchText.switchKeyboard(requested);
+        if (found.totalItems() == 0 && switched != null) {
+            List<String> tries = new ArrayList<>(List.of(switched));
+            tries.addAll(corrections(switched));
+            corrected = firstHit(browse, tries, "KEYBOARD_LAYOUT");
+            if (corrected != null) {
+                return corrected;
             }
         }
-        return exact;
+        return found;
     }
 
-    private PageResponse<ProductSummaryResponse> searchExact(ProductBrowse browse) {
+    private PageResponse<ProductSummaryResponse> firstHit(ProductBrowse browse, List<String> tries, String reason) {
+        for (String attempt : tries) {
+            if (products.count(query(browse, attempt, false)) > 0) {
+                return searchAs(browse, attempt, true).withCorrectedQuery(attempt, reason);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Each word of four or more letters that no searchable name contains is swapped
+     * for the closest one (1 edit under five letters, 2 from five); the rest stay as
+     * typed, so "charzard ex" becomes "charizard ex". Up to three variants, best first.
+     */
+    private List<String> corrections(String requested) {
+        String[] words = requested.split("\\s+");
+        List<List<String>> options = new ArrayList<>();
+        boolean any = false;
+        for (String word : words) {
+            List<String> closest = List.of();
+            if (word.codePointCount(0, word.length()) >= 4) {
+                List<String> candidates = products.correctionCandidates(word);
+                String normalized = SearchText.normalize(word);
+                boolean known = candidates.stream().flatMap(c -> List.of(c.split("\\s+")).stream())
+                        .anyMatch(term -> SearchText.normalize(term).equals(normalized));
+                if (!known) {
+                    closest = closestTerms(normalized, candidates);
+                }
+            }
+            any |= !closest.isEmpty();
+            options.add(closest);
+        }
+        if (!any) {
+            return List.of();
+        }
+        List<String> variants = new ArrayList<>();
+        for (int rank = 0; rank < 3; rank++) {
+            StringBuilder variant = new StringBuilder();
+            for (int i = 0; i < words.length; i++) {
+                List<String> closest = options.get(i);
+                variant.append(i == 0 ? "" : " ")
+                        .append(closest.isEmpty() ? words[i] : closest.get(Math.min(rank, closest.size() - 1)));
+            }
+            if (!variants.contains(variant.toString())) {
+                variants.add(variant.toString());
+            }
+        }
+        return variants;
+    }
+
+    private PageResponse<ProductSummaryResponse> searchAs(ProductBrowse browse, String nameQuery, boolean fuzzy) {
         Paging paging = Paging.of(browse.page(), browse.size());
-        ProductSearchQuery query = query(browse);
+        ProductSearchQuery query = query(browse, nameQuery, fuzzy);
         List<CatalogProduct> found = products.search(query);
         return PageResponse.of(summarise(found, browse.conditions()), paging.page(), paging.size(),
                 products.count(query));
     }
 
-    private ProductSearchQuery query(ProductBrowse browse) {
+    private ProductSearchQuery query(ProductBrowse browse, String nameQuery, boolean fuzzy) {
         Paging paging = Paging.of(browse.page(), browse.size());
         return new ProductSearchQuery(
                 browse.gameIds(), browse.categoryId(), browse.cardSetId(), browse.productType(),
-                browse.nameQuery(),
+                nameQuery,
                 typedAttributes(browse.gameIds(), browse.rawParameters()),
                 browse.activeOnly(),
                 browse.inStockOnly(),
                 browse.conditions(),
                 browse.minPrice(),
                 browse.maxPrice(),
-                parseSort(browse.sort() == null && browse.nameQuery() != null && !browse.nameQuery().isBlank()
+                parseSort(browse.sort() == null && nameQuery != null && !nameQuery.isBlank()
                         ? "relevance" : browse.sort()),
                 paging.size(),
                 paging.offset(),
                 OffsetDateTime.now(clock),
                 browse.saleStatus(),
+                fuzzy,
                 browse.onSale());
+    }
+
+    /** The query a search page's counts run over: the text as typed, matched fuzzily like the results. */
+    private ProductSearchQuery query(ProductBrowse browse) {
+        return query(browse, browse.nameQuery(), browse.activeOnly());
     }
 
     /**
@@ -197,16 +258,16 @@ public class CatalogSearchService {
         return PageResponse.of(items, paging.page(), paging.size(), facets.countShops(query, minRating, now));
     }
 
-    private static List<String> closestTerms(String requested, List<String> candidates) {
-        String query = requested.toLowerCase(Locale.ROOT);
-        int maxDistance = query.length() < 5 ? 1 : 2;
+    /** @param query already normalised; candidates and their words are compared normalised too */
+    private static List<String> closestTerms(String query, List<String> candidates) {
+        int maxDistance = query.codePointCount(0, query.length()) < 5 ? 1 : 2;
         Map<String, Integer> distances = new HashMap<>();
         for (String candidate : candidates) {
             for (String term : candidate.split("\\s+")) {
-                int distance = editDistance(query, term.toLowerCase(Locale.ROOT), maxDistance);
+                int distance = editDistance(query, SearchText.normalize(term), maxDistance);
                 if (distance > 0 && distance <= maxDistance) distances.merge(term, distance, Math::min);
             }
-            int distance = editDistance(query, candidate.toLowerCase(Locale.ROOT), maxDistance);
+            int distance = editDistance(query, SearchText.normalize(candidate), maxDistance);
             if (distance > 0 && distance <= maxDistance) distances.merge(candidate, distance, Math::min);
         }
         return distances.entrySet().stream()
