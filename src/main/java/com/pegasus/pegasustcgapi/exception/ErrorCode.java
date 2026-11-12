@@ -60,6 +60,8 @@ public enum ErrorCode {
 
     EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "Email address is already registered"),
     USERNAME_ALREADY_USED(HttpStatus.CONFLICT, "Username is already taken"),
+    SEARCH_ALIAS_EXISTS(HttpStatus.CONFLICT, "This search alias already exists"),
+    SEARCH_ALIAS_NOT_FOUND(HttpStatus.NOT_FOUND, "Search alias not found"),
     GOOGLE_ALREADY_LINKED(HttpStatus.CONFLICT, "Account is already linked to a different Google identity"),
     GOOGLE_LINK_NOT_ALLOWED(HttpStatus.CONFLICT, "This email address cannot be linked to Google automatically"),
     ROLE_REQUIRES_PASSWORD(HttpStatus.CONFLICT, "Privileged roles require a password on the account"),
