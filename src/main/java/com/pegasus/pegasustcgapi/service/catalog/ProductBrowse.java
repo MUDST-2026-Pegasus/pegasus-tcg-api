@@ -19,6 +19,7 @@ import java.util.Set;
  * @param minPrice      THB, against the cheapest matching listing; null for no floor
  * @param maxPrice      same, for the ceiling
  * @param saleStatus    an admin's filter on who sells it; null for no filter
+ * @param onSale        only products with a listing in a running sale
  */
 public record ProductBrowse(
         Set<Short> gameIds,
@@ -35,7 +36,8 @@ public record ProductBrowse(
         BigDecimal maxPrice,
         int page,
         int size,
-        AdminSaleStatus saleStatus) {
+        AdminSaleStatus saleStatus,
+        boolean onSale) {
 
     public ProductBrowse(
             Set<Short> gameIds,
@@ -53,7 +55,16 @@ public record ProductBrowse(
             int page,
             int size) {
         this(gameIds, categoryId, cardSetId, productType, nameQuery, rawParameters, sort, activeOnly, inStockOnly,
-                conditions, minPrice, maxPrice, page, size, null);
+                conditions, minPrice, maxPrice, page, size, null, false);
+    }
+
+    public ProductBrowse(
+            Set<Short> gameIds, Integer categoryId, Integer cardSetId, ProductType productType, String nameQuery,
+            Map<String, String> rawParameters, String sort, boolean activeOnly, boolean inStockOnly,
+            Set<CardCondition> conditions, BigDecimal minPrice, BigDecimal maxPrice, int page, int size,
+            AdminSaleStatus saleStatus) {
+        this(gameIds, categoryId, cardSetId, productType, nameQuery, rawParameters, sort, activeOnly, inStockOnly,
+                conditions, minPrice, maxPrice, page, size, saleStatus, false);
     }
 
     public ProductBrowse {

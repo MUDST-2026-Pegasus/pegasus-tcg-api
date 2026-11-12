@@ -307,7 +307,8 @@ class AdminCardListingIntegrationTest extends PostgresIntegrationTest {
 
         JsonNode publicTile = api.get(ApiPaths.API_V1 + "/catalog/products?gameId=" + game + "&size=50", null)
                 .data().get("items").get(0);
-        assertThat(publicTile.has("sellerCount")).isFalse();
+        // sellerCount is public since TCG-775; stock detail stays admin-only.
+        assertThat(publicTile.has("availableQuantity")).isFalse();
     }
 
     private List<Long> productIds(String path) {

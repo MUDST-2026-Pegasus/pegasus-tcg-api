@@ -26,6 +26,7 @@ import java.util.Set;
  * @param now         which sale prices still run; prices are what a buyer pays now
  * @param saleStatus  an admin's filter on who sells it; null for no filter
  * @param fuzzy       also match names that are close to {@code nameQuery}, not only ones containing it
+ * @param onSaleOnly  only products with a listing in a running sale
  */
 public record ProductSearchQuery(
         Set<Short> gameIds,
@@ -44,7 +45,8 @@ public record ProductSearchQuery(
         int offset,
         OffsetDateTime now,
         AdminSaleStatus saleStatus,
-        boolean fuzzy) {
+        boolean fuzzy,
+        boolean onSaleOnly) {
 
     public ProductSearchQuery(
             Set<Short> gameIds,
@@ -63,13 +65,38 @@ public record ProductSearchQuery(
             int offset,
             OffsetDateTime now) {
         this(gameIds, categoryId, cardSetId, productType, nameQuery, attributes, activeOnly, inStockOnly,
-                conditions, minPrice, maxPrice, sort, limit, offset, now, null, false);
+                conditions, minPrice, maxPrice, sort, limit, offset, now, null, false, false);
     }
 
     public ProductSearchQuery {
         gameIds = gameIds == null ? Set.of() : Set.copyOf(gameIds);
         attributes = attributes == null ? Map.of() : Map.copyOf(attributes);
         conditions = conditions == null ? Set.of() : Set.copyOf(conditions);
+    }
+
+    /** The same search with every game, for counting what the other games would show. */
+    public ProductSearchQuery withoutGames() {
+        return new ProductSearchQuery(Set.of(), categoryId, cardSetId, productType, nameQuery, attributes,
+                activeOnly, inStockOnly, conditions, minPrice, maxPrice, sort, limit, offset, now, saleStatus, fuzzy,
+                onSaleOnly);
+    }
+
+    public ProductSearchQuery withoutCategory() {
+        return new ProductSearchQuery(gameIds, null, cardSetId, productType, nameQuery, attributes,
+                activeOnly, inStockOnly, conditions, minPrice, maxPrice, sort, limit, offset, now, saleStatus, fuzzy,
+                onSaleOnly);
+    }
+
+    public ProductSearchQuery withoutConditions() {
+        return new ProductSearchQuery(gameIds, categoryId, cardSetId, productType, nameQuery, attributes,
+                activeOnly, inStockOnly, Set.of(), minPrice, maxPrice, sort, limit, offset, now, saleStatus, fuzzy,
+                onSaleOnly);
+    }
+
+    public ProductSearchQuery onSale() {
+        return new ProductSearchQuery(gameIds, categoryId, cardSetId, productType, nameQuery, attributes,
+                activeOnly, inStockOnly, conditions, minPrice, maxPrice, sort, limit, offset, now, saleStatus, fuzzy,
+                true);
     }
 
     /** Any filter that only a product on sale can pass. */

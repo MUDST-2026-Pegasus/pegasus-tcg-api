@@ -18,6 +18,9 @@ import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository.Offe
 import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository.TrendingRow;
 import com.pegasus.pegasustcgapi.repository.catalog.ProductSearchQuery;
 import com.pegasus.pegasustcgapi.repository.catalog.SearchAliasRepository;
+import com.pegasus.pegasustcgapi.repository.catalog.SearchFacetRepository;
+import com.pegasus.pegasustcgapi.dto.catalog.SearchFacetsResponse;
+import com.pegasus.pegasustcgapi.dto.catalog.SearchShopResponse;
 import com.pegasus.pegasustcgapi.repository.catalog.SearchText;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
@@ -63,6 +66,7 @@ public class CatalogSearchService {
     private final StorageService storage;
     private final Clock clock;
     private SearchAliasRepository aliases;
+    private SearchFacetRepository facets;
 
     public CatalogSearchService(
             CatalogProductRepository products,
@@ -85,6 +89,11 @@ public class CatalogSearchService {
     @org.springframework.beans.factory.annotation.Autowired
     void setAliases(SearchAliasRepository aliases) {
         this.aliases = aliases;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setFacets(SearchFacetRepository facets) {
+        this.facets = facets;
     }
 
     /**
@@ -268,7 +277,63 @@ public class CatalogSearchService {
                 paging.offset(),
                 OffsetDateTime.now(clock),
                 browse.saleStatus(),
-                fuzzy);
+                fuzzy,
+                browse.onSale());
+    }
+
+    /** The query a search page's counts run over: the text as typed, matched fuzzily like the results. */
+    private ProductSearchQuery query(ProductBrowse browse) {
+        return query(browse, browse.nameQuery(), browse.activeOnly());
+    }
+
+    /**
+     * Sidebar counts and tab totals for a search page (TCG-775). Each group is
+     * counted without its own filter, so the other options still show what they hold.
+     */
+    public SearchFacetsResponse facets(ProductBrowse browse) {
+        requirePriceRange(browse.minPrice(), browse.maxPrice());
+        ProductSearchQuery query = query(browse);
+        SearchFacetRepository.Totals totals = facets.totals(query);
+        return new SearchFacetsResponse(
+                facets.games(query).stream().map(c -> new SearchFacetsResponse.Option(
+                        c.id(), c.name(), null, c.count())).toList(),
+                facets.categories(query).stream().map(c -> new SearchFacetsResponse.Option(
+                        c.id(), c.name(), c.parentId(), c.count())).toList(),
+                facets.conditions(query).stream().map(c -> new SearchFacetsResponse.ConditionCount(
+                        c.name(), c.count())).toList(),
+                products.count(query.onSale()),
+                new SearchFacetsResponse.Totals(products.count(query), totals.shops(), totals.listings()));
+    }
+
+    /**
+     * Shops selling what {@code browse} finds (TCG-775 shop tab).
+     *
+     * @param minRating null for any
+     * @param sort      MATCHES (default) or RATING
+     */
+    public PageResponse<SearchShopResponse> shops(ProductBrowse browse, BigDecimal minRating, String sort) {
+        boolean byRating = "RATING".equalsIgnoreCase(sort);
+        if (sort != null && !byRating && !"MATCHES".equalsIgnoreCase(sort)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "sort must be MATCHES or RATING");
+        }
+        Paging paging = Paging.of(browse.page(), browse.size());
+        ProductSearchQuery query = query(browse);
+        OffsetDateTime now = OffsetDateTime.now(clock);
+        List<SearchFacetRepository.Shop> shops = facets.shops(query, minRating, byRating, paging.size(),
+                paging.offset(), now);
+        Map<Long, List<SearchFacetRepository.Preview>> previews = new HashMap<>();
+        facets.previews(query, shops.stream().map(SearchFacetRepository.Shop::sellerId).toList())
+                .forEach(p -> previews.computeIfAbsent(p.sellerId(), k -> new ArrayList<>()).add(p));
+        Map<Long, String> imageKeys = images.primaryKeysOf(previews.values().stream()
+                .flatMap(List::stream).map(SearchFacetRepository.Preview::productId).distinct().toList());
+
+        List<SearchShopResponse> items = shops.stream().map(shop -> new SearchShopResponse(
+                shop.username(), shop.displayName(), signed(shop.avatarKey()), shop.ratingAvg(),
+                shop.ratingCount(), shop.matchCount(), shop.lowestPrice(),
+                previews.getOrDefault(shop.sellerId(), List.of()).stream()
+                        .map(p -> new SearchShopResponse.Preview(p.productId(), signed(imageKeys.get(p.productId()))))
+                        .toList())).toList();
+        return PageResponse.of(items, paging.page(), paging.size(), facets.countShops(query, minRating, now));
     }
 
     /** @param query already normalised; candidates and their words are compared normalised too */
@@ -385,7 +450,11 @@ public class CatalogSearchService {
                             signed(imageKeys.get(product.id())),
                             variantCounts.getOrDefault(product.id(), 0),
                             offer == null ? null : offer.lowestPrice(),
-                            offer == null ? 0 : offer.listingCount());
+                            offer == null ? 0 : offer.listingCount(),
+                            offer == null ? null : offer.highestPrice(),
+                            offer == null ? null : offer.lowestRegularPrice(),
+                            offer == null ? 0 : offer.sellerCount(),
+                            offer != null && offer.onSale());
                 })
                 .toList();
     }
