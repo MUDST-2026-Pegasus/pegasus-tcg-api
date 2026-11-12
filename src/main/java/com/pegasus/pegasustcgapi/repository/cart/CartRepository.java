@@ -6,6 +6,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.CatalogImage.CATALOG_IMAGE;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogProduct.CATALOG_PRODUCT;
 import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIANT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
+import static com.pegasus.pegasustcgapi.jooq.tables.ListingImage.LISTING_IMAGE;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
 import static com.pegasus.pegasustcgapi.jooq.tables.UserAccount.USER_ACCOUNT;
 
@@ -22,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
@@ -286,6 +288,19 @@ public class CartRepository {
         if (listingIds.isEmpty()) {
             return Map.of();
         }
+        // The seller's own photo first, as on the listing page; the catalog art only
+        // when the listing has no photo of its own.
+        Field<String> listingImageKey = DSL.field(DSL.select(LISTING_IMAGE.IMAGE_KEY)
+                .from(LISTING_IMAGE)
+                .where(LISTING_IMAGE.LISTING_ID.eq(LISTING.ID))
+                .orderBy(LISTING_IMAGE.IS_PRIMARY.desc(), LISTING_IMAGE.SORT_ORDER.asc(), LISTING_IMAGE.ID.asc())
+                .limit(1));
+        Field<String> catalogImageKey = DSL.field(DSL.select(CATALOG_IMAGE.IMAGE_KEY)
+                .from(CATALOG_IMAGE)
+                .where(CATALOG_IMAGE.CATALOG_PRODUCT_ID.eq(CATALOG_PRODUCT.ID))
+                .orderBy(CATALOG_IMAGE.IS_PRIMARY.desc(), CATALOG_IMAGE.SORT_ORDER.asc(), CATALOG_IMAGE.ID.asc())
+                .limit(1));
+        Field<String> imageKey = DSL.coalesce(listingImageKey, catalogImageKey).as("image_key");
         return dsl.select(
                 LISTING.ID,
                 CATALOG_PRODUCT.NAME,
@@ -294,15 +309,13 @@ public class CartRepository {
                 CATALOG_VARIANT.EDITION,
                 CATALOG_VARIANT.PRINTING_NOTE,
                 DSL.coalesce(USER_ACCOUNT.DISPLAY_NAME, USER_ACCOUNT.USERNAME),
-                CATALOG_IMAGE.IMAGE_KEY,
+                imageKey,
                 USER_ACCOUNT.USERNAME)
                 .from(LISTING)
                 .join(CATALOG_VARIANT).on(CATALOG_VARIANT.ID.eq(LISTING.CATALOG_VARIANT_ID))
                 .join(CATALOG_PRODUCT).on(CATALOG_PRODUCT.ID.eq(CATALOG_VARIANT.CATALOG_PRODUCT_ID))
                 .join(SELLER_PROFILE).on(SELLER_PROFILE.ID.eq(LISTING.SELLER_PROFILE_ID))
                 .join(USER_ACCOUNT).on(USER_ACCOUNT.ID.eq(SELLER_PROFILE.USER_ID))
-                .leftJoin(CATALOG_IMAGE).on(CATALOG_IMAGE.CATALOG_PRODUCT_ID.eq(CATALOG_PRODUCT.ID)
-                        .and(CATALOG_IMAGE.IS_PRIMARY.isTrue()))
                 .where(LISTING.ID.in(listingIds))
                 .fetchMap(LISTING.ID, r -> {
                     String languageCode = r.get(CATALOG_VARIANT.LANGUAGE_CODE);
@@ -324,7 +337,7 @@ public class CartRepository {
                             r.get(CATALOG_PRODUCT.NAME),
                             label.toString(),
                             r.value7(),
-                            r.get(CATALOG_IMAGE.IMAGE_KEY),
+                            r.get(imageKey),
                             r.get(USER_ACCOUNT.USERNAME));
                 });
     }
