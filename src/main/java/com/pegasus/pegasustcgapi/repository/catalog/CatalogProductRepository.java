@@ -11,6 +11,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.CatalogVariant.CATALOG_VARIA
 import static com.pegasus.pegasustcgapi.jooq.tables.CollectionItem.COLLECTION_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.InventoryMovement.INVENTORY_MOVEMENT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
+import static com.pegasus.pegasustcgapi.jooq.tables.ListingSalePrice.LISTING_SALE_PRICE;
 import static com.pegasus.pegasustcgapi.jooq.tables.ListingUnit.LISTING_UNIT;
 import static com.pegasus.pegasustcgapi.jooq.tables.OrderItem.ORDER_ITEM;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
@@ -32,6 +33,7 @@ import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.OrderField;
+import org.jooq.Record1;
 import org.jooq.Select;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
@@ -221,10 +223,21 @@ public class CatalogProductRepository {
         if (query.maxPrice() != null) {
             condition = condition.and(offers.lowestPrice.le(query.maxPrice()));
         }
+        if (query.onSaleOnly()) {
+            condition = condition.and(DSL.exists(listingsOfThisProduct(ListingConditions.purchasableNow()
+                    .and(DSL.exists(DSL.selectOne().from(LISTING_SALE_PRICE)
+                            .where(ListingConditions.salePriceRunning(query.now())))))));
+        }
         if (query.saleStatus() != null) {
             condition = condition.and(saleStatusMatches(query.saleStatus()));
         }
         return condition;
+    }
+
+    /** The ids a search matches, ignoring its order and page: for counting facets and shops over it. */
+    public Select<Record1<Long>> matchingIds(ProductSearchQuery query) {
+        Offers offers = query.needsOffer() ? new Offers(query) : null;
+        return DSL.select(CATALOG_PRODUCT.ID).from(from(offers)).where(conditions(query, offers));
     }
 
     /** "Has a seller" means a buyer could take one now, the same as the numbers the admin's tile shows. */
