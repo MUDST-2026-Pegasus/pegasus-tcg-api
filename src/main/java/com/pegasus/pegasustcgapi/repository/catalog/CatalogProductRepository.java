@@ -298,17 +298,18 @@ public class CatalogProductRepository {
 
     /** Candidate names are fetched only after the literal public search has no result. */
     public List<String> correctionCandidates(String text) {
+        // 0.2, not 0.3: two-edit typos such as "chxrizrd" score ~0.27; edit distance still filters the list.
         // shortcut: this scans searchable text on a miss; add indexed candidate lookup if the catalogue grows large.
         String sql = """
                 SELECT term FROM (
-                    SELECT name AS term FROM game WHERE is_active AND word_similarity(?, f_search_norm(name)) >= 0.3
-                    UNION ALL SELECT name_local FROM game WHERE is_active AND word_similarity(?, f_search_norm(name_local)) >= 0.3
-                    UNION ALL SELECT name FROM catalog_category WHERE is_active AND word_similarity(?, f_search_norm(name)) >= 0.3
-                    UNION ALL SELECT name FROM card_set WHERE word_similarity(?, f_search_norm(name)) >= 0.3
-                    UNION ALL SELECT name_local FROM card_set WHERE word_similarity(?, f_search_norm(name_local)) >= 0.3
-                    UNION ALL SELECT name FROM catalog_product WHERE is_active AND word_similarity(?, f_search_norm(name)) >= 0.3
-                    UNION ALL SELECT name_local FROM catalog_product WHERE is_active AND word_similarity(?, f_search_norm(name_local)) >= 0.3
-                    UNION ALL SELECT card_number FROM catalog_product WHERE is_active AND word_similarity(?, f_search_norm(card_number)) >= 0.3
+                    SELECT name AS term FROM game WHERE is_active AND word_similarity(?, f_search_norm(name)) >= 0.2
+                    UNION ALL SELECT name_local FROM game WHERE is_active AND word_similarity(?, f_search_norm(name_local)) >= 0.2
+                    UNION ALL SELECT name FROM catalog_category WHERE is_active AND word_similarity(?, f_search_norm(name)) >= 0.2
+                    UNION ALL SELECT name FROM card_set WHERE word_similarity(?, f_search_norm(name)) >= 0.2
+                    UNION ALL SELECT name_local FROM card_set WHERE word_similarity(?, f_search_norm(name_local)) >= 0.2
+                    UNION ALL SELECT name FROM catalog_product WHERE is_active AND word_similarity(?, f_search_norm(name)) >= 0.2
+                    UNION ALL SELECT name_local FROM catalog_product WHERE is_active AND word_similarity(?, f_search_norm(name_local)) >= 0.2
+                    UNION ALL SELECT card_number FROM catalog_product WHERE is_active AND word_similarity(?, f_search_norm(card_number)) >= 0.2
                 ) terms ORDER BY word_similarity(?, f_search_norm(term)) DESC, length(term), term LIMIT 100
                 """;
         String q = SearchText.normalize(text);
