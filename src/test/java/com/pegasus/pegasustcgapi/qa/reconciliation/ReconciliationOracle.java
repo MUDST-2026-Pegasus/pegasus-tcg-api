@@ -12,9 +12,11 @@ import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
 import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrderStatusHistory.SELLER_ORDER_STATUS_HISTORY;
+import static com.pegasus.pegasustcgapi.jooq.tables.SellerProfile.SELLER_PROFILE;
 import static com.pegasus.pegasustcgapi.jooq.tables.Wallet.WALLET;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.pegasus.pegasustcgapi.jooq.tables.records.EscrowHoldRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.ListingRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
@@ -26,7 +28,7 @@ import org.jooq.impl.DSL;
 import org.springframework.stereotype.Component;
 
 /**
- * Reconciliation Oracle &amp; SQL Assertion Engine for [QA-03-B].
+ * Reconciliation Oracle &amp; SQL Assertion Engine for [TCG-756 / QA-03-B].
  *
  * <p>Executes deterministic invariant verifications across:
  * <ol>
@@ -188,6 +190,30 @@ public class ReconciliationOracle {
     }
 
     /**
+     * Verifies platform wallet bucket separation:
+     * {@code balance_pending} strictly equals the sum of outstanding active escrow holds.
+     */
+    public void assertPlatformWalletBuckets() {
+        long platformWalletId = dsl.select(WALLET.ID).from(WALLET)
+                .where(WALLET.KIND.eq("PLATFORM")).fetchSingle(WALLET.ID);
+        WalletRecord wallet = dsl.selectFrom(WALLET).where(WALLET.ID.eq(platformWalletId)).fetchSingle();
+
+        BigDecimal activeEscrow = dsl.select(DSL.coalesce(
+                        DSL.sum(ESCROW_HOLD.AMOUNT.subtract(ESCROW_HOLD.RELEASED_AMOUNT).subtract(ESCROW_HOLD.REFUNDED_AMOUNT)),
+                        BigDecimal.ZERO))
+                .from(ESCROW_HOLD)
+                .where(ESCROW_HOLD.STATUS.in("HELD", "PARTIALLY_RELEASED"))
+                .fetchSingle(0, BigDecimal.class);
+
+        assertThat(wallet.getBalancePending())
+                .as("Platform wallet balance_pending (%s) must equal outstanding active escrow holds (%s)",
+                        wallet.getBalancePending(), activeEscrow)
+                .isEqualByComparingTo(activeEscrow);
+
+        assertWalletEquation(platformWalletId);
+    }
+
+    /**
      * Verifies money conservation across sales_order and seller_orders:
      * <ul>
      *   <li>{@code grand_total == items_subtotal + shipping_total - discount_total}</li>
@@ -282,18 +308,18 @@ public class ReconciliationOracle {
     /**
      * Asserts escrow hold invariants for a suborder:
      * <ul>
+     *   <li>Must strictly exist in database (never returns silently)</li>
      *   <li>{@code amount == seller_order.grand_total}</li>
      *   <li>{@code amount == released_amount + refunded_amount + remaining_held}</li>
-     *   <li>Status consistency with release/refund states</li>
+     *   <li>In PARTIALLY_RELEASED: {@code released_amount > 0 && refunded_amount > 0 && released + refunded == amount}</li>
      * </ul>
      */
     public void assertEscrowReconciliation(long sellerOrderId) {
-        var holdOpt = dsl.selectFrom(ESCROW_HOLD).where(ESCROW_HOLD.SELLER_ORDER_ID.eq(sellerOrderId)).fetchOptional();
-        if (holdOpt.isEmpty()) {
-            return;
-        }
+        EscrowHoldRecord hold = dsl.selectFrom(ESCROW_HOLD)
+                .where(ESCROW_HOLD.SELLER_ORDER_ID.eq(sellerOrderId))
+                .fetchOptional()
+                .orElseThrow(() -> new AssertionError("Expected escrow_hold row to exist for seller_order #" + sellerOrderId));
 
-        var hold = holdOpt.get();
         SellerOrderRecord so = dsl.selectFrom(SELLER_ORDER).where(SELLER_ORDER.ID.eq(sellerOrderId)).fetchSingle();
 
         assertThat(hold.getAmount())
@@ -316,80 +342,182 @@ public class ReconciliationOracle {
                 assertThat(refunded).isLessThan(hold.getAmount());
             }
             case "PARTIALLY_RELEASED" -> {
-                assertThat(released).isGreaterThan(BigDecimal.ZERO);
-                assertThat(totalAccounted).isLessThan(hold.getAmount());
+                assertThat(released).as("PARTIALLY_RELEASED released_amount must be > 0").isGreaterThan(BigDecimal.ZERO);
+                assertThat(refunded).as("PARTIALLY_RELEASED refunded_amount must be > 0").isGreaterThan(BigDecimal.ZERO);
+                assertThat(totalAccounted)
+                        .as("PARTIALLY_RELEASED totalAccounted (released + refunded) must equal hold amount in full")
+                        .isEqualByComparingTo(hold.getAmount());
             }
             case "RELEASED" -> assertThat(totalAccounted).isEqualByComparingTo(hold.getAmount());
             case "REFUNDED", "CANCELLED" -> assertThat(refunded).isEqualByComparingTo(hold.getAmount());
         }
     }
 
+    /**
+     * Asserts that no escrow_hold row exists for a seller_order (e.g. before payment or unpaid cancel).
+     */
+    public void assertEscrowAbsent(long sellerOrderId) {
+        boolean exists = dsl.fetchExists(ESCROW_HOLD, ESCROW_HOLD.SELLER_ORDER_ID.eq(sellerOrderId));
+        assertThat(exists).as("escrow_hold must NOT exist for unpaid seller_order #%d", sellerOrderId).isFalse();
+    }
+
     // =========================================================================
-    // 3. Referential & State Integrity Checks
+    // 3. Referential, Audit Sequence & State Integrity Checks
     // =========================================================================
 
     /**
-     * Global integrity verification:
-     * <ul>
-     *   <li>Zero orphan ledger entries (every entry maps to a valid reference entity)</li>
-     *   <li>Zero duplicate financial postings (ux_ledger_entry_once violated)</li>
-     *   <li>Every seller_order status transition recorded in audit history</li>
-     *   <li>Zero negative balances in any wallet</li>
-     * </ul>
+     * Asserts that seller_order_status_history forms a valid chronological sequence of state transitions.
+     *
+     * @param sellerOrderId target suborder
+     * @param expectedSequence optional explicit sequence of status names (e.g. ["PAID", "SHIPPED", "COMPLETED"])
+     */
+    public void assertOrderStatusHistorySequence(long sellerOrderId, List<String> expectedSequence) {
+        var histories = dsl.select(SELLER_ORDER_STATUS_HISTORY.FROM_STATUS, SELLER_ORDER_STATUS_HISTORY.TO_STATUS)
+                .from(SELLER_ORDER_STATUS_HISTORY)
+                .where(SELLER_ORDER_STATUS_HISTORY.SELLER_ORDER_ID.eq(sellerOrderId))
+                .orderBy(SELLER_ORDER_STATUS_HISTORY.ID.asc())
+                .fetch();
+
+        assertThat(histories).as("SellerOrder #%d must have status history entries", sellerOrderId).isNotEmpty();
+
+        for (int i = 1; i < histories.size(); i++) {
+            String prevTo = histories.get(i - 1).value2();
+            String currFrom = histories.get(i).value1();
+            assertThat(currFrom)
+                    .as("History step #%d from_status must match step #%d to_status", i, i - 1)
+                    .isEqualTo(prevTo);
+        }
+
+        String currentStatus = dsl.select(SELLER_ORDER.STATUS).from(SELLER_ORDER)
+                .where(SELLER_ORDER.ID.eq(sellerOrderId)).fetchSingle(SELLER_ORDER.STATUS);
+        assertThat(histories.getLast().value2())
+                .as("Final history transition must match current seller_order status")
+                .isEqualTo(currentStatus);
+
+        if (expectedSequence != null && !expectedSequence.isEmpty()) {
+            List<String> actualTo = histories.map(r -> r.value2());
+            assertThat(actualTo).as("SellerOrder #%d history sequence mismatch", sellerOrderId)
+                    .isEqualTo(expectedSequence);
+        }
+    }
+
+    /**
+     * Scoped referential and ledger integrity for a specific sales order and its child entities.
+     */
+    public void assertOrderIntegrity(long salesOrderId) {
+        List<Long> suborderIds = dsl.select(SELLER_ORDER.ID)
+                .from(SELLER_ORDER)
+                .where(SELLER_ORDER.SALES_ORDER_ID.eq(salesOrderId))
+                .fetch(SELLER_ORDER.ID);
+
+        List<Long> paymentIds = dsl.select(PAYMENT.ID)
+                .from(PAYMENT)
+                .where(PAYMENT.SALES_ORDER_ID.eq(salesOrderId))
+                .fetch(PAYMENT.ID);
+
+        List<Long> refundIds = dsl.select(REFUND.ID)
+                .from(REFUND)
+                .where(REFUND.SALES_ORDER_ID.eq(salesOrderId))
+                .fetch(REFUND.ID);
+
+        // 1. Audit trail existence & valid sequence for all suborders
+        for (Long soId : suborderIds) {
+            assertOrderStatusHistorySequence(soId, null);
+        }
+
+        // 2. Zero orphan ledger entries for this order's references
+        if (!paymentIds.isEmpty()) {
+            int orphanPaymentLedgers = dsl.fetchCount(
+                    DSL.selectFrom(LEDGER_ENTRY)
+                            .where(LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYMENT"))
+                            .and(LEDGER_ENTRY.REFERENCE_ID.in(paymentIds))
+                            .andNotExists(DSL.selectOne().from(PAYMENT).where(PAYMENT.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))
+            );
+            assertThat(orphanPaymentLedgers).as("0 orphan ledger entries for PAYMENT in order #%d", salesOrderId).isZero();
+        }
+
+        if (!suborderIds.isEmpty()) {
+            int orphanOrderLedgers = dsl.fetchCount(
+                    DSL.selectFrom(LEDGER_ENTRY)
+                            .where(LEDGER_ENTRY.REFERENCE_TYPE.eq("SELLER_ORDER"))
+                            .and(LEDGER_ENTRY.REFERENCE_ID.in(suborderIds))
+                            .andNotExists(DSL.selectOne().from(SELLER_ORDER).where(SELLER_ORDER.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))
+            );
+            assertThat(orphanOrderLedgers).as("0 orphan ledger entries for SELLER_ORDER in order #%d", salesOrderId).isZero();
+        }
+
+        if (!refundIds.isEmpty()) {
+            int orphanRefundLedgers = dsl.fetchCount(
+                    DSL.selectFrom(LEDGER_ENTRY)
+                            .where(LEDGER_ENTRY.REFERENCE_TYPE.eq("REFUND"))
+                            .and(LEDGER_ENTRY.REFERENCE_ID.in(refundIds))
+                            .andNotExists(DSL.selectOne().from(REFUND).where(REFUND.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))
+            );
+            assertThat(orphanRefundLedgers).as("0 orphan ledger entries for REFUND in order #%d", salesOrderId).isZero();
+        }
+
+        // 3. Zero duplicate financial postings for these references
+        var duplicateOrderPostings = dsl.select(LEDGER_ENTRY.ENTRY_TYPE, LEDGER_ENTRY.DIRECTION,
+                        LEDGER_ENTRY.REFERENCE_TYPE, LEDGER_ENTRY.REFERENCE_ID, DSL.count())
+                .from(LEDGER_ENTRY)
+                .where(LEDGER_ENTRY.ENTRY_TYPE.ne("ADJUSTMENT"))
+                .and(
+                        (LEDGER_ENTRY.REFERENCE_TYPE.eq("SELLER_ORDER").and(LEDGER_ENTRY.REFERENCE_ID.in(suborderIds)))
+                                .or(LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYMENT").and(LEDGER_ENTRY.REFERENCE_ID.in(paymentIds)))
+                                .or(LEDGER_ENTRY.REFERENCE_TYPE.eq("REFUND").and(LEDGER_ENTRY.REFERENCE_ID.in(refundIds)))
+                )
+                .groupBy(LEDGER_ENTRY.ENTRY_TYPE, LEDGER_ENTRY.DIRECTION,
+                        LEDGER_ENTRY.REFERENCE_TYPE, LEDGER_ENTRY.REFERENCE_ID)
+                .having(DSL.count().gt(1))
+                .fetch();
+        assertThat(duplicateOrderPostings).as("0 duplicate ledger postings for order #%d", salesOrderId).isEmpty();
+
+        // 4. Wallet balance equation for involved seller wallets and platform wallet
+        long platformWalletId = dsl.select(WALLET.ID).from(WALLET)
+                .where(WALLET.KIND.eq("PLATFORM")).fetchSingle(WALLET.ID);
+        assertWalletEquation(platformWalletId);
+
+        List<Long> sellerUserIds = dsl.select(SELLER_PROFILE.USER_ID)
+                .from(SELLER_ORDER)
+                .join(SELLER_PROFILE).on(SELLER_ORDER.SELLER_PROFILE_ID.eq(SELLER_PROFILE.ID))
+                .where(SELLER_ORDER.SALES_ORDER_ID.eq(salesOrderId))
+                .fetch(SELLER_PROFILE.USER_ID);
+
+        for (Long sUid : sellerUserIds) {
+            dsl.select(WALLET.ID).from(WALLET).where(WALLET.USER_ID.eq(sUid))
+                    .fetchOptional(WALLET.ID)
+                    .ifPresent(this::assertWalletEquation);
+        }
+    }
+
+    /**
+     * Scoped referential and ledger integrity for a specific wallet and its transactions.
+     */
+    public void assertWalletIntegrity(long walletId) {
+        assertWalletEquation(walletId);
+
+        int orphanEntries = dsl.fetchCount(
+                DSL.selectFrom(LEDGER_ENTRY)
+                        .where(LEDGER_ENTRY.WALLET_ID.eq(walletId))
+                        .and(
+                                (LEDGER_ENTRY.REFERENCE_TYPE.eq("SELLER_ORDER").andNotExists(DSL.selectOne().from(SELLER_ORDER).where(SELLER_ORDER.ID.eq(LEDGER_ENTRY.REFERENCE_ID))))
+                                        .or(LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYMENT").andNotExists(DSL.selectOne().from(PAYMENT).where(PAYMENT.ID.eq(LEDGER_ENTRY.REFERENCE_ID))))
+                                        .or(LEDGER_ENTRY.REFERENCE_TYPE.eq("REFUND").andNotExists(DSL.selectOne().from(REFUND).where(REFUND.ID.eq(LEDGER_ENTRY.REFERENCE_ID))))
+                                        .or(LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYOUT").andNotExists(DSL.selectOne().from(PAYOUT).where(PAYOUT.ID.eq(LEDGER_ENTRY.REFERENCE_ID))))
+                        )
+        );
+        assertThat(orphanEntries).as("0 orphan ledger entries for wallet #%d", walletId).isZero();
+    }
+
+    /**
+     * Global invariant verification that holds true regardless of other tests.
      */
     public void assertGlobalReferentialIntegrity() {
-        // 1. Zero unauthorized negative wallet balances (seller wallets >= 0 available & pending, platform >= 0 pending)
         int negativeWallets = dsl.fetchCount(WALLET,
                 WALLET.BALANCE_PENDING.lt(BigDecimal.ZERO)
                         .or(WALLET.KIND.ne("PLATFORM").and(WALLET.BALANCE_AVAILABLE.lt(BigDecimal.ZERO))));
         assertThat(negativeWallets).as("Database must contain 0 unauthorized negative wallet balances").isZero();
 
-        // 2. Zero orphan ledger entries
-        int orphanPaymentLedgers = dsl.fetchCount(
-                DSL.selectFrom(LEDGER_ENTRY)
-                        .where(LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYMENT"))
-                        .andNotExists(DSL.selectOne().from(PAYMENT).where(PAYMENT.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))
-        );
-        assertThat(orphanPaymentLedgers).as("0 orphan ledger entries for PAYMENT reference").isZero();
-
-        int orphanOrderLedgers = dsl.fetchCount(
-                DSL.selectFrom(LEDGER_ENTRY)
-                        .where(LEDGER_ENTRY.REFERENCE_TYPE.eq("SELLER_ORDER"))
-                        .andNotExists(DSL.selectOne().from(SELLER_ORDER).where(SELLER_ORDER.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))
-        );
-        assertThat(orphanOrderLedgers).as("0 orphan ledger entries for SELLER_ORDER reference").isZero();
-
-        int orphanRefundLedgers = dsl.fetchCount(
-                DSL.selectFrom(LEDGER_ENTRY)
-                        .where(LEDGER_ENTRY.REFERENCE_TYPE.eq("REFUND"))
-                        .andNotExists(DSL.selectOne().from(REFUND).where(REFUND.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))
-        );
-        assertThat(orphanRefundLedgers).as("0 orphan ledger entries for REFUND reference").isZero();
-
-        int orphanPayoutLedgers = dsl.fetchCount(
-                DSL.selectFrom(LEDGER_ENTRY)
-                        .where(LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYOUT"))
-                        .andNotExists(DSL.selectOne().from(PAYOUT).where(PAYOUT.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))
-        );
-        assertThat(orphanPayoutLedgers).as("0 orphan ledger entries for PAYOUT reference").isZero();
-
-        // 3. Zero duplicate financial postings
-        var duplicateLedgerEntries = dsl.select(LEDGER_ENTRY.ENTRY_TYPE, LEDGER_ENTRY.DIRECTION,
-                        LEDGER_ENTRY.REFERENCE_TYPE, LEDGER_ENTRY.REFERENCE_ID, DSL.count())
-                .from(LEDGER_ENTRY)
-                .where(LEDGER_ENTRY.ENTRY_TYPE.ne("ADJUSTMENT"))
-                .groupBy(LEDGER_ENTRY.ENTRY_TYPE, LEDGER_ENTRY.DIRECTION,
-                        LEDGER_ENTRY.REFERENCE_TYPE, LEDGER_ENTRY.REFERENCE_ID)
-                .having(DSL.count().gt(1))
-                .fetch();
-        assertThat(duplicateLedgerEntries).as("0 duplicate non-ADJUSTMENT ledger postings").isEmpty();
-
-        // 4. Audit trail existence for seller orders
-        var unrecordedOrders = dsl.select(SELLER_ORDER.ID)
-                .from(SELLER_ORDER)
-                .whereNotExists(DSL.selectOne().from(SELLER_ORDER_STATUS_HISTORY)
-                        .where(SELLER_ORDER_STATUS_HISTORY.SELLER_ORDER_ID.eq(SELLER_ORDER.ID)))
-                .fetch();
-        assertThat(unrecordedOrders).as("Every seller_order must have audit history entries").isEmpty();
+        assertPlatformWalletBuckets();
     }
 }

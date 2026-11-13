@@ -20,6 +20,7 @@ import com.pegasus.pegasustcgapi.model.promotion.Promotion.ScopeType;
 import com.pegasus.pegasustcgapi.model.promotion.Promotion.Visibility;
 import com.pegasus.pegasustcgapi.repository.promotion.PromotionRepository;
 import com.pegasus.pegasustcgapi.repository.promotion.PromotionRepository.NewPromotion;
+import com.pegasus.pegasustcgapi.repository.shipping.ShippingOptionRepository.OptionFields;
 import com.pegasus.pegasustcgapi.service.cart.CartService;
 import com.pegasus.pegasustcgapi.service.finance.commission.CommissionCalculator;
 import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService;
@@ -27,6 +28,7 @@ import com.pegasus.pegasustcgapi.service.order.CheckoutService;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import com.pegasus.pegasustcgapi.service.payment.PaymentService;
 import com.pegasus.pegasustcgapi.service.promotion.PromotionCalculator;
+import com.pegasus.pegasustcgapi.service.shipping.ShippingOptionService;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -39,7 +41,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * [QA-03-B] Currency Precision, Rounding, Discount Allocation &amp; Conservation Tests.
+ * [TCG-756] [QA-03-B] Currency Precision, Rounding, Discount Allocation &amp; Conservation Tests.
  */
 @DisplayName("[QA-03-B] Currency Precision & Financial Conservation")
 class FinancialPrecisionReconciliationTest extends PostgresIntegrationTest {
@@ -50,6 +52,7 @@ class FinancialPrecisionReconciliationTest extends PostgresIntegrationTest {
     @Autowired private OrderLifecycleService orders;
     @Autowired private PromotionRepository promotionRepo;
     @Autowired private WalletLedgerService walletLedgerService;
+    @Autowired private ShippingOptionService shipping;
 
     private ReconciliationOracle oracle() {
         return new ReconciliationOracle(dsl);
@@ -125,6 +128,7 @@ class FinancialPrecisionReconciliationTest extends PostgresIntegrationTest {
                 .as("Sum of persisted discount_allocated across all order items must equal exactly 50.00 THB")
                 .isEqualByComparingTo("50.00");
 
+        oracle.assertOrderIntegrity(salesOrderId);
         oracle.assertGlobalReferentialIntegrity();
     }
 
@@ -180,6 +184,7 @@ class FinancialPrecisionReconciliationTest extends PostgresIntegrationTest {
                 .where(WALLET.USER_ID.eq(seller.userId())).fetchSingle(WALLET.ID);
         oracle.assertWalletEquation(sellerWalletId);
         oracle.assertOrderFinancialConservation(order.orderId());
+        oracle.assertOrderIntegrity(order.orderId());
         oracle.assertGlobalReferentialIntegrity();
 
         // Direct ledger verification: COMMISSION_FEE + SELLER_EARNING == ESCROW_RELEASE
@@ -276,6 +281,131 @@ class FinancialPrecisionReconciliationTest extends PostgresIntegrationTest {
         assertThat(order.grandTotal().add(promoSubsidyLedger))
                 .isEqualByComparingTo(sellerEarningLedger.add(suborder.getCommissionAmount()));
 
+        oracle.assertOrderIntegrity(order.orderId());
+        oracle.assertGlobalReferentialIntegrity();
+    }
+
+    @Test
+    @DisplayName("Precision 4: Multi-Seller Split with Non-Zero Shipping & Platform Promo Reconciliation")
+    void multiSellerOrder_nonZeroShippingAndDiscountSplit_reconcilesAllParties() {
+        var oracle = oracle();
+        var seller1 = data.seller();
+        var seller2 = data.seller();
+        var buyer = data.buyer();
+        var game = data.game("Pokemon");
+        var card1 = data.card(game, "Pikachu " + data.tag(), "R");
+        var card2 = data.card(game, "Raichu " + data.tag(), "RR");
+
+        // Seller 1: listing @ 100.00 THB, shipping @ 40.00 THB
+        var opt1 = shipping.create(seller1.userId(), new OptionFields(
+                "Kerry S1", "KERRY", new BigDecimal("40.00"), BigDecimal.ZERO, null, (short) 1, (short) 3, true, (short) 0));
+        var l1 = data.onSale(seller1, card1, CardCondition.NM, 2, "100.00");
+
+        // Seller 2: listing @ 200.00 THB, shipping @ 50.00 THB
+        var opt2 = shipping.create(seller2.userId(), new OptionFields(
+                "Flash S2", "FLASH", new BigDecimal("50.00"), BigDecimal.ZERO, null, (short) 1, (short) 3, true, (short) 0));
+        var l2 = data.onSale(seller2, card2, CardCondition.NM, 2, "200.00");
+
+        // Platform voucher: 30.00 THB off total basket (min spend 100.00 THB)
+        String promoCode = "MULTI" + data.tag().toUpperCase();
+        if (promoCode.length() > 20) promoCode = promoCode.substring(0, 20);
+        promotionRepo.insert(new NewPromotion(
+                promoCode, "Multi Shop 30 Off", null,
+                OwnerType.PLATFORM, null,
+                DiscountType.FIXED, new BigDecimal("30.00"), null,
+                new BigDecimal("100.00"), ScopeType.ALL, List.of(),
+                Visibility.PUBLIC, false, 50, 1,
+                false, false, null, false, null,
+                OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(30), null));
+
+        cart.addItem(buyer, null, new CartItemRequest(l1.id(), 1));
+        cart.addItem(buyer, null, new CartItemRequest(l2.id(), 1));
+
+        var checkoutReq = new CheckoutRequest(
+                null,
+                Map.of(seller1.profileId(), opt1.id(), seller2.profileId(), opt2.id()),
+                null,
+                null,
+                promoCode,
+                null,
+                null);
+
+        var order = checkout.checkout(buyer, "multi-seller-" + data.tag(), null, checkoutReq);
+        long salesOrderId = order.orderId();
+
+        // Validate Sales Order totals:
+        // Items: 100.00 + 200.00 = 300.00
+        // Shipping: 40.00 + 50.00 = 90.00
+        // Platform Discount: 30.00
+        // Grand Total: 300.00 + 90.00 - 30.00 = 360.00 THB
+        var salesOrderRecord = dsl.selectFrom(SALES_ORDER).where(SALES_ORDER.ID.eq(salesOrderId)).fetchSingle();
+        assertThat(salesOrderRecord.getItemsSubtotal()).isEqualByComparingTo("300.00");
+        assertThat(salesOrderRecord.getShippingTotal()).isEqualByComparingTo("90.00");
+        assertThat(salesOrderRecord.getDiscountTotal()).isEqualByComparingTo("30.00");
+        assertThat(salesOrderRecord.getGrandTotal()).isEqualByComparingTo("360.00");
+
+        var sellerOrders = dsl.selectFrom(SELLER_ORDER)
+                .where(SELLER_ORDER.SALES_ORDER_ID.eq(salesOrderId))
+                .orderBy(SELLER_ORDER.ID)
+                .fetch();
+        assertThat(sellerOrders).hasSize(2);
+
+        var so1 = sellerOrders.stream().filter(so -> so.getSellerProfileId().equals(seller1.profileId())).findFirst().orElseThrow();
+        var so2 = sellerOrders.stream().filter(so -> so.getSellerProfileId().equals(seller2.profileId())).findFirst().orElseThrow();
+
+        // Discount split proportional to itemsSubtotal (100 vs 200 => 10.00 and 20.00)
+        assertThat(so1.getItemsSubtotal()).isEqualByComparingTo("100.00");
+        assertThat(so1.getShippingFee()).isEqualByComparingTo("40.00");
+        assertThat(so1.getPlatformDiscountAmount()).isEqualByComparingTo("10.00");
+        assertThat(so1.getGrandTotal()).isEqualByComparingTo("130.00"); // 100 + 40 - 10
+
+        assertThat(so2.getItemsSubtotal()).isEqualByComparingTo("200.00");
+        assertThat(so2.getShippingFee()).isEqualByComparingTo("50.00");
+        assertThat(so2.getPlatformDiscountAmount()).isEqualByComparingTo("20.00");
+        assertThat(so2.getGrandTotal()).isEqualByComparingTo("230.00"); // 200 + 50 - 20
+
+        // Suborder sum matches sales order grand total exactly
+        assertThat(so1.getGrandTotal().add(so2.getGrandTotal())).isEqualByComparingTo(salesOrderRecord.getGrandTotal());
+
+        // Pay for the entire sales order
+        payments.payMock(buyer, salesOrderId);
+
+        // Escrow holds created separately per seller order
+        var hold1 = dsl.selectFrom(ESCROW_HOLD).where(ESCROW_HOLD.SELLER_ORDER_ID.eq(so1.getId())).fetchSingle();
+        var hold2 = dsl.selectFrom(ESCROW_HOLD).where(ESCROW_HOLD.SELLER_ORDER_ID.eq(so2.getId())).fetchSingle();
+        assertThat(hold1.getAmount()).isEqualByComparingTo("130.00");
+        assertThat(hold1.getStatus()).isEqualTo("HELD");
+        assertThat(hold2.getAmount()).isEqualByComparingTo("230.00");
+        assertThat(hold2.getStatus()).isEqualTo("HELD");
+
+        // Both sellers ship their packages
+        orders.shipSellerOrder(seller1.principal(), so1.getId(),
+                new ShipOrderRequest("Kerry", "KR-" + data.tag(), "KERRY", null, null));
+        orders.shipSellerOrder(seller2.principal(), so2.getId(),
+                new ShipOrderRequest("Flash", "FL-" + data.tag(), "FLASH", null, null));
+
+        // Buyer confirms receipt of the entire order
+        orders.confirmBuyerOrderReceived(buyer, salesOrderId);
+
+        // Assert escrow releases
+        oracle.assertEscrowReconciliation(so1.getId());
+        oracle.assertEscrowReconciliation(so2.getId());
+
+        // Check wallet balances and integrity
+        long seller1WalletId = dsl.select(WALLET.ID).from(WALLET)
+                .where(WALLET.USER_ID.eq(seller1.userId())).fetchSingle(WALLET.ID);
+        long seller2WalletId = dsl.select(WALLET.ID).from(WALLET)
+                .where(WALLET.USER_ID.eq(seller2.userId())).fetchSingle(WALLET.ID);
+        long platformWalletId = walletLedgerService.platformWalletId();
+
+        oracle.assertWalletEquation(seller1WalletId);
+        oracle.assertWalletEquation(seller2WalletId);
+        oracle.assertWalletEquation(platformWalletId);
+        oracle.assertPlatformWalletBuckets();
+
+        // Full financial conservation across all parties
+        oracle.assertOrderFinancialConservation(salesOrderId);
+        oracle.assertOrderIntegrity(salesOrderId);
         oracle.assertGlobalReferentialIntegrity();
     }
 }

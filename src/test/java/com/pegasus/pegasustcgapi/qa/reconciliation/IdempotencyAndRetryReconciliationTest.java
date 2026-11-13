@@ -32,7 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * [QA-03-B] Idempotency, Retry, Duplicate &amp; Timeout Recovery Tests.
+ * [TCG-756] [QA-03-B] Idempotency, Retry, Duplicate &amp; Timeout Recovery Tests.
  */
 @DisplayName("[QA-03-B] Idempotency, Duplicate Call & Recovery Invariants")
 class IdempotencyAndRetryReconciliationTest extends PostgresIntegrationTest {
@@ -87,6 +87,7 @@ class IdempotencyAndRetryReconciliationTest extends PostgresIntegrationTest {
         assertThat(listingRecord.getQuantityReserved()).isEqualTo(2);
         assertThat(listingRecord.getQuantityAvailable()).isEqualTo(3);
 
+        oracle.assertOrderIntegrity(response1.orderId());
         oracle.assertGlobalReferentialIntegrity();
     }
 
@@ -129,6 +130,7 @@ class IdempotencyAndRetryReconciliationTest extends PostgresIntegrationTest {
         assertThat(escrowHoldCount).isEqualTo(2); // 1 DEBIT from available, 1 CREDIT to pending
 
         oracle.assertWalletEquation(walletLedgerService.platformWalletId());
+        oracle.assertOrderIntegrity(order.orderId());
         oracle.assertGlobalReferentialIntegrity();
     }
 
@@ -179,6 +181,7 @@ class IdempotencyAndRetryReconciliationTest extends PostgresIntegrationTest {
                 .where(WALLET.USER_ID.eq(seller.userId())).fetchSingle(WALLET.ID);
         oracle.assertWalletEquation(sellerWalletId);
         oracle.assertWalletEquation(walletLedgerService.platformWalletId());
+        oracle.assertOrderIntegrity(order.orderId());
         oracle.assertGlobalReferentialIntegrity();
     }
 
@@ -217,7 +220,50 @@ class IdempotencyAndRetryReconciliationTest extends PostgresIntegrationTest {
         assertThat(listing2.getQuantityReserved()).isEqualTo(0);
         assertThat(listing2.getQuantityTotal()).isEqualTo(3);
 
+        oracle.assertEscrowAbsent(order.sellerOrders().getFirst().id());
         oracle.assertListingStockInvariant(listing.id(), initialStock);
+        oracle.assertOrderIntegrity(order.orderId());
+        oracle.assertGlobalReferentialIntegrity();
+    }
+
+    @Test
+    @DisplayName("Idempotency 5: Checkout Retry After Simulated Client Timeout — Clean Replay & Zero Stock Leak")
+    void checkoutRetryAfterSimulatedTimeout_replaysCleanlyAndConservesStock() {
+        var oracle = oracle();
+        var seller = data.seller();
+        var buyer = data.buyer();
+        var card = data.card(data.game("Pokemon"), "Raikou " + data.tag(), "AR");
+
+        int initialStock = 6;
+        var listing = data.onSale(seller, card, CardCondition.NM, initialStock, "250.00");
+        String idempotencyKey = "sim-retry-" + data.tag();
+
+        cart.addItem(buyer, null, new CartItemRequest(listing.id(), 2));
+
+        // First checkout call completes on server, but client simulates dropped connection / read timeout
+        var response1 = checkout.checkout(buyer, idempotencyKey, null, null);
+        assertThat(response1.replayed()).isFalse();
+
+        // Client retries identical checkout request with same idempotency key
+        var response2 = checkout.checkout(buyer, idempotencyKey, null, null);
+        assertThat(response2.replayed()).isTrue();
+        assertThat(response2.orderId()).isEqualTo(response1.orderId());
+        assertThat(response2.grandTotal()).isEqualByComparingTo(response1.grandTotal());
+
+        // Invariant: Exactly 1 sales_order, exactly 1 seller_order
+        int salesOrderCount = dsl.fetchCount(SALES_ORDER, SALES_ORDER.IDEMPOTENCY_KEY.eq(idempotencyKey));
+        assertThat(salesOrderCount).isEqualTo(1);
+        int sellerOrderCount = dsl.fetchCount(SELLER_ORDER, SELLER_ORDER.SALES_ORDER_ID.eq(response1.orderId()));
+        assertThat(sellerOrderCount).isEqualTo(1);
+
+        // Stock invariant: 2 reserved, 4 available, 0 sold, initial 6
+        oracle.assertListingStockInvariant(listing.id(), initialStock);
+        var listingRecord = dsl.selectFrom(LISTING).where(LISTING.ID.eq(listing.id())).fetchSingle();
+        assertThat(listingRecord.getQuantityReserved()).isEqualTo(2);
+        assertThat(listingRecord.getQuantityAvailable()).isEqualTo(4);
+        assertThat(listingRecord.getQuantityTotal()).isEqualTo(6);
+
+        oracle.assertOrderIntegrity(response1.orderId());
         oracle.assertGlobalReferentialIntegrity();
     }
 }

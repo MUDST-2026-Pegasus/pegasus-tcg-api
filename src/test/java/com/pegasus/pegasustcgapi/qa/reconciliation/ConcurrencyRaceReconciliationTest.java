@@ -5,11 +5,13 @@ import static com.pegasus.pegasustcgapi.jooq.tables.LedgerEntry.LEDGER_ENTRY;
 import static com.pegasus.pegasustcgapi.jooq.tables.Listing.LISTING;
 import static com.pegasus.pegasustcgapi.jooq.tables.ListingUnit.LISTING_UNIT;
 import static com.pegasus.pegasustcgapi.jooq.tables.Payout.PAYOUT;
+import static com.pegasus.pegasustcgapi.jooq.tables.Refund.REFUND;
 import static com.pegasus.pegasustcgapi.jooq.tables.SalesOrder.SALES_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerVerification.SELLER_VERIFICATION;
 import static com.pegasus.pegasustcgapi.jooq.tables.Wallet.WALLET;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.pegasus.pegasustcgapi.dto.cart.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.order.CancelOrderRequest;
@@ -23,8 +25,6 @@ import com.pegasus.pegasustcgapi.security.AuthPrincipal;
 import com.pegasus.pegasustcgapi.service.cart.CartService;
 import com.pegasus.pegasustcgapi.service.finance.payout.PayoutService;
 import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService;
-import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService.Bucket;
-import com.pegasus.pegasustcgapi.service.finance.wallet.WalletLedgerService.Direction;
 import com.pegasus.pegasustcgapi.service.order.CheckoutService;
 import com.pegasus.pegasustcgapi.service.order.OrderLifecycleService;
 import com.pegasus.pegasustcgapi.service.payment.PaymentService;
@@ -40,13 +40,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * [QA-03-B] Targeted Concurrency &amp; Race Condition Reconciliation Tests.
+ * [TCG-756 / QA-03-B] Targeted Concurrency &amp; Race Condition Reconciliation Tests.
  */
 @DisplayName("[QA-03-B] Concurrency & Race Condition Invariants")
 class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
@@ -85,6 +86,7 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
 
         AtomicInteger successes = new AtomicInteger();
         Queue<ErrorCode> errors = new ConcurrentLinkedQueue<>();
+        Queue<Long> createdOrderIds = new ConcurrentLinkedQueue<>();
         ExecutorService pool = Executors.newFixedThreadPool(buyerCount);
         try {
             CountDownLatch ready = new CountDownLatch(buyerCount);
@@ -98,8 +100,9 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
                     ready.countDown();
                     try {
                         if (start.await(30, TimeUnit.SECONDS)) {
-                            checkout.checkout(buyer, key, null, null);
+                            CheckoutResponse resp = checkout.checkout(buyer, key, null, null);
                             successes.incrementAndGet();
+                            createdOrderIds.add(resp.orderId());
                         }
                     } catch (ConflictException e) {
                         errors.add(e.errorCode());
@@ -142,6 +145,9 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
         assertThat(reservedCount).isEqualTo(2);
 
         oracle.assertListingStockInvariant(listing.id(), initialStock);
+        for (Long oid : createdOrderIds) {
+            oracle.assertOrderIntegrity(oid);
+        }
         oracle.assertGlobalReferentialIntegrity();
     }
 
@@ -157,9 +163,13 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
         cart.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
         var order = checkout.checkout(buyer, "collide-" + data.tag(), null, null);
         long salesOrderId = order.orderId();
+        long sellerOrderId = order.sellerOrders().getFirst().id();
 
         AtomicInteger cancelSuccesses = new AtomicInteger();
         AtomicInteger paySuccesses = new AtomicInteger();
+        AtomicReference<Throwable> cancelError = new AtomicReference<>();
+        AtomicReference<Throwable> payError = new AtomicReference<>();
+
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             CountDownLatch ready = new CountDownLatch(2);
@@ -172,7 +182,8 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
                         orders.cancelBuyerOrder(buyer, salesOrderId, new CancelOrderRequest("Fast cancel"));
                         cancelSuccesses.incrementAndGet();
                     }
-                } catch (Exception ignored) {
+                } catch (Throwable t) {
+                    cancelError.set(t);
                 }
                 return null;
             });
@@ -184,7 +195,8 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
                         payments.payMock(buyer, salesOrderId);
                         paySuccesses.incrementAndGet();
                     }
-                } catch (Exception ignored) {
+                } catch (Throwable t) {
+                    payError.set(t);
                 }
                 return null;
             });
@@ -200,11 +212,25 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
             pool.awaitTermination(5, TimeUnit.SECONDS);
         }
 
-        // In the collision race between cancel and pay:
-        // Case A: cancel commits first -> order CANCELLED, stock released. Pay then fails.
-        // Case B: pay commits first -> order PAID. Since PAID is in CANCELLABLE_STATUSES,
-        // cancel can legitimately succeed on the paid order, transitioning it to CANCELLED and queueing a refund.
-        // In both cases, at least one transition succeeds and the system terminates in a valid, reconciled state.
+        // Assert no unexpected runtime errors or deadlocks
+        if (cancelError.get() != null) {
+            assertThat(cancelError.get()).isInstanceOf(ConflictException.class);
+            ConflictException ce = (ConflictException) cancelError.get();
+            assertThat(ce.errorCode()).isIn(
+                    ErrorCode.PAYMENT_STATE,
+                    ErrorCode.ORDER_STATUS_TRANSITION,
+                    ErrorCode.PAYMENT_UNDER_REVIEW);
+        }
+
+        if (payError.get() != null) {
+            assertThat(payError.get()).isInstanceOf(ConflictException.class);
+            ConflictException ce = (ConflictException) payError.get();
+            assertThat(ce.errorCode()).isIn(
+                    ErrorCode.PAYMENT_STATE,
+                    ErrorCode.ORDER_STATUS_TRANSITION,
+                    ErrorCode.PAYMENT_UNDER_REVIEW);
+        }
+
         assertThat(cancelSuccesses.get() + paySuccesses.get())
                 .as("At least one transition must succeed in collision race")
                 .isGreaterThanOrEqualTo(1);
@@ -217,11 +243,119 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
             var l = dsl.selectFrom(LISTING).where(LISTING.ID.eq(listing.id())).fetchSingle();
             assertThat(l.getQuantityAvailable()).isEqualTo(1);
             assertThat(l.getQuantityReserved()).isZero();
+
+            // If pay succeeded first and then cancel succeeded: refundOnCancel was executed
+            if (paySuccesses.get() > 0) {
+                var hold = dsl.selectFrom(ESCROW_HOLD).where(ESCROW_HOLD.SELLER_ORDER_ID.eq(sellerOrderId)).fetchSingle();
+                assertThat(hold.getStatus()).isEqualTo("CANCELLED");
+                assertThat(hold.getRefundedAmount()).isEqualByComparingTo("500.00");
+
+                var refund = dsl.selectFrom(REFUND).where(REFUND.SELLER_ORDER_ID.eq(sellerOrderId)).fetchSingle();
+                assertThat(refund.getStatus()).isEqualTo("PROCESSED");
+
+                int refundLedgers = dsl.fetchCount(LEDGER_ENTRY,
+                        LEDGER_ENTRY.REFERENCE_TYPE.eq("REFUND")
+                                .and(LEDGER_ENTRY.REFERENCE_ID.eq(refund.getId()))
+                                .and(LEDGER_ENTRY.ENTRY_TYPE.eq("REFUND_OUT")));
+                assertThat(refundLedgers).isEqualTo(1);
+            } else {
+                oracle.assertEscrowAbsent(sellerOrderId);
+            }
         } else {
-            oracle.assertEscrowReconciliation(order.sellerOrders().getFirst().id());
+            oracle.assertEscrowReconciliation(sellerOrderId);
             oracle.assertWalletEquation(walletLedgerService.platformWalletId());
         }
 
+        oracle.assertOrderIntegrity(salesOrderId);
+        oracle.assertGlobalReferentialIntegrity();
+    }
+
+    @Test
+    @DisplayName("Interleaving A: Cancel Before Pay — Pay Rejected, No Escrow Created, Stock Restored")
+    void cancelBeforePay_DeterministicInterleaving() {
+        var oracle = oracle();
+        var seller = data.seller();
+        var buyer = data.buyer();
+        var card = data.card(data.game("Pokemon"), "DeterministicA " + data.tag(), "R");
+
+        var listing = data.onSale(seller, card, CardCondition.NM, 1, "400.00");
+        cart.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
+        var order = checkout.checkout(buyer, "det-a-" + data.tag(), null, null);
+        long salesOrderId = order.orderId();
+        long sellerOrderId = order.sellerOrders().getFirst().id();
+
+        // 1. Cancel completes first
+        orders.cancelBuyerOrder(buyer, salesOrderId, new CancelOrderRequest("Fast buyer cancel"));
+
+        var salesOrderAfterCancel = dsl.selectFrom(SALES_ORDER).where(SALES_ORDER.ID.eq(salesOrderId)).fetchSingle();
+        assertThat(salesOrderAfterCancel.getStatus()).isEqualTo("CANCELLED");
+
+        // 2. Pay attempts after cancellation -> must be cleanly rejected with ConflictException
+        assertThatThrownBy(() -> payments.payMock(buyer, salesOrderId))
+                .isInstanceOf(ConflictException.class);
+
+        // 3. Invariants: No escrow created, stock restored, zero ledger entries
+        oracle.assertEscrowAbsent(sellerOrderId);
+        oracle.assertListingStockInvariant(listing.id(), 1);
+        var l = dsl.selectFrom(LISTING).where(LISTING.ID.eq(listing.id())).fetchSingle();
+        assertThat(l.getQuantityAvailable()).isEqualTo(1);
+        assertThat(l.getQuantityReserved()).isZero();
+
+        oracle.assertOrderIntegrity(salesOrderId);
+        oracle.assertGlobalReferentialIntegrity();
+    }
+
+    @Test
+    @DisplayName("Interleaving B: Pay Before Cancel — Auto-Refund Executed, Escrow Released, Stock Restored")
+    void payBeforeCancel_DeterministicInterleaving() {
+        var oracle = oracle();
+        var seller = data.seller();
+        var buyer = data.buyer();
+        var card = data.card(data.game("Pokemon"), "DeterministicB " + data.tag(), "R");
+
+        var listing = data.onSale(seller, card, CardCondition.NM, 1, "400.00");
+        cart.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
+        var order = checkout.checkout(buyer, "det-b-" + data.tag(), null, null);
+        long salesOrderId = order.orderId();
+        long sellerOrderId = order.sellerOrders().getFirst().id();
+
+        // 1. Pay completes first -> order is PAID, escrow hold created
+        payments.payMock(buyer, salesOrderId);
+
+        var soAfterPay = dsl.selectFrom(SALES_ORDER).where(SALES_ORDER.ID.eq(salesOrderId)).fetchSingle();
+        assertThat(soAfterPay.getStatus()).isEqualTo("PAID");
+        oracle.assertEscrowReconciliation(sellerOrderId);
+
+        // 2. Buyer cancels after payment (permitted before shipping)
+        orders.cancelBuyerOrder(buyer, salesOrderId, new CancelOrderRequest("Cancel after pay"));
+
+        var soAfterCancel = dsl.selectFrom(SALES_ORDER).where(SALES_ORDER.ID.eq(salesOrderId)).fetchSingle();
+        assertThat(soAfterCancel.getStatus()).isEqualTo("CANCELLED");
+
+        // 3. Assert refundOnCancel executed: refund created and processed
+        var refund = dsl.selectFrom(REFUND).where(REFUND.SELLER_ORDER_ID.eq(sellerOrderId)).fetchSingle();
+        assertThat(refund.getStatus()).isEqualTo("PROCESSED");
+        assertThat(refund.getAmount()).isEqualByComparingTo("400.00");
+
+        // Escrow hold transitioned to CANCELLED, refunded_amount == amount
+        var hold = dsl.selectFrom(ESCROW_HOLD).where(ESCROW_HOLD.SELLER_ORDER_ID.eq(sellerOrderId)).fetchSingle();
+        assertThat(hold.getStatus()).isEqualTo("CANCELLED");
+        assertThat(hold.getRefundedAmount()).isEqualByComparingTo("400.00");
+
+        // Ledger: exactly 1 REFUND_OUT entry exists
+        int refundOutCount = dsl.fetchCount(LEDGER_ENTRY,
+                LEDGER_ENTRY.REFERENCE_TYPE.eq("REFUND")
+                        .and(LEDGER_ENTRY.REFERENCE_ID.eq(refund.getId()))
+                        .and(LEDGER_ENTRY.ENTRY_TYPE.eq("REFUND_OUT")));
+        assertThat(refundOutCount).isEqualTo(1);
+
+        // Stock restored to available
+        oracle.assertListingStockInvariant(listing.id(), 1);
+        var l = dsl.selectFrom(LISTING).where(LISTING.ID.eq(listing.id())).fetchSingle();
+        assertThat(l.getQuantityAvailable()).isEqualTo(1);
+        assertThat(l.getQuantityReserved()).isZero();
+
+        oracle.assertOrderIntegrity(salesOrderId);
         oracle.assertGlobalReferentialIntegrity();
     }
 
@@ -308,7 +442,7 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
         int payoutRows = dsl.fetchCount(PAYOUT, PAYOUT.SELLER_PROFILE_ID.eq(seller.profileId()));
         assertThat(payoutRows).isEqualTo(1);
 
-        oracle.assertWalletEquation(sellerWalletId);
+        oracle.assertWalletIntegrity(sellerWalletId);
         oracle.assertGlobalReferentialIntegrity();
     }
 }
