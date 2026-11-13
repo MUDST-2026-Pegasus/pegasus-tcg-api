@@ -20,14 +20,18 @@ public class SearchLogRepository {
                 + "VALUES (?, ?, ?, ?, CAST(? AS timestamptz))", qNorm, resultCount, correctedTo, sessionHash, at);
     }
 
-    /** Searches that found something, made from at least {@code minSessions} different sessions since {@code since}. */
+    /**
+     * Searches that found something, made from at least {@code minSessions} different sessions since
+     * {@code since}. Ranked by how many sessions searched it, so one session repeating a search (or paging
+     * a results list) cannot push a term up.
+     */
     public List<String> trending(OffsetDateTime since, int minSessions, int limit) {
         return dsl.fetch("""
                 SELECT q_norm FROM search_query_log
                 WHERE created_at >= CAST(? AS timestamptz) AND result_count > 0
                 GROUP BY q_norm
                 HAVING count(DISTINCT session_hash) >= ?
-                ORDER BY count(*) DESC, count(DISTINCT session_hash) DESC, q_norm
+                ORDER BY count(DISTINCT session_hash) DESC, count(*) DESC, q_norm
                 LIMIT ?
                 """, since, minSessions, limit).map(r -> r.get(0, String.class));
     }

@@ -271,7 +271,11 @@ public class CatalogProductRepository {
      */
     private Condition nameMatches(String text, boolean fuzzy) {
         String normalized = SearchText.normalize(text);
-        Condition match = containsAny(normalized);
+        // Public search (fuzzy) on one or two characters: only where a word starts, so "ab" does not
+        // find "Diabellstar" while "ex" still finds "Charizard ex" (TCG-779). Admin search keeps substrings.
+        Condition match = fuzzy && normalized.codePointCount(0, normalized.length()) < 3
+                ? startsAnyWord(normalized)
+                : containsAny(normalized);
         if (fuzzy && SearchText.fuzzyEligible(normalized)) {
             // shortcut: word_similarity() as a function cannot use the trigram index; switch to the <% operator
             // with a per-session threshold if the catalogue outgrows a sequential scan.
@@ -376,6 +380,15 @@ public class CatalogProductRepository {
 
     private static Field<String> norm(Field<String> field) {
         return DSL.field("f_search_norm({0})", String.class, field);
+    }
+
+    private static Condition startsAnyWord(String normalized) {
+        Field<String> pattern = DSL.val("(^|[^[:alnum:]])" + normalized.replaceAll("[\\\\.^$|?*+()\\[\\]{}]", "\\\\$0"));
+        Condition match = DSL.falseCondition();
+        for (Field<String> field : searchFields()) {
+            match = match.or(DSL.condition("f_search_norm({0}) ~ {1}", field, pattern));
+        }
+        return match;
     }
 
     private static Condition containsAny(String normalized) {

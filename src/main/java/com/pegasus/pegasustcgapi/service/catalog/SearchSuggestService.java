@@ -3,8 +3,6 @@ package com.pegasus.pegasustcgapi.service.catalog;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.config.AuthProperties;
 import com.pegasus.pegasustcgapi.dto.catalog.ProductSummaryResponse;
-import com.pegasus.pegasustcgapi.dto.catalog.SearchFacetsResponse;
-import com.pegasus.pegasustcgapi.dto.catalog.SearchShopResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.SearchSuggestResponse;
 import com.pegasus.pegasustcgapi.dto.catalog.TrendingProductResponse;
 import com.pegasus.pegasustcgapi.exception.ApiException;
@@ -72,9 +70,11 @@ public class SearchSuggestService {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, "q must be at most " + MAX_QUERY_LENGTH + " characters");
         }
         Set<Short> gameIds = gameId == null ? Set.of() : Set.of(gameId);
-        PageResponse<ProductSummaryResponse> page = search.search(browse(gameIds, q.trim(), true, 4));
+        // One resolution (alias / typo / keyboard layout) for everything below, and only the counts
+        // the dropdown shows: no condition counts, totals or shop previews (TCG-779 latency).
+        CatalogSearchService.SuggestData data = search.suggestData(browse(gameIds, q.trim(), false, 4), 4, 2);
+        PageResponse<ProductSummaryResponse> page = data.page();
         String effective = page.correctedQuery() == null ? q.trim() : page.correctedQuery();
-        ProductBrowse matched = browse(gameIds, effective, true, 2);
 
         Map<Short, String> gameNames = games.list(true).stream().collect(Collectors.toMap(Game::id, Game::name));
         Map<Integer, String> setNames = logs.cardSetNames(page.items().stream()
@@ -85,22 +85,22 @@ public class SearchSuggestService {
                         gameNames.get(p.gameId()), p.primaryImageUrl(), p.lowestPrice(), p.sellerCount()))
                 .toList();
 
-        SearchFacetsResponse facets = search.facets(matched);
         List<SearchSuggestResponse.Scope> scopes = new ArrayList<>();
         if (gameId == null) {
-            facets.games().forEach(g -> scopes.add(new SearchSuggestResponse.Scope("GAME", g.id(), g.name(), g.count())));
+            data.games().forEach(g -> scopes.add(new SearchSuggestResponse.Scope("GAME", g.id(), g.name(), g.count())));
         }
-        facets.categories().forEach(c -> scopes.add(new SearchSuggestResponse.Scope("CATEGORY", c.id(), c.name(),
+        data.categories().forEach(c -> scopes.add(new SearchSuggestResponse.Scope("CATEGORY", c.id(), c.name(),
                 c.count())));
 
-        List<SearchSuggestResponse.Shop> shops = search.shops(matched, null, null).items().stream()
-                .map((SearchShopResponse s) -> new SearchSuggestResponse.Shop(s.username(), s.displayName(),
-                        s.avatarUrl(), s.ratingAvg(), s.ratingCount(), s.matchCount()))
+        List<SearchSuggestResponse.Shop> shops = data.shops().stream()
+                .map(s -> new SearchSuggestResponse.Shop(s.username(), s.displayName(),
+                        search.signedAvatar(s.avatarKey()), s.ratingAvg(), s.ratingCount(), s.matchCount()))
                 .toList();
 
+        // totalProducts is what "view all" opens, so it counts like the results page (sold-out included).
         return new SearchSuggestResponse(q, page.correctedQuery(), page.correctionReason(),
                 logs.completions(SearchText.normalize(effective), gameId, fuzzyThreshold, 5),
-                scopes.stream().limit(3).toList(), products, shops, page.totalItems());
+                scopes.stream().limit(3).toList(), products, shops, data.totalProducts());
     }
 
     /** Top searches of the last week; when too few people searched, the best-selling product names instead. */

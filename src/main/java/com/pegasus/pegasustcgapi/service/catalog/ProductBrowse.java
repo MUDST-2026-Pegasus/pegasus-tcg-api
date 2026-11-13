@@ -78,4 +78,15 @@ public record ProductBrowse(
         return new ProductBrowse(Set.of(), null, null, null, null, Map.of(), null,
                 true, false, Set.of(), null, null, page, size);
     }
+
+    public ProductBrowse withPage(int page, int size) {
+        return new ProductBrowse(gameIds, categoryId, cardSetId, productType, nameQuery, rawParameters, sort,
+                activeOnly, inStockOnly, conditions, minPrice, maxPrice, page, size, saleStatus, onSale);
+    }
+
+    /** The same browse, only products someone is selling now. */
+    public ProductBrowse inStock() {
+        return new ProductBrowse(gameIds, categoryId, cardSetId, productType, nameQuery, rawParameters, sort,
+                activeOnly, true, conditions, minPrice, maxPrice, page, size, saleStatus, onSale);
+    }
 }
