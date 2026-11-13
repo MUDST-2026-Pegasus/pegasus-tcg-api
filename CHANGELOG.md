@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.1.0](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/compare/v1.0.0...v1.1.0) (2026-11-13)
+
+
+### Features
+
+* **TCG-772:** tolerant search v2 ([6e0c797](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/6e0c7978f2289df0ad0d25984103593dcda40273))
+* **TCG-772:** tolerant search v2 — accents, Thai tone marks, per-word typos, keyboard layout ([1866540](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/1866540c439ee74b32bdf334fc862dcb625a415a))
+* **TCG-773:** Thai search aliases + admin API ([0930155](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/09301557408bebc5d75770f60f8e8fc4d80db693))
+* **TCG-773:** Thai search aliases + admin API ([4bd555b](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/4bd555b48b5e4687af38fc5274bacad7a565b792))
+* **TCG-774:** search suggest + trending searches + search log ([b45cd65](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/b45cd65d86a779cefe42046a16f7a4d7e532bf7f))
+* **TCG-774:** search suggest, trending searches and anonymous search log ([3e9ec15](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/3e9ec1548d0db71a370a95f05d8f48d0223b9015))
+* **TCG-775:** search page data — facets, shops, onSale, tile spread ([5173eab](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/5173eab65b884f7f1d3490d2df652ef92da452cb))
+* **TCG-775:** search page data — tile spread, onSale filter, facets, shop search ([e3975f0](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/e3975f0f65c4f62a459d8a8bc493bab1c03f1573))
+
+
+### Bug Fixes
+
+* **cart:** show the seller's photo on cart lines, not only the catalo… ([439610e](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/439610ee32090b4be8753dfec8173e281ba0e7db))
+* **cart:** show the seller's photo on cart lines, not only the catalog art ([cc22a66](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/cc22a66a38f91266f0f5ef2696a4057ce47c0e5b))
+* correct role-specific order summary PDFs ([0aa500c](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/0aa500c75eb6b3532b9ade8d45ba3252892f6301))
+* drop orphaned Javadoc block in UserRepository (CodeQL [#207](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/issues/207)) ([18e27c2](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/18e27c25551b2081958b9909fcf0c45b7d32db01))
+* drop orphaned Javadoc in UserRepository ([077f332](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/077f332a8fcd6ac4d5f601b406cf3f26d4971ffb))
+* **TCG-701:** correct order summary PDF details ([8aca3cd](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/8aca3cdea22ae7c036df73d6fc215f27c378bd62))
+* **TCG-763:** redact CI credentials from test reports ([eeab1a4](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/eeab1a462ea014e21f3a236a296bbfb6675bcd9e))
+* **TCG-763:** redact CI credentials from test reports ([953abd9](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/953abd9c1174a3742939d2555bb6fd25d6b6382c))
+* **TCG-769:** say which slot each promo-preview code was typed in ([6acbed2](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/6acbed269035bdf677ecb3825e3048a52570f1cf))
+* **TCG-769:** say which slot each promo-preview code was typed in ([f2d66d6](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/f2d66d64e08885940d933836a06b24a57033baa2))
+* **TCG-773:** keep the onSale filter when an alias narrows the search ([8b4226b](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/8b4226b95146ccbbbad6e3ce4853b4ac6d39d32b))
+* **TCG-779:** facets, shop tab and suggest follow the corrected search ([8cd6271](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/8cd6271664eb3fd33aba1431c43ef5c8bb6333b0))
+* **TCG-779:** one or two letters match the start of a word only ([2562ea7](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/2562ea7b96b1025a577fca7b5e3cc2dee3dc8602))
+* **TCG-779:** rank trending searches by sessions, not rows ([b9b596e](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/b9b596e41f8d0a7218d67383f9b2678faf2c1324))
+* **TCG-779:** search QA — facets/shops follow corrections, card numbers, short queries, suggest latency ([8a2b42a](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/8a2b42a714f977d2dda0e9b4b71256f7952db456))
+
 ## 1.0.0 (2026-11-10)
 
 
