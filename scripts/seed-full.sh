@@ -64,12 +64,33 @@ for container in "$pg" "$minio"; do
 done
 
 if [ "$skip_images" = 0 ]; then
-    echo "==> Uploading pictures to MinIO (the first run downloads about 60 MB)"
+    echo "==> Uploading pictures to MinIO (the first run downloads about 200 MB)"
     docker exec "$minio" sh /tmp/pegasus-full-seed/upload-images.sh "$bucket"
 fi
 
 echo "==> Loading the data (one transaction; nothing changes if any check fails)"
 docker exec "$pg" sh /tmp/pegasus-full-seed/run-seed.sh "$db" "$user" "$base" "$reset"
+
+if [ "$skip_images" = 0 ]; then
+    # The shops' photos, close-ups of the scans and SAMPLE slips/receipts are drawn from the data
+    # in a throwaway python container (render/). Pictures already in MinIO are skipped.
+    echo "==> Drawing shop photos, close-ups and SAMPLE documents (the first run takes several minutes)"
+    render="pegasus-seed-render"
+    network="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$minio")"
+    docker rm -f "$render" >/dev/null 2>&1 || true
+    docker create --name "$render" -i --network "$network" \
+        -e MINIO_URL="$minio:9000" -e BUCKET="$bucket" \
+        -e MINIO_USER="$(docker exec "$minio" printenv MINIO_ROOT_USER)" \
+        -e MINIO_PASSWORD="$(docker exec "$minio" printenv MINIO_ROOT_PASSWORD)" \
+        "${RENDER_IMAGE:-python:3.12-slim-bookworm}" sh /render/run.sh >/dev/null
+    docker cp "$seed_src/render" "$render:/render" >/dev/null
+    if ! docker exec "$pg" psql -U "$user" -d "$db" -q -f /tmp/pegasus-full-seed/render-manifest.sql \
+            | docker start -ai "$render"; then
+        docker rm -f "$render" >/dev/null 2>&1 || true
+        die "drawing the pictures failed (see above). The data is loaded; fix the problem and run again with --reset"
+    fi
+    docker rm -f "$render" >/dev/null 2>&1 || true
+fi
 
 echo "==> Checking that every picture the data points at is in MinIO"
 keys="$(docker exec "$pg" psql -U "$user" -d "$db" -At -v minio_base="$base" -f /tmp/pegasus-full-seed/image-keys.sql)"
