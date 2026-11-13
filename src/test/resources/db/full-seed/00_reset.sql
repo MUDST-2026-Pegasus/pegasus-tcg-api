@@ -23,5 +23,6 @@ TRUNCATE TABLE
     catalog_card_effect, catalog_image, catalog_variant, catalog_product,
     card_set, catalog_category, game_attribute, game,
     seller_payout_account, seller_verification, seller_shipping_option, seller_profile,
-    address, auth_token, user_role, wallet, platform_setting, home_banner, user_account
+    address, auth_token, user_role, wallet, platform_setting, home_banner, audit_log, search_query_log,
+    user_account
     RESTART IDENTITY CASCADE;

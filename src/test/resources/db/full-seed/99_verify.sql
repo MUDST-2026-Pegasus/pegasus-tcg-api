@@ -98,7 +98,7 @@ BEGIN
                           AND psl.sold_count = psl.quota);
     IF bad > 0 THEN RAISE EXCEPTION 'verify: % MTG listing(s) left on Midnight Flash', bad; END IF;
     SELECT count(*) INTO n FROM price_sale;
-    IF n <> 8 THEN RAISE EXCEPTION 'verify: expected 8 price sales, found %', n; END IF;
+    IF n <> 13 THEN RAISE EXCEPTION 'verify: expected 13 price sales (8 + 5 in 10b), found %', n; END IF;
 
     -- Every auction status used by the demo UI and each penalty step must exist.
     SELECT count(DISTINCT status) INTO n FROM auction
@@ -123,6 +123,85 @@ BEGIN
     SELECT count(*) INTO n FROM bidding_ban
      WHERE lifted_at IS NULL AND banned_until > now();
     IF n < 1 THEN RAISE EXCEPTION 'verify: no active auction bidding ban'; END IF;
+
+    -- 11. Every page has something on it.
+    -- Product pages: an offer on sale right now and at least three pictures.
+    SELECT count(*) INTO bad FROM catalog_product p
+     WHERE p.is_active AND NOT EXISTS (
+           SELECT 1 FROM listing l JOIN catalog_variant cv ON cv.id = l.catalog_variant_id
+             JOIN seller_profile sp ON sp.id = l.seller_profile_id
+            WHERE cv.catalog_product_id = p.id AND l.status = 'ACTIVE' AND l.quantity_available > 0
+              AND sp.status = 'VERIFIED' AND NOT sp.vacation_mode);
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: % product page(s) have no offer on sale', bad; END IF;
+    SELECT count(*) INTO bad FROM catalog_product p
+     WHERE (SELECT count(*) FROM catalog_image ci WHERE ci.catalog_product_id = p.id) < 3;
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: % product(s) have fewer than three pictures', bad; END IF;
+    -- Listing pages: the shop's own photos (cards and sealed product at least two).
+    SELECT count(*) INTO bad FROM listing l JOIN catalog_variant cv ON cv.id = l.catalog_variant_id
+      JOIN catalog_product p ON p.id = cv.catalog_product_id
+     WHERE l.status = 'ACTIVE' AND p.product_type <> 'ACCESSORY'
+       AND (SELECT count(*) FROM listing_image li WHERE li.listing_id = l.id) < 2;
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: % active listing(s) have fewer than two photos', bad; END IF;
+
+    -- Shop back office: every working shop (verified, not on vacation) has listings, orders that went
+    -- all the way, reviews, a withdrawal, a code of its own and an auction.
+    SELECT count(*) INTO bad FROM seller_profile sp
+     WHERE sp.status = 'VERIFIED' AND NOT sp.vacation_mode
+       AND ((SELECT count(*) FROM listing l WHERE l.seller_profile_id = sp.id AND l.status = 'ACTIVE') < 20
+         OR (SELECT count(*) FROM seller_order so WHERE so.seller_profile_id = sp.id AND so.status = 'COMPLETED') < 3
+         OR NOT EXISTS (SELECT 1 FROM seller_review r WHERE r.seller_profile_id = sp.id)
+         OR NOT EXISTS (SELECT 1 FROM payout po WHERE po.seller_profile_id = sp.id)
+         OR NOT EXISTS (SELECT 1 FROM promotion pr WHERE pr.seller_profile_id = sp.id)
+         OR NOT EXISTS (SELECT 1 FROM auction a WHERE a.seller_profile_id = sp.id)
+         OR NOT EXISTS (SELECT 1 FROM inventory_movement m WHERE m.seller_profile_id = sp.id));
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: % shop(s) have an empty back-office page', bad; END IF;
+    -- The shops added for the presentation show every order state and returns.
+    SELECT count(*) INTO bad FROM seller_profile sp JOIN user_account u ON u.id = sp.user_id
+     WHERE sp.status = 'VERIFIED' AND NOT sp.vacation_mode AND u.created_at > pg_temp.ago(335)
+       AND u.username NOT IN ('pegasus_official', 'card_kingdom_th', 'tcg_corner', 'mint_vault', 'demo_seller',
+                              'grand_line_cards', 'kanto_cards', 'banned_trader')
+       AND ((SELECT count(DISTINCT so.status) FROM seller_order so WHERE so.seller_profile_id = sp.id
+              AND so.status IN ('PAID', 'PREPARING', 'SHIPPED', 'DELIVERED', 'COMPLETED', 'CANCELLED')) < 6
+         OR NOT EXISTS (SELECT 1 FROM return_request rr JOIN seller_order so ON so.id = rr.seller_order_id
+                         WHERE so.seller_profile_id = sp.id));
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: % new shop(s) miss an order state or a return', bad; END IF;
+
+    -- Buyer pages for every buyer added for the presentation: orders (one finished), an address,
+    -- a basket, a wish list, a public collection and collected codes.
+    SELECT count(*) INTO bad FROM seed_new_buyer b
+     WHERE (SELECT count(*) FROM sales_order o WHERE o.buyer_id = b.user_id) < 3
+        OR NOT EXISTS (SELECT 1 FROM sales_order o WHERE o.buyer_id = b.user_id AND o.status = 'COMPLETED')
+        OR NOT EXISTS (SELECT 1 FROM address a WHERE a.user_id = b.user_id AND a.deleted_at IS NULL)
+        OR NOT EXISTS (SELECT 1 FROM cart c JOIN cart_item ci ON ci.cart_id = c.id WHERE c.user_id = b.user_id)
+        OR NOT EXISTS (SELECT 1 FROM wishlist_item w WHERE w.user_id = b.user_id)
+        OR NOT EXISTS (SELECT 1 FROM collection_item ci WHERE ci.user_id = b.user_id AND ci.is_public AND ci.deleted_at IS NULL)
+        OR NOT EXISTS (SELECT 1 FROM promotion_claim pc WHERE pc.user_id = b.user_id);
+    IF bad > 0 THEN RAISE EXCEPTION 'verify: % new buyer(s) have an empty account page', bad; END IF;
+
+    -- Admin queues and lists have work in them.
+    IF (SELECT count(*) FROM payment WHERE status = 'AWAITING_VERIFICATION') < 10 THEN
+        RAISE EXCEPTION 'verify: fewer than 10 slips waiting for the admin'; END IF;
+    IF (SELECT count(*) FROM refund WHERE status IN ('APPROVED', 'PROCESSING')) < 5 THEN
+        RAISE EXCEPTION 'verify: fewer than 5 refunds waiting for the admin'; END IF;
+    IF (SELECT count(*) FROM payout WHERE status IN ('REQUESTED', 'APPROVED', 'PROCESSING')) < 5 THEN
+        RAISE EXCEPTION 'verify: fewer than 5 withdrawals waiting for the admin'; END IF;
+    IF (SELECT count(*) FROM seller_verification WHERE status IN ('SUBMITTED', 'UNDER_REVIEW')) < 4 THEN
+        RAISE EXCEPTION 'verify: fewer than 4 seller applications waiting'; END IF;
+    IF NOT EXISTS (SELECT 1 FROM seller_review WHERE NOT is_visible) THEN
+        RAISE EXCEPTION 'verify: no hidden review for the admin review page'; END IF;
+    IF (SELECT count(*) FROM audit_log) < 500 THEN RAISE EXCEPTION 'verify: the activity log is nearly empty'; END IF;
+    IF (SELECT count(*) FROM (SELECT q_norm FROM search_query_log
+                               WHERE created_at >= now() - interval '7 days' AND result_count > 0
+                               GROUP BY q_norm HAVING count(DISTINCT session_hash) >= 3) t) < 10 THEN
+        RAISE EXCEPTION 'verify: fewer than 10 trending searches'; END IF;
+    IF (SELECT count(*) FROM auction a WHERE a.status = 'LIVE' AND a.bid_count > 0 AND a.ends_at > now()) < 10 THEN
+        RAISE EXCEPTION 'verify: fewer than 10 live auctions with bids'; END IF;
+    IF (SELECT count(*) FROM home_banner WHERE is_active AND (starts_at IS NULL OR starts_at <= now())
+                                         AND (ends_at IS NULL OR ends_at > now())) < 8 THEN
+        RAISE EXCEPTION 'verify: fewer than 8 home slides live'; END IF;
+    IF (SELECT count(DISTINCT catalog_variant_id) FROM variant_market_stat
+         WHERE stat_date <= ((SELECT anchor FROM seed_clock) AT TIME ZONE 'Asia/Bangkok')::date - 80) < 20 THEN
+        RAISE EXCEPTION 'verify: fewer than 20 cards with three months of price history'; END IF;
 
     -- 10. Every table covered by this seed has something in it. Auction and
     -- listing_sale_price is filled by the app's refresher, not the seed.

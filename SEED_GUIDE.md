@@ -1,6 +1,6 @@
 # คู่มือรัน Full Seed (ข้อมูลตัวอย่างทั้งระบบ)
 
-ทำตามลำดับนี้ตั้งแต่เครื่องเปล่า แล้วทุกคนจะได้ข้อมูลชุดเดียวกัน คือ 21 บัญชี สินค้าจริง 138 รายการ คำสั่งซื้อ 65 รายการครบทุกสถานะ และภาพการ์ดหรือสินค้าจริงที่โหลดจาก MinIO ในเครื่องตัวเอง
+ทำตามลำดับนี้ตั้งแต่เครื่องเปล่า แล้วทุกคนจะได้ข้อมูลชุดเดียวกัน คือ 105 บัญชี (ร้าน 28 ร้าน ผู้ซื้อ 60+ คน) สินค้าจริง 730 รายการจาก 7 เกม listing ราว 3,000 รายการพร้อมรูปที่ร้านถ่าย คำสั่งซื้อราว 860 รายการครบทุกสถานะ และภาพการ์ดหรือสินค้าจริงที่โหลดจาก MinIO ในเครื่องตัวเอง ทุกหน้าของทุกบัญชีที่ใช้งานปกติมีข้อมูล
 
 รายละเอียดเชิงเทคนิคอยู่ใน [README หัวข้อ Full demo data](README.md#full-demo-data)
 
@@ -15,7 +15,7 @@
 | รัน PostgreSQL และ MinIO | Docker Desktop (เปิดไว้ตลอด) |
 | รัน API | Java 25 หรือจะรัน API ใน Docker แทนก็ได้ (ดูขั้นที่ 4 ทางเลือก B) |
 | รันหน้าเว็บ | Node.js 22 และ pnpm 10.6.5 |
-| ดาวน์โหลดภาพตอน seed ครั้งแรก | อินเทอร์เน็ต (ประมาณ 60 MB) |
+| ดาวน์โหลดภาพและวาดรูปตอน seed ครั้งแรก | อินเทอร์เน็ต (รูปประมาณ 200 MB และ image `python:3.12-slim-bookworm`) ใช้เวลาราว 15–25 นาที |
 
 > Windows: ใช้ PowerShell ได้ทุกขั้นตอน ไม่ต้องติดตั้ง `make`
 
@@ -141,17 +141,20 @@ docker compose up -d --build
 **ผลที่ควรเห็น (สำเร็จ):**
 
 ```text
-==> Uploading pictures to MinIO (the first run downloads about 60 MB)
+==> Uploading pictures to MinIO (the first run downloads about 200 MB)
 Seed documents uploaded to pegasus/
-Product pictures: 168 downloaded, 0 already there, 0 placeholder(s)
+Product pictures: 1246 downloaded, 0 already there, 0 placeholder(s)
 ==> Loading the data (one transaction; nothing changes if any check fails)
  accounts | products | printings | listings | cards | orders | ledger_rows | reviews
-       21 |      138 |       239 |      602 |  2313 |     65 |         329 |      25
+      105 |      730 |      1628 |     3017 | 10041 |    858 |        4274 |     353
+==> Drawing shop photos, close-ups and SAMPLE documents (the first run takes several minutes)
+render: 6365 pictures in the data, 6365 to draw (raqm text)
+render: 6365 drawn, 0 failed
 ==> Checking that every picture the data points at is in MinIO
-All 328 pictures are in MinIO.
+All 7429 pictures are in MinIO.
 ```
 
-- **ครั้งถัดไป:** จะเห็น `168 already there` เพราะภาพที่โหลดแล้วไม่ต้องโหลดซ้ำ
+- **ครั้งถัดไป:** ภาพที่โหลดและวาดแล้วไม่ต้องทำซ้ำ (`... already there`, `0 to draw`) เหลือไม่กี่นาที
 - **มี placeholder:** แปลว่าบางภาพโหลดไม่สำเร็จ (เน็ตหรือเซิร์ฟเวอร์ต้นทาง) รันคำสั่งเดิมอีกรอบได้เลย
 - **อยากโหลดเฉพาะข้อมูลใหม่:** เติม `-SkipImages` หรือ `--skip-images` จะข้ามการโหลดภาพ
 
@@ -176,8 +179,9 @@ pnpm dev
 
 **เช็กเร็ว ๆ ว่า seed ขึ้นครบ:**
 
-- **หน้าแรก:** มีสไลด์ 5 อัน (Mega Evolution, Final Fantasy, One Piece, Union Arena, Digimon) และโลโก้ 7 เกม
-- **หน้าสินค้า:** มีรูปการ์ดจริง เช่น http://localhost:5173/products/charizard-ex-sir-199-165 ต้องเห็นรูปการ์ด ราคา 2 รายการ (สภาพ NM และ LP) ท่าโจมตี และผู้สะสมที่เปิดโชว์
+- **หน้าแรก:** มีสไลด์ 9 อัน (เช่น Mega Evolution, Phantasmal Flames, OP-16, Chainsaw Man, Spider-Man) คำค้นยอดนิยม และโลโก้ 7 เกม
+- **หน้าสินค้า:** เช่น http://localhost:5173/products/charizard-ex-sir-199-165 ต้องเห็นรูป 3 รูปขึ้นไป (รูปทางการ ภาพขยาย มุมเอียง) ราคาจากหลายร้าน ท่าโจมตี กราฟราคา และผู้สะสมที่เปิดโชว์
+- **หน้า listing:** ทุก listing มีรูปที่ร้านถ่าย (วางบน playmat ใส่ท็อปโหลดเดอร์ มุมการ์ด หรือเคสเกรด)
 - **ภาพเอกสาร:** สลิป สมุดบัญชี และใบรับพัสดุ เป็นภาพจำลองที่มีลายน้ำ "ตัวอย่าง / SAMPLE"
 
 ---
@@ -197,23 +201,22 @@ pnpm dev
 
 สิ่งที่ `admin@example.com` ทดสอบได้ในหน้า `/admin`:
 
-- **`/admin/payments`:** สลิปรอตรวจ 1 รายการ (Mai กล่อง FB07 ยอด ฿2,950) ยอดและเลขอ้างอิงในสลิปตรงกับระบบ ลองอนุมัติหรือปฏิเสธ
-- **`/admin/refunds`:**
-  - พร้อมโอน 1 รายการ (Nattapong คืน Zapdos ex SIR ฿930)
-  - กำลังโอน 1 รายการ (Ton คืน Tezzeret หลังโอนครั้งแรกไม่สำเร็จ)
+- **`/admin/payments`:** สลิปรอตรวจ 30+ รายการ เช่น Mai กล่อง FB07 ยอด ฿2,950 ยอดและเลขอ้างอิงในสลิปตรงกับระบบ ลองอนุมัติหรือปฏิเสธ
+- **`/admin/refunds`:** คืนเงินพร้อมโอนหลายรายการ (เช่น Nattapong คืน Zapdos ex SIR ฿930) และกำลังโอน (เช่น Ton คืน Tezzeret หลังโอนครั้งแรกไม่สำเร็จ)
 - **`/admin/payouts`:**
   - คำขอใหม่: Card Kingdom TH
   - อนุมัติแล้ว: TCG Corner
   - กำลังโอน: Pegasus Official
   - ประวัติ: จ่ายแล้ว ปฏิเสธ และโอนไม่สำเร็จ (Mint Vault)
-- **`/admin/sellers`:** ใบสมัครรอตรวจ 2 ราย (Newbie Shop ส่งแล้ว, Pack Rippers กำลังตรวจ) มีรูปสมุดบัญชี SAMPLE
-- **`/admin/reviews`:** รีวิว 1★ ที่ถูกซ่อน (ร้าน Card Kingdom TH)
+- **`/admin/sellers`:** ใบสมัครรอตรวจ 6 ราย (เช่น Newbie Shop ส่งแล้ว, Pack Rippers กำลังตรวจ) มีรูปสมุดบัญชี SAMPLE
+- **`/admin/reviews`:** รีวิว 350+ รายการ มีรีวิว 1★ ที่ถูกซ่อน (เช่นร้าน Card Kingdom TH)
 - **`/admin/commission`:**
   - กฎที่ใช้งาน: ทั่วไป 5%, One Piece 4%, กล่องสุ่ม 3% (ขั้นต่ำ 30 สูงสุด 250), Pegasus Official 0%, Mint Vault 4% (เริ่ม 30 วันก่อน)
   - กฎที่ไม่มีผล: กฎหมดอายุ และกฎที่ปิดไว้
 - **`/admin/users`:** บัญชีถูกระงับ ปิดใช้งาน ล็อก และผู้ขายที่ถูกระงับ
 - **`/admin/orders`:** คำสั่งซื้อครบทุกสถานะ
-- **`/admin/catalog`:** 7 เกม 25 ชุด 138 สินค้า 14 หมวด
+- **`/admin/catalog`:** 7 เกม 85 ชุด 730 สินค้า 14 หมวด
+- **`/admin/activity-log`:** บันทึกกิจกรรม 3,000+ รายการ (อนุมัติสลิป โอนเงิน เพิ่มสินค้า งานอัตโนมัติ)
 
 ### ผู้ขาย (เมนู `/seller`)
 
@@ -231,13 +234,15 @@ pnpm dev
 | `packrippers@example.com` | Pack Rippers | อยู่ระหว่างแอดมินตรวจ |
 | `shady@example.com` | Shady Cards | ใบสมัครถูกปฏิเสธพร้อมเหตุผล ลองส่งใหม่ได้ |
 
-**Pegasus Official** (สินค้าซีลและอุปกรณ์ 52 รายการ):
+นอกจากร้านในตารางนี้ ยังมี **ร้านชุดใหญ่อีก 22 ร้าน** (เช่น `strawhatmarket@example.com`, `pokeparadise@example.com`, `digidestinedshop@example.com`) และ **ผู้ซื้อ 56 คน** (เช่น `kanokwan_ripper@example.com`) ทุกร้านมีออเดอร์ครบทุกสถานะ คืนสินค้า รีวิว ถอนเงิน ประมูล และโค้ดของร้าน ดูรายชื่อทั้งหมดใน [RUN_SEED.md](RUN_SEED.md#4-บัญชีสำหรับทดสอบ) ร้านเดิม 5 ร้านด้านล่างก็มี listing และออเดอร์ชุดใหญ่เพิ่มด้วย รายการด้านล่างคือสถานการณ์ทดสอบเดิมที่ยังอยู่ครบ
+
+**Pegasus Official** (สินค้าซีลทุกเกมและอุปกรณ์):
 - ออเดอร์ "กำลังเตรียม" (แผ่นรองเล่นของ Ploy) ลองกดจัดส่ง
 - ออเดอร์ที่ส่งแล้ว 1 รายการ และร่าง listing 1 รายการ
 - ถอนเงินกำลังโอน
 - รีวิว 5.0
 
-**Card Kingdom TH** (Pokémon 23 รายการ):
+**Card Kingdom TH** (Pokémon):
 - ออเดอร์ชำระแล้ว 2 รายการ (Charizard ex SIR ของ Mai, ซอง 151 ของ Ploy) ลองรับออเดอร์และจัดส่ง
 - ราคาอัตโนมัติ (Pikachu ex) และการ์ดสภาพ LP
 - ประวัติเติมสต็อก การ์ดในมือ และการตัดสต็อกเสีย
