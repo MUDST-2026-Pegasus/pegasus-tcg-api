@@ -95,7 +95,8 @@ SELECT v.email,
         ('gun99', 'gun99@example.com', 'Gun เ.', 'สาย Meta ชอบหาการ์ดแข่ง', '0912795407', false, 'ACTIVE', 177.6, 0.76, true),
         ('june2025', 'june2025@example.com', 'จูน', 'Commander player', '0812803326', false, 'ACTIVE', 196.5, 1.3, false),
         ('film_th', 'film_th@example.com', 'Film ป.', 'เพิ่งเริ่มเล่นได้ 3 เดือน', '0612811245', false, 'ACTIVE', 111.9, 0.73, false),
-        ('support_nok', 'nok.support@example.com', 'Nok (Support)', 'ทีมช่วยเหลือลูกค้า กะเย็น', '0890000003', false, 'ACTIVE', 200, 0.3, true)
+        ('support_nok', 'nok.support@example.com', 'Nok (Support)', 'ทีมช่วยเหลือลูกค้า กะเย็น', '0890000003', false, 'ACTIVE', 200, 0.3, true),
+        ('pegasus_demo', 'demo@example.com', 'Pegasus Demo', 'บัญชีเดโมสำหรับพรีเซ็น: ซื้อ ขาย และดูแลระบบในบัญชีเดียว', '0890000099', false, 'ACTIVE', 320, 0.05, true)
        ) AS v(username, email, display_name, bio, phone, phone_public, status, created_days, last_login_days, has_avatar)
  ORDER BY v.created_days DESC;
 
@@ -208,7 +209,10 @@ SELECT u.id, r.id, u.created_at, CASE WHEN r.code = 'BUYER' THEN NULL ELSE pg_te
         ('gun99', 'BUYER'),
         ('june2025', 'BUYER'),
         ('film_th', 'BUYER'),
-        ('support_nok', 'SUPPORT')
+        ('support_nok', 'SUPPORT'),
+        ('pegasus_demo', 'BUYER'),
+        ('pegasus_demo', 'SELLER'),
+        ('pegasus_demo', 'ADMIN')
        ) AS v(username, role_code)
   JOIN user_account u ON u.username = v.username
   JOIN app_role r ON r.code = v.role_code;
@@ -330,7 +334,8 @@ SELECT pg_temp.uid(v.username), v.label, v.recipient, v.phone, v.line1, v.line2,
         ('june2025', 'บ้าน', 'จูน ศรีสวัสดิ์', '0812803326', '329/4 ถนนนิมมานเหมินท์', 'หมู่บ้านพฤกษาวิลล์', 'แสนสุข', 'เมืองชลบุรี', 'ชลบุรี', '20130', true, true, 195.5),
         ('film_th', 'บ้าน', 'ฟิล์ม ประเสริฐศรี', '0612811245', '369/34 ถนนแจ้งวัฒนะ', NULL, 'แสนสุข', 'เมืองชลบุรี', 'ชลบุรี', '20130', true, true, 110.9),
         ('film_th', 'ที่ทำงาน', 'ฟิล์ม ประเสริฐศรี', '0612811245', 'อาคาร 369/34 ชั้น 9', NULL, 'หนองปรือ', 'บางละมุง', 'ชลบุรี', '20150', false, false, 108.9),
-        ('support_nok', 'บ้าน', 'นก ใจดี', '0890000003', '201/90 ถนนรัชดาภิเษก', NULL, 'ลาดยาว', 'จตุจักร', 'กรุงเทพมหานคร', '10900', true, true, 199)
+        ('support_nok', 'บ้าน', 'นก ใจดี', '0890000003', '201/90 ถนนรัชดาภิเษก', NULL, 'ลาดยาว', 'จตุจักร', 'กรุงเทพมหานคร', '10900', true, true, 199),
+        ('pegasus_demo', 'ร้าน', 'Pegasus Demo', '0890000099', '88/8 ถนนบางนา-ตราด', 'อาคารเพกาซัส ชั้น 5', 'บางนา', 'บางนา', 'กรุงเทพมหานคร', '10260', true, true, 319)
        ) AS v(username, label, recipient, phone, line1, line2, subdistrict, district, province, postal,
               def_ship, def_bill, days);
 
@@ -368,7 +373,8 @@ SELECT pg_temp.uid(v.username), v.status,
         ('cardcraft_bkk', 'PENDING', NULL, 2, false, true, 2.7),
         ('tiny_tcg', 'PENDING', NULL, 2, false, true, 0.6),
         ('mystic_pulls', 'PENDING', NULL, 2, false, true, 4.2),
-        ('fakebox_seller', 'REJECTED', NULL, 2, false, true, 9.2)
+        ('fakebox_seller', 'REJECTED', NULL, 2, false, true, 9.2),
+        ('pegasus_demo', 'VERIFIED', 314.5, 1, false, true, 319)
        ) AS v(username, status, verified_days, handling, vacation, auto_accept, created_days);
 
 
@@ -410,7 +416,8 @@ SELECT pg_temp.spid(v.username), v.status, pg_temp.ago(v.submitted_days),
         ('cardcraft_bkk', 'UNDER_REVIEW', 2.5, NULL, NULL, 'อาทิตย์', 'ศักดิ์สิทธิ์', 'BAY', 'ธนาคารกรุงศรีอยุธยา', '6683854613', ''),
         ('tiny_tcg', 'SUBMITTED', 0.4, NULL, NULL, 'พิมพ์ชนก', 'อินทรสุวรรณ', 'TTB', 'ธนาคารทหารไทยธนชาต', '6007763838', ''),
         ('mystic_pulls', 'UNDER_REVIEW', 4, NULL, NULL, 'บีม', 'นาคสวัสดิ์', 'GSB', 'ธนาคารออมสิน', '6529547610', ''),
-        ('fakebox_seller', 'REJECTED', 9, 8, 'รูปสมุดบัญชีถูกแก้ไข ตัวเลขบัญชีไม่ตรงกับธนาคาร', 'สุพรรษา', 'ใจดี', 'KBANK', 'ธนาคารกสิกรไทย', '8792001518', '')
+        ('fakebox_seller', 'REJECTED', 9, 8, 'รูปสมุดบัญชีถูกแก้ไข ตัวเลขบัญชีไม่ตรงกับธนาคาร', 'สุพรรษา', 'ใจดี', 'KBANK', 'ธนาคารกสิกรไทย', '8792001518', ''),
+        ('pegasus_demo', 'APPROVED', 316, 314.5, NULL, 'เดโม', 'เพกาซัส', 'KBANK', 'ธนาคารกสิกรไทย', '1239876540', '')
        ) AS v(username, status, submitted_days, reviewed_days, reason, first_name, last_name, bank_code, bank_name,
               account, suffix)
  ORDER BY v.submitted_days DESC;
@@ -474,5 +481,7 @@ SELECT pg_temp.spid(v.username), v.name, v.carrier, v.base_fee, v.per_item, v.fr
         ('budget_binder', 'Kerry Express', 'KERRY', 50.0, 10.0, 1500, 1, 3, true, 0),
         ('budget_binder', 'Flash Express', 'FLASH', 40.0, 5.0, 2000, 2, 4, true, 1),
         ('lumpini_collectibles', 'Flash Express', 'FLASH', 40.0, 5.0, 2000, 1, 3, true, 0),
-        ('lumpini_collectibles', 'ไปรษณีย์ไทย EMS', 'THAILAND_POST', 45.0, 5.0, 2500, 2, 4, true, 1)
+        ('lumpini_collectibles', 'ไปรษณีย์ไทย EMS', 'THAILAND_POST', 45.0, 5.0, 2500, 2, 4, true, 1),
+        ('pegasus_demo', 'Kerry Express', 'KERRY', 50.0, 10.0, 3000, 1, 3, true, 0),
+        ('pegasus_demo', 'Flash Express', 'FLASH', 40.0, 5.0, 1500, 2, 4, true, 1)
        ) AS v(username, name, carrier, base_fee, per_item, free_threshold, dmin, dmax, active, disp);

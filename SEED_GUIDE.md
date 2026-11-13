@@ -1,6 +1,6 @@
 # คู่มือรัน Full Seed (ข้อมูลตัวอย่างทั้งระบบ)
 
-ทำตามลำดับนี้ตั้งแต่เครื่องเปล่า แล้วทุกคนจะได้ข้อมูลชุดเดียวกัน คือ 105 บัญชี (ร้าน 28 ร้าน ผู้ซื้อ 60+ คน) สินค้าจริง 730 รายการจาก 7 เกม listing ราว 3,000 รายการพร้อมรูปที่ร้านถ่าย คำสั่งซื้อราว 860 รายการครบทุกสถานะ และภาพการ์ดหรือสินค้าจริงที่โหลดจาก MinIO ในเครื่องตัวเอง ทุกหน้าของทุกบัญชีที่ใช้งานปกติมีข้อมูล
+ทำตามลำดับนี้ตั้งแต่เครื่องเปล่า แล้วทุกคนจะได้ข้อมูลชุดเดียวกัน คือ 106 บัญชี (ร้าน 29 ร้าน ผู้ซื้อ 60+ คน) สินค้าจริง 730 รายการจาก 7 เกม listing ราว 3,000 รายการพร้อมรูปที่ร้านถ่าย คำสั่งซื้อราว 900 รายการครบทุกสถานะ และภาพการ์ดหรือสินค้าจริงที่โหลดจาก MinIO ในเครื่องตัวเอง ทุกหน้าของทุกบัญชีที่ใช้งานปกติมีข้อมูล
 
 รายละเอียดเชิงเทคนิคอยู่ใน [README หัวข้อ Full demo data](README.md#full-demo-data)
 
@@ -146,12 +146,12 @@ Seed documents uploaded to pegasus/
 Product pictures: 1246 downloaded, 0 already there, 0 placeholder(s)
 ==> Loading the data (one transaction; nothing changes if any check fails)
  accounts | products | printings | listings | cards | orders | ledger_rows | reviews
-      105 |      730 |      1628 |     3017 | 10041 |    858 |        4274 |     353
+      106 |      730 |      1628 |     3064 | 10116 |    900 |        4493 |     392
 ==> Drawing shop photos, close-ups and SAMPLE documents (the first run takes several minutes)
-render: 6365 pictures in the data, 6365 to draw (raqm text)
-render: 6365 drawn, 0 failed
+render: 6463 pictures in the data, 6463 to draw (raqm text)
+render: 6463 drawn, 0 failed
 ==> Checking that every picture the data points at is in MinIO
-All 7429 pictures are in MinIO.
+All 7525 pictures are in MinIO.
 ```
 
 - **ครั้งถัดไป:** ภาพที่โหลดและวาดแล้วไม่ต้องทำซ้ำ (`... already there`, `0 to draw`) เหลือไม่กี่นาที
@@ -189,6 +189,8 @@ pnpm dev
 ## 7. บัญชีสำหรับทดสอบ
 
 **ทุกบัญชีใช้รหัสผ่าน `Password123!`**
+
+> **พรีเซ็นด้วยบัญชีเดียว:** `demo@example.com` เป็นทั้งผู้ซื้อ ผู้ขาย และแอดมิน สลับหน้าจากเมนูบนหัวเว็บได้ในแท็บเดียว รายละเอียดใน [RUN_SEED.md](RUN_SEED.md)
 
 > ทิป: ถ้าจะล็อกอินหลายบทบาทพร้อมกัน ให้เปิดคนละ origin เช่น `http://localhost:5173` (ผู้ซื้อ), `http://seller.localhost:5173` (ผู้ขาย), `http://admin.localhost:5173` (แอดมิน) แต่ละ origin จำการล็อกอินแยกกัน
 

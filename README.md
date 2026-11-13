@@ -97,7 +97,7 @@ The seed is safe to rerun and does not create an admin user.
 
 Guides in Thai: [RUN_SEED.md](RUN_SEED.md) runs the seed and lists every test account with its password; [SEED_GUIDE.md](SEED_GUIDE.md) starts from a clean machine.
 
-`full-seed` fills every table with data that behaves like about nine months of a busy marketplace: 730 real products from 85 sets of seven games (557 singles, 159 sealed products, accessories), 105 accounts (28 working shops, 60+ buyers, six seller applications waiting), about 3,000 listings, about 860 orders in every state with payments, escrow, refunds, returns and payouts, 350+ reviews, 90+ auctions, discount codes, 90 days of price history, trending searches and an admin activity log. Every product page has an offer on sale and at least three pictures; every working shop and every added buyer has something on each of their pages. The money and stock add up the way the application expects; the seed checks all of this before committing and loads nothing if a check fails.
+`full-seed` fills every table with data that behaves like about nine months of a busy marketplace: 730 real products from 85 sets of seven games (557 singles, 159 sealed products, accessories), 106 accounts (29 working shops, 60+ buyers, six seller applications waiting), about 3,000 listings, about 900 orders in every state with payments, escrow, refunds, returns and payouts, 350+ reviews, 90+ auctions, discount codes, 90 days of price history, trending searches and an admin activity log. Every product page has an offer on sale and at least three pictures; every working shop and every added buyer has something on each of their pages. The money and stock add up the way the application expects; the seed checks all of this before committing and loads nothing if a check fails.
 
 The older, hand-written part (`02_accounts.sql` ... `10_sales.sql`) keeps the accounts and scenarios the test cases use. The bigger part is generated from real card data and market prices (files ending in `b_*_more.sql`, `06z_replay.sql`, `11_activity.sql` and the generated block at the end of `image-sources.txt`); edit those SQL files directly to change it.
 
@@ -141,10 +141,11 @@ Every account signs in with `Password123!`:
 | `banned@example.com` | Suspended seller; listings blocked |
 | `newbie@example.com`, `packrippers@example.com`, `shady@example.com` | Seller applications: submitted, under review, rejected |
 | `locked@example.com`, `suspended@example.com` | Locked after failed sign-ins; suspended account |
+| `demo@example.com` | One account with BUYER, SELLER and ADMIN for presenting in a single tab: its own shop (orders in every state, some waiting to ship), purchases from other shops, bids, and the admin queues. It cannot buy from its own shop |
 | `kanokwan_ripper@example.com`, `pongsakorn_cards@example.com` | Presentation buyers: many orders in every state, live bids, collections, coupons |
 | `digidestinedshop@example.com`, `strawhatmarket@example.com` and 20 more shops | Presentation shops: 35–90 listings with their own photos, orders in every state, returns, reviews, payouts, auctions, shop codes |
 
-[RUN_SEED.md](RUN_SEED.md) lists all 105 accounts.
+[RUN_SEED.md](RUN_SEED.md) lists all 106 accounts.
 
 Two orders change on their own after loading, as real ones would: the most recent unpaid order is cancelled by the payment-timeout job an hour after it was placed, and parcels shipped in the last week are completed by the escrow job once their seven days pass.
 

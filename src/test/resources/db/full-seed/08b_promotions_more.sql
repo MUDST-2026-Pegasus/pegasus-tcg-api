@@ -48,10 +48,11 @@ SELECT v.code, v.name, v.description, v.owner_type,
         ('RAREPULL140', 'Rare Pull Th ลด 14%', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'rare_pull_th', 'PERCENT', 14, 200, 1400, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 12, -39, NULL, NULL, NULL),
         ('BUDGETBI50', 'Budget Binder ลด ฿50', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'budget_binder', 'FIXED', 50, NULL, 500, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 13, -40, NULL, NULL, NULL),
         ('LUMPINIC60', 'Lumpini Collectibles ลด 6%', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'lumpini_collectibles', 'PERCENT', 6, 200, 600, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 14, -41, NULL, NULL, NULL),
-        ('MINTVAUL70', 'Mint Vault ลด ฿70', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'mint_vault', 'FIXED', 70, NULL, 700, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 15, -42, NULL, NULL, NULL),
-        ('GRANDLIN80', 'Grand Line Cards ลด 8%', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'grand_line_cards', 'PERCENT', 8, 200, 800, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 16, -43, NULL, NULL, NULL),
-        ('DEMOSELL90', 'Demo Seller ลด ฿90', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'demo_seller', 'FIXED', 90, NULL, 900, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 5, -44, NULL, NULL, NULL),
-        ('PEGASUSO100', 'Pegasus Official ลด 10%', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'pegasus_official', 'PERCENT', 10, 200, 1000, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 6, -45, NULL, NULL, NULL),
+        ('PEGASUSD70', 'Pegasus Demo ลด ฿70', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'pegasus_demo', 'FIXED', 70, NULL, 700, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 15, -42, NULL, NULL, NULL),
+        ('MINTVAUL80', 'Mint Vault ลด 8%', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'mint_vault', 'PERCENT', 8, 200, 800, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 16, -43, NULL, NULL, NULL),
+        ('GRANDLIN90', 'Grand Line Cards ลด ฿90', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'grand_line_cards', 'FIXED', 90, NULL, 900, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 5, -44, NULL, NULL, NULL),
+        ('DEMOSELL100', 'Demo Seller ลด 10%', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'demo_seller', 'PERCENT', 10, 200, 1000, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 6, -45, NULL, NULL, NULL),
+        ('PEGASUSO110', 'Pegasus Official ลด ฿110', 'โค้ดของร้าน ใช้ได้กับสินค้าในร้านนี้', 'SELLER', 'pegasus_official', 'FIXED', 110, NULL, 1100, NULL, 'PUBLIC', false, 200, 1, true, false, NULL, NULL, 7, -46, NULL, NULL, NULL),
         ('GALLERY1K', 'Graded Gallery ลด ฿1,000 (ลับ)', 'สำหรับลูกค้าประจำ', 'SELLER', 'graded_gallery', 'FIXED', 1000, NULL, 20000, NULL, 'PRIVATE', false, 20, 1, false, false, NULL, NULL, 10, -50, NULL, NULL, NULL)
        ) AS v(code, name, description, owner_type, shop, discount_type, discount_value, max_discount, min_spend,
               game, visibility, new_buyer_only, usage_limit_total, per_user, claimable, claim_required,
@@ -64,7 +65,7 @@ SELECT p.id, b.user_id, (ARRAY['HOME', 'STORE', 'WALLET_INPUT'])[1 + abs(hashtex
   FROM seed_new_buyer b
   CROSS JOIN LATERAL (
         SELECT p.* FROM promotion p
-         WHERE p.code IN ('MEGA200', 'OPDAY12', 'MTGCMD150', 'PAYDAY300', 'YGO50', 'DIGI8', 'POKEPARA50', 'EEVEEHOU60', 'SEALEDSU70', 'GRADEDGA80', 'STRAWHAT90', 'REDLINET100', 'MANAFORG110', 'COMMANDE120', 'DUELACAD130', 'MILLENNI140', 'DIGIDEST50', 'ANIMEARE60', 'SAIYANCA70', 'CHIANGMA80', 'PHUKETTC90', 'KORATCOL100', 'HATYAIHO110', 'KHONKAEN120', 'BANGNABO130', 'RAREPULL140', 'BUDGETBI50', 'LUMPINIC60', 'MINTVAUL70', 'GRANDLIN80', 'DEMOSELL90', 'PEGASUSO100', 'WELCOME100', 'FREESHIP', 'PEGASUS15')
+         WHERE p.code IN ('MEGA200', 'OPDAY12', 'MTGCMD150', 'PAYDAY300', 'YGO50', 'DIGI8', 'POKEPARA50', 'EEVEEHOU60', 'SEALEDSU70', 'GRADEDGA80', 'STRAWHAT90', 'REDLINET100', 'MANAFORG110', 'COMMANDE120', 'DUELACAD130', 'MILLENNI140', 'DIGIDEST50', 'ANIMEARE60', 'SAIYANCA70', 'CHIANGMA80', 'PHUKETTC90', 'KORATCOL100', 'HATYAIHO110', 'KHONKAEN120', 'BANGNABO130', 'RAREPULL140', 'BUDGETBI50', 'LUMPINIC60', 'PEGASUSD70', 'MINTVAUL80', 'GRANDLIN90', 'DEMOSELL100', 'PEGASUSO110', 'WELCOME100', 'FREESHIP', 'PEGASUS15')
          ORDER BY md5(b.username || p.code)
          LIMIT 2 + abs(hashtext(b.username || 'promo')) % 3) p;
 
