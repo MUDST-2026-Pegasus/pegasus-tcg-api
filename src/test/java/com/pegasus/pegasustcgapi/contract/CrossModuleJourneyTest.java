@@ -132,6 +132,21 @@ public abstract class CrossModuleJourneyTest extends PostgresIntegrationTest {
         return "Bearer " + signedIn.data().path("tokens").path("accessToken").asString();
     }
 
+    // ---------- payment ----------
+
+    /** The web app's bank-transfer path: open payment, upload slip, submit; the admin approves it. */
+    protected long payBySlip(long orderId, String buyerToken, String adminToken) {
+        long paymentId = expect(200, "POST", "/api/v1/payments", api.post("/api/v1/payments", buyerToken,
+                Map.of("salesOrderId", orderId, "method", "BANK_TRANSFER"),
+                Map.of("Idempotency-Key", "pay-" + orderId + "-" + data.tag()))).data().path("id").asLong();
+        String slipKey = upload("PAYMENT_SLIP", buyerToken, png((int) orderId), "image/png");
+        expect(200, "POST", "/api/v1/payments/" + paymentId + "/slip", api.post("/api/v1/payments/" + paymentId + "/slip",
+                buyerToken, Map.of("slipImageKey", slipKey)));
+        expect(200, "POST", "/api/v1/admin/payments/" + paymentId + "/verify",
+                api.post("/api/v1/admin/payments/" + paymentId + "/verify", adminToken, Map.of("approved", true)));
+        return paymentId;
+    }
+
     // ---------- storage ----------
 
     /** presign → PUT to MinIO → the key a feature endpoint is then given. */
