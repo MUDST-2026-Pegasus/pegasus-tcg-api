@@ -4,6 +4,8 @@ REST API for the Pegasus trading-card marketplace. It provides authentication, a
 
 Base URL when running locally: `http://localhost:8080/api/v1`
 
+Deployed base URL: [`https://pegasus-tcg.gameinwza.com/api/v1`](https://pegasus-tcg.gameinwza.com/api/v1) (production) · [`https://pegasus-dev.gameinwza.com/api/v1`](https://pegasus-dev.gameinwza.com/api/v1) (dev)
+
 The Postman collection contains the same 72 application endpoints: [Pegasus-API](https://godgame.postman.co/workspace/Personal-Workspace~e5d0e575-1d67-4cda-ae96-d28efd26af90/collection/50039359-015a9714-1e65-45ad-a9f6-fcb9efd922e9?action=share&source=copy-link&creator=50039359).
 
 ## Java package map
