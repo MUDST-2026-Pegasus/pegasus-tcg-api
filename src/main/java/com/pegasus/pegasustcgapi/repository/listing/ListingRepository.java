@@ -15,6 +15,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.jooq.DSLContext;
+import org.jooq.Record1;
+import org.jooq.Select;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -313,6 +315,7 @@ public class ListingRepository {
      * @param saleId       only cards priced by this sale
      * @param minDiscount  only cards at least this many percent off
      * @param now          the instant a sale row has to still run at
+     * @param productIds   only cards of these catalogue products (a subquery); null for all
      */
     public record PublicListingQuery(
             Long sellerUserId,
@@ -328,7 +331,8 @@ public class ListingRepository {
             Sort sort,
             int limit,
             int offset,
-            OffsetDateTime now) {
+            OffsetDateTime now,
+            Select<Record1<Long>> productIds) {
 
         public PublicListingQuery {
             if (now == null) {
@@ -340,7 +344,7 @@ public class ListingRepository {
         public PublicListingQuery(Long sellerUserId, Long variantId, Long productId, Short gameId,
                 CardCondition condition, BigDecimal minPrice, BigDecimal maxPrice, Sort sort, int limit, int offset) {
             this(sellerUserId, variantId, productId, gameId, condition, minPrice, maxPrice, null, null, null,
-                    sort, limit, offset, null);
+                    sort, limit, offset, null, null);
         }
 
         /** Cheapest first is what a buyer comparing sellers of one card wants. */

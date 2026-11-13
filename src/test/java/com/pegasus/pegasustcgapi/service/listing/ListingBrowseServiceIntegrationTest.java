@@ -226,7 +226,7 @@ class ListingBrowseServiceIntegrationTest extends PostgresIntegrationTest {
             data.onSale(otherShop, data.card(gameId, "Someone else's card", "C"), CardCondition.NM, 1, "10.00");
 
             PageResponse<PublicListingResponse> storefront =
-                    browse.storefront(shop.principal().username(), null, null, null, 0, 20);
+                    browse.storefront(shop.principal().username(), null, null, null, null, 0, 20);
 
             assertThat(ids(storefront)).containsExactlyElementsOf(cheapToDear);
             assertThat(storefront.items()).allSatisfy(listing ->
@@ -234,9 +234,21 @@ class ListingBrowseServiceIntegrationTest extends PostgresIntegrationTest {
         }
 
         @Test
+        @DisplayName("a storefront search matches like the navbar search and keeps only this seller's cards")
+        void storefrontSearchesByName() {
+            Seller otherShop = data.seller();
+            data.onSale(otherShop, data.card(gameId, "Card at 150.00 elsewhere", "C"), CardCondition.NM, 1, "10.00");
+
+            assertThat(ids(browse.storefront(shop.principal().username(), null, null, null, "AT 150", 0, 20)))
+                    .containsExactly(cheapToDear.get(1));
+            assertThat(ids(browse.storefront(shop.principal().username(), null, null, null, "nothing like it", 0, 20)))
+                    .isEmpty();
+        }
+
+        @Test
         @DisplayName("the storefront of a username nobody has is USER_NOT_FOUND")
         void unknownStorefrontIsNotFound() {
-            assertThatThrownBy(() -> browse.storefront("nobody_" + data.tag(), null, null, null, 0, 20))
+            assertThatThrownBy(() -> browse.storefront("nobody_" + data.tag(), null, null, null, null, 0, 20))
                     .isInstanceOfSatisfying(ApiException.class,
                             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.USER_NOT_FOUND));
         }

@@ -1,5 +1,6 @@
 package com.pegasus.pegasustcgapi.service.listing;
 
+import com.pegasus.pegasustcgapi.service.catalog.CatalogSearchService;
 import com.pegasus.pegasustcgapi.common.PageResponse;
 import com.pegasus.pegasustcgapi.common.Paging;
 import com.pegasus.pegasustcgapi.dto.listing.ListingCard;
@@ -52,6 +53,7 @@ public class ListingBrowseService {
     private final UserRepository users;
     private final ListingCardRenderer cards;
     private final SalePricingService salePricing;
+    private final CatalogSearchService catalogSearch;
     private final Clock clock;
 
     public ListingBrowseService(
@@ -62,6 +64,7 @@ public class ListingBrowseService {
             UserRepository users,
             ListingCardRenderer cards,
             SalePricingService salePricing,
+            CatalogSearchService catalogSearch,
             Clock clock) {
 
         this.listings = listings;
@@ -71,6 +74,7 @@ public class ListingBrowseService {
         this.users = users;
         this.cards = cards;
         this.salePricing = salePricing;
+        this.catalogSearch = catalogSearch;
         this.clock = clock;
     }
 
@@ -107,7 +111,7 @@ public class ListingBrowseService {
         Paging paging = Paging.of(page, size);
         return page(new PublicListingQuery(null, variantId, productId, gameId, condition, minPrice, maxPrice,
                 f.onSale(), f.saleId(), f.minDiscount(), parseSort(sort), paging.size(), paging.offset(),
-                OffsetDateTime.now(clock)), paging);
+                OffsetDateTime.now(clock), null), paging);
     }
 
     /**
@@ -115,15 +119,18 @@ public class ListingBrowseService {
      * shelf; a missing or suspended one is not found, and reads the same either way.
      */
     public PageResponse<PublicListingResponse> storefront(String username, Long variantId, CardCondition condition,
-            String sort, int page, int size) {
+            String sort, String q, int page, int size) {
 
         AuthUser owner = users.findByUsername(username.trim().toLowerCase(Locale.ROOT))
                 .filter(user -> user.status() == UserStatus.ACTIVE)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.USER_NOT_FOUND));
 
         Paging paging = Paging.of(page, size);
-        return page(new PublicListingQuery(owner.id(), variantId, null, null, condition, null, null,
-                null, null, null, parseSort(sort), paging.size(), paging.offset(), OffsetDateTime.now(clock)), paging);
+        CatalogSearchService.ProductMatch match = q == null || q.isBlank() ? null : catalogSearch.productIdsMatching(q.trim());
+        PageResponse<PublicListingResponse> found = page(new PublicListingQuery(owner.id(), variantId, null, null,
+                condition, null, null, null, null, null, parseSort(sort), paging.size(), paging.offset(),
+                OffsetDateTime.now(clock), match == null ? null : match.ids()), paging);
+        return match == null || match.corrected() == null ? found : found.withCorrectedQuery(match.corrected(), match.reason());
     }
 
     /** Profile details are available even before the owner publishes a listing. */

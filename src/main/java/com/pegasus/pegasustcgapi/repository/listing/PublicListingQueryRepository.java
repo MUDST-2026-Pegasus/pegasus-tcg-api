@@ -224,6 +224,11 @@ public class PublicListingQueryRepository {
             condition = condition.and(LISTING_SALE_PRICE.DISCOUNT_AMOUNT.mul(DSL.inline(100))
                     .ge(LISTING.PRICE.mul(query.minDiscount())));
         }
+        if (query.productIds() != null) {
+            condition = condition.and(LISTING.CATALOG_VARIANT_ID.in(
+                    DSL.select(CATALOG_VARIANT.ID).from(CATALOG_VARIANT)
+                            .where(CATALOG_VARIANT.CATALOG_PRODUCT_ID.in(query.productIds()))));
+        }
         if (query.productId() != null || query.gameId() != null) {
             // A semi-join, so the page and the count share this condition unchanged.
             Condition card = DSL.noCondition();
