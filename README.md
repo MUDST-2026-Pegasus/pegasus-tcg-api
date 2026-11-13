@@ -78,7 +78,34 @@ Copy `.env.example` rather than committing `.env`. The important values are:
 | `MINIO_PUBLIC_ENDPOINT` | URL put into browser-facing presigned URLs. |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated web origins, default `http://localhost:3000`. |
 | `AUTH_DEV_EXPOSE_TOKENS` | Set `true` only for local password-reset development. |
+| `API_RATE_LIMIT_PER_MINUTE` | Shared requests across `/api/v1/**` per client address per minute per instance; default `300`, must be positive. |
+| `PROMO_RATE_LIMIT_PER_MINUTE` | Promotion-code checks per address and account per minute; default `30`. |
 | `AUTH_RATE_LIMIT_PER_MINUTE` | Login, register, password reset and change tries per client address per minute; default `30`. |
+
+### API rate limiting
+
+Every request under `/api/v1/**` shares a fixed 60-second budget per client address,
+including guest traffic, signed-in users and rejected authentication attempts.
+`API_RATE_LIMIT_PER_MINUTE` defaults to `300`. Auth and promotion limits are additional,
+independent budgets; password-forgot requests also count toward the auth budget.
+All three configured limits must be positive.
+
+Exceeding a budget returns HTTP `429` with the existing `ApiResult` error code
+`RATE_LIMITED` and `Retry-After: 60`. Browser clients can read `Retry-After` through
+CORS. Wait before retrying; avoid automatically retrying non-idempotent writes.
+`OPTIONS`, actuator endpoints and Swagger documentation do not spend the API budget.
+
+Counters are in memory per application instance and reset on restart. Multiple
+replicas each have their own budget; this is not a cluster-wide quota. Addresses
+behind the same NAT share a budget. Each limiter tracks at most 10,000 keys and
+refuses untracked addresses while full until expired entries are reclaimed.
+The existing `ClientAddress` policy trusts the last `X-Forwarded-For` hop only
+from internal/loopback peers. Ingress must append the actual caller address and
+direct access to the app must be restricted to trusted infrastructure; a private
+network peer is treated as trusted by this policy.
+
+The scope and acceptance criteria for this unticketed change are recorded in
+[docs/backend-rate-limiting.md](docs/backend-rate-limiting.md).
 
 MinIO's S3 API is at `http://localhost:9000`; its console is at `http://localhost:9001`.
 
