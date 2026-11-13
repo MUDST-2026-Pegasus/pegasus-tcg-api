@@ -78,7 +78,34 @@ Copy `.env.example` rather than committing `.env`. The important values are:
 | `MINIO_PUBLIC_ENDPOINT` | URL put into browser-facing presigned URLs. |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated web origins, default `http://localhost:3000`. |
 | `AUTH_DEV_EXPOSE_TOKENS` | Set `true` only for local password-reset development. |
+| `API_RATE_LIMIT_PER_MINUTE` | Shared requests across `/api/v1/**` per client address per minute per instance; default `300`, must be positive. |
+| `PROMO_RATE_LIMIT_PER_MINUTE` | Promotion-code checks per address and account per minute; default `30`. |
 | `AUTH_RATE_LIMIT_PER_MINUTE` | Login, register, password reset and change tries per client address per minute; default `30`. |
+
+### API rate limiting
+
+Every request under `/api/v1/**` shares a fixed 60-second budget per client address,
+including guest traffic, signed-in users and rejected authentication attempts.
+`API_RATE_LIMIT_PER_MINUTE` defaults to `300`. Auth and promotion limits are additional,
+independent budgets.
+All three configured limits must be positive.
+
+Exceeding a budget returns HTTP `429` with the existing `ApiResult` error code
+`RATE_LIMITED` and `Retry-After: 60`. Browser clients can read `Retry-After` through
+CORS. Wait before retrying; avoid automatically retrying non-idempotent writes.
+`OPTIONS`, actuator endpoints and Swagger documentation do not spend the API budget.
+
+Counters are in memory per application instance and reset on restart. Multiple
+replicas each have their own budget; this is not a cluster-wide quota. Addresses
+behind the same NAT share a budget. Each limiter tracks at most 10,000 keys and
+refuses untracked addresses while full until expired entries are reclaimed.
+The existing `ClientAddress` policy trusts the last `X-Forwarded-For` hop only
+from internal/loopback peers. Ingress must append the actual caller address and
+direct access to the app must be restricted to trusted infrastructure; a private
+network peer is treated as trusted by this policy.
+
+The scope and acceptance criteria for this unticketed change are recorded in
+[docs/backend-rate-limiting.md](docs/backend-rate-limiting.md).
 
 MinIO's S3 API is at `http://localhost:9000`; its console is at `http://localhost:9001`.
 
@@ -97,9 +124,11 @@ The seed is safe to rerun and does not create an admin user.
 
 Guides in Thai: [RUN_SEED.md](RUN_SEED.md) runs the seed and lists every test account with its password; [SEED_GUIDE.md](SEED_GUIDE.md) starts from a clean machine.
 
-`full-seed` fills every table with data that behaves like a few months of real use: 138 real products across seven games plus real accessories, 21 accounts, 602 listings (most cards offered by several shops in several conditions and printings; 13 chase cards have more than ten), 65 orders in every state, payments, escrow, refunds, returns, reviews, payouts and price history. The money and stock add up the way the application expects; the seed checks this before committing and loads nothing if a check fails.
+`full-seed` fills every table with data that behaves like about nine months of a busy marketplace: 730 real products from 85 sets of seven games (557 singles, 159 sealed products, accessories), 106 accounts (29 working shops, 60+ buyers, six seller applications waiting), about 3,000 listings, about 900 orders in every state with payments, escrow, refunds, returns and payouts, 350+ reviews, 90+ auctions, discount codes, 90 days of price history, trending searches and an admin activity log. Every product page has an offer on sale and at least three pictures; every working shop and every added buyer has something on each of their pages. The money and stock add up the way the application expects; the seed checks all of this before committing and loads nothing if a check fails.
 
-Product pictures are real. They are not stored in git: the seed downloads them from the publishers' and brands' servers into your own MinIO, so the first run needs internet access (about 60 MB). A picture that cannot be fetched gets a placeholder and is retried on the next run. Bank books, transfer slips, postage receipts and return photos are drawings made for the seed and carry a SAMPLE watermark.
+The older, hand-written part (`02_accounts.sql` ... `10_sales.sql`) keeps the accounts and scenarios the test cases use. The bigger part is generated from real card data and market prices (files ending in `b_*_more.sql`, `06z_replay.sql`, `11_activity.sql` and the generated block at the end of `image-sources.txt`); edit those SQL files directly to change it.
+
+Product pictures are real. They are not stored in git: the seed downloads them from the publishers' and retailers' servers into your own MinIO, so the first run needs internet access (about 200 MB). A picture that cannot be fetched gets a placeholder and is retried on the next run. The shops' own photos (card on a playmat, in a toploader, a corner close-up, the slab of a graded card), close-ups of the scans, and the transfer slips, parcel receipts, payout slips, bank books, return photos and profile pictures of the generated data are drawn from the data at seed time by `full-seed/render/render.py` in a throwaway `python:3.12-slim-bookworm` container. Documents carry a SAMPLE watermark and slabs say DEMO on the label. The Sarabun font it uses is under the SIL Open Font License (`render/fonts/OFL.txt`).
 
 Start PostgreSQL and MinIO, and run the API once so Flyway creates the tables. Then load into the empty database:
 
@@ -125,7 +154,7 @@ On macOS, Linux or Git Bash:
 bash scripts/seed-full.sh --reset
 ```
 
-Add `-SkipImages` or `--skip-images` to reload the data without downloading pictures again. The scripts read `POSTGRES_DB`, `POSTGRES_USER`, `MINIO_BUCKET` and `MINIO_PUBLIC_ENDPOINT` from `.env`.
+Add `-SkipImages` or `--skip-images` to reload the data without downloading or drawing pictures again. The scripts read `POSTGRES_DB`, `POSTGRES_USER`, `MINIO_BUCKET` and `MINIO_PUBLIC_ENDPOINT` from `.env`.
 
 Every account signs in with `Password123!`:
 
@@ -138,10 +167,15 @@ Every account signs in with `Password123!`:
 | `banned@example.com` | Suspended seller; listings blocked |
 | `newbie@example.com`, `packrippers@example.com`, `shady@example.com` | Seller applications: submitted, under review, rejected |
 | `locked@example.com`, `suspended@example.com` | Locked after failed sign-ins; suspended account |
+| `demo@example.com` | One account with BUYER, SELLER and ADMIN for presenting in a single tab: its own shop (orders in every state, some waiting to ship), purchases from other shops, bids, and the admin queues. It cannot buy from its own shop |
+| `kanokwan_ripper@example.com`, `pongsakorn_cards@example.com` | Presentation buyers: many orders in every state, live bids, collections, coupons |
+| `digidestinedshop@example.com`, `strawhatmarket@example.com` and 20 more shops | Presentation shops: 35–90 listings with their own photos, orders in every state, returns, reviews, payouts, auctions, shop codes |
+
+[RUN_SEED.md](RUN_SEED.md) lists all 106 accounts.
 
 Two orders change on their own after loading, as real ones would: the most recent unpaid order is cancelled by the payment-timeout job an hour after it was placed, and parcels shipped in the last week are completed by the escrow job once their seven days pass.
 
-The seed's sources are in `src/test/resources/db/full-seed/`: numbered SQL files run in one transaction, `image-sources.txt` lists the real pictures and where they come from, and `images/` holds the generated documents.
+The seed's sources are in `src/test/resources/db/full-seed/`: numbered SQL files run in one transaction, `image-sources.txt` lists the real pictures and where they come from, `images/` holds the hand-made SAMPLE documents of the older part, and `render/` draws the rest (`render-manifest.sql` lists what to draw).
 
 ## Build and Run with Docker (full stack)
 

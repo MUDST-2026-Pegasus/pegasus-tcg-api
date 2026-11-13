@@ -287,6 +287,11 @@ public class CatalogProductRepository {
         return match;
     }
 
+    /** Ids of the products a name search finds, as a subquery — the same matching as the catalogue search. */
+    public Select<Record1<Long>> idsMatching(String text, boolean fuzzy) {
+        return dsl.select(CATALOG_PRODUCT.ID).from(from(null)).where(nameMatches(text, fuzzy));
+    }
+
     private static String escapeLike(String text) {
         return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }

@@ -80,7 +80,7 @@ foreach ($container in @($pg, $minio)) {
 }
 
 if (-not $SkipImages) {
-    Write-Host '==> Uploading pictures to MinIO (the first run downloads about 60 MB)'
+    Write-Host '==> Uploading pictures to MinIO (the first run downloads about 200 MB)'
     & docker exec $minio sh /tmp/pegasus-full-seed/upload-images.sh $bucket
     if ($LASTEXITCODE -ne 0) { Fail 'uploading pictures failed' }
 }
@@ -88,6 +88,26 @@ if (-not $SkipImages) {
 Write-Host '==> Loading the data (one transaction; nothing changes if any check fails)'
 & docker exec $pg sh /tmp/pegasus-full-seed/run-seed.sh $db $user $base $resetFlag
 if ($LASTEXITCODE -ne 0) { Fail 'the data did not load; the database was left as it was' }
+
+if (-not $SkipImages) {
+    # The shops' photos, close-ups of the scans and SAMPLE slips/receipts are drawn from the data
+    # in a throwaway python container (render\). Pictures already in MinIO are skipped.
+    Write-Host '==> Drawing shop photos, close-ups and SAMPLE documents (the first run takes several minutes)'
+    $render = 'pegasus-seed-render'
+    $image = if ($env:RENDER_IMAGE) { $env:RENDER_IMAGE } else { 'python:3.12-slim-bookworm' }
+    $network = Invoke-Docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' $minio
+    $minioUser = Invoke-Docker exec $minio printenv MINIO_ROOT_USER
+    $minioPassword = Invoke-Docker exec $minio printenv MINIO_ROOT_PASSWORD
+    & docker rm -f $render 2>$null | Out-Null
+    Invoke-Docker create --name $render -i --network "$network".Trim() -e "MINIO_URL=${minio}:9000" -e "BUCKET=$bucket" `
+        -e "MINIO_USER=$("$minioUser".Trim())" -e "MINIO_PASSWORD=$("$minioPassword".Trim())" $image sh /render/run.sh | Out-Null
+    Invoke-Docker cp (Join-Path $seedDir 'render') "${render}:/render" | Out-Null
+    # cmd keeps the manifest a byte stream between the two docker commands.
+    & cmd /c "docker exec $pg psql -U $user -d $db -q -f /tmp/pegasus-full-seed/render-manifest.sql | docker start -ai $render"
+    $renderExit = $LASTEXITCODE
+    & docker rm -f $render 2>$null | Out-Null
+    if ($renderExit -ne 0) { Fail 'drawing the pictures failed (see above). The data is loaded; fix the problem and run again with -Reset' }
+}
 
 Write-Host '==> Checking that every picture the data points at is in MinIO'
 $keys = Invoke-Docker exec $pg psql -U $user -d $db -At -v "minio_base=$base" -f /tmp/pegasus-full-seed/image-keys.sql

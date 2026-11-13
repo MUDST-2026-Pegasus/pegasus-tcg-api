@@ -67,10 +67,11 @@ public class PublicListingController {
             @RequestParam(required = false) Long variantId,
             @RequestParam(required = false) CardCondition condition,
             @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        return ApiResult.success(browse.storefront(username, variantId, condition, sort, page, size));
+        return ApiResult.success(browse.storefront(username, variantId, condition, sort, q, page, size));
     }
 
     @GetMapping(ApiPaths.PROFILES + "/{username}")

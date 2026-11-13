@@ -24,10 +24,14 @@ here="$(cd "$(dirname "$0")" && pwd)"
     echo '\o /dev/null'
     echo 'BEGIN;'
     [ "$reset" = 1 ] || cat "$here/00_guard.sql"
-    cat "$here/00_reset.sql" "$here/01_setup.sql" "$here/02_accounts.sql" "$here/03_catalog.sql" \
-        "$here/04_engine.sql" "$here/05_market.sql" "$here/05_offers.sql" "$here/06_orders.sql" \
-        "$here/07_extras.sql" "$here/07_collectors.sql" "$here/08_promotions.sql" "$here/09_auctions.sql" \
-        "$here/10_sales.sql"
+    cat "$here/00_reset.sql" "$here/01_setup.sql" "$here/02_accounts.sql" "$here/02b_accounts_more.sql" \
+        "$here/03_catalog.sql" "$here/03b_catalog_more.sql" "$here/04_engine.sql" \
+        "$here/05_market.sql" "$here/05_offers.sql" "$here/05b_market_more.sql" \
+        "$here/06_orders.sql" "$here/06b_orders_more.sql" "$here/06z_replay.sql" \
+        "$here/07_extras.sql" "$here/07_collectors.sql" "$here/07b_extras_more.sql" \
+        "$here/08_promotions.sql" "$here/08b_promotions_more.sql" \
+        "$here/09_auctions.sql" "$here/09b_auctions_more.sql" \
+        "$here/10_sales.sql" "$here/10b_sales_more.sql" "$here/11_activity.sql"
     echo '\o'
     cat "$here/99_verify.sql"
     echo 'COMMIT;'

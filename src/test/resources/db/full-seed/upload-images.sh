@@ -28,35 +28,63 @@ mc mb --ignore-existing "seed/$bucket" >/dev/null
 mc cp --recursive --quiet "$here/images/" "seed/$bucket/" >/dev/null
 echo "Seed documents uploaded to $bucket/"
 
+# Six workers share the list (line n goes to worker n % 6); each writes its counts to a file.
+workers=6
+worker() {
+    w="$1"
+    fetched=0
+    kept=0
+    failed=0
+    n=0
+    tmp="/tmp/seed-image-$w"
+    while read -r key url kind; do
+        case "$key" in ''|'#'*) continue ;; esac
+        n=$((n + 1))
+        [ $((n % workers)) -eq "$w" ] || continue
+        kind="${kind%"$cr"}"
+        target="seed/$bucket/$key"
+        sum="$(printf '%s' "$url" | sha1sum)"
+        sum="${sum%% *}"
+
+        case "$(mc stat "$target" 2>/dev/null)" in
+            *"$sum"*) kept=$((kept + 1)); continue ;;
+        esac
+
+        if ctype="$(curl -fsSL --max-time 60 --retry 2 --retry-all-errors --retry-delay 3 -A "$agent" -o "$tmp" -w '%{content_type}' "$url")"; then
+            ctype="${ctype%%;*}"
+            case "$ctype" in
+                image/*)
+                    mc cp --quiet --attr "Content-Type=$ctype;X-Amz-Meta-Source-Sha1=$sum" "$tmp" "$target" >/dev/null
+                    fetched=$((fetched + 1))
+                    continue
+                    ;;
+            esac
+        fi
+        echo "  could not fetch $url, using a placeholder for $key"
+        mc cp --quiet --attr "Content-Type=image/png" "$here/placeholders/$kind.png" "$target" >/dev/null
+        failed=$((failed + 1))
+    done < "$here/image-sources.txt"
+    rm -f "$tmp"
+    echo "$fetched $kept $failed" > "/tmp/seed-count-$w"
+}
+
+w=0
+while [ "$w" -lt "$workers" ]; do
+    worker "$w" &
+    w=$((w + 1))
+done
+wait
+
 fetched=0
 kept=0
 failed=0
-while read -r key url kind; do
-    case "$key" in ''|'#'*) continue ;; esac
-    kind="${kind%"$cr"}"
-    target="seed/$bucket/$key"
-    sum="$(printf '%s' "$url" | sha1sum)"
-    sum="${sum%% *}"
-
-    case "$(mc stat "$target" 2>/dev/null)" in
-        *"$sum"*) kept=$((kept + 1)); continue ;;
-    esac
-
-    if ctype="$(curl -fsSL --max-time 60 -A "$agent" -o /tmp/seed-image -w '%{content_type}' "$url")"; then
-        ctype="${ctype%%;*}"
-        case "$ctype" in
-            image/*)
-                mc cp --quiet --attr "Content-Type=$ctype;X-Amz-Meta-Source-Sha1=$sum" /tmp/seed-image "$target" >/dev/null
-                fetched=$((fetched + 1))
-                continue
-                ;;
-        esac
-    fi
-    echo "  could not fetch $url, using a placeholder for $key"
-    mc cp --quiet --attr "Content-Type=image/png" "$here/placeholders/$kind.png" "$target" >/dev/null
-    failed=$((failed + 1))
-done < "$here/image-sources.txt"
-rm -f /tmp/seed-image
+w=0
+while [ "$w" -lt "$workers" ]; do
+    read -r f k x < "/tmp/seed-count-$w"
+    fetched=$((fetched + f)); kept=$((kept + k)); failed=$((failed + x))
+    rm -f "/tmp/seed-count-$w"
+    w=$((w + 1))
+done
 
 mc anonymous set download "seed/$bucket/seed/games" >/dev/null
 mc anonymous set download "seed/$bucket/seed/sets" >/dev/null

@@ -3,6 +3,7 @@ package com.pegasus.pegasustcgapi.config;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.pegasus.pegasustcgapi.security.AuthClaims;
 import com.pegasus.pegasustcgapi.security.AuthRateLimitFilter;
+import com.pegasus.pegasustcgapi.security.ApiRateLimitFilter;
 import com.pegasus.pegasustcgapi.security.SecurityErrorHandler;
 import com.pegasus.pegasustcgapi.security.PromoRateLimitFilter;
 import com.pegasus.pegasustcgapi.security.RefreshOriginFilter;
@@ -128,6 +129,7 @@ public class SecurityConfig {
             SecurityErrorHandler securityErrorHandler,
             CorsProperties corsProperties,
             Clock clock,
+            @Value("${pegasus.api.rate-limit-per-minute:300}") int apiRateLimit,
             @Value("${pegasus.promo.rate-limit-per-minute}") int promoRateLimit,
             @Value("${pegasus.auth.rate-limit-per-minute}") int authRateLimit) throws Exception {
 
@@ -136,6 +138,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 .addFilterBefore(new RefreshOriginFilter(corsProperties, securityErrorHandler), CorsFilter.class)
+                .addFilterAfter(new ApiRateLimitFilter(apiRateLimit, clock, securityErrorHandler), CorsFilter.class)
                 // Password checks and sign-ups, per address; before any token is read, since
                 // most of these calls carry none.
                 .addFilterBefore(new AuthRateLimitFilter(authRateLimit, clock, securityErrorHandler),
@@ -237,6 +240,7 @@ public class SecurityConfig {
                 "tracestate",
                 "baggage"));
         config.setExposedHeaders(List.of(
+                "Retry-After",
                 "X-Cart-Session",
                 "Idempotency-Key",
                 "Content-Disposition"));

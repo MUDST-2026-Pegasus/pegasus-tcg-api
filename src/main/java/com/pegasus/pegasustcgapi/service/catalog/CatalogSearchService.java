@@ -123,6 +123,21 @@ public class CatalogSearchService {
     public record Resolved(ProductBrowse browse, String text, boolean fuzzy, String corrected, String reason) {
     }
 
+    /**
+     * The products a navbar search for {@code text} would find, typo / alias / keyboard-layout
+     * correction included, as a subquery other searches (a seller's storefront) can narrow by.
+     */
+    public ProductMatch productIdsMatching(String text) {
+        Resolved resolved = resolve(new ProductBrowse(Set.of(), null, null, null, text, Map.of(), null,
+                true, false, Set.of(), null, null, 0, 1));
+        return new ProductMatch(products.idsMatching(resolved.text(), resolved.fuzzy()),
+                resolved.corrected(), resolved.reason());
+    }
+
+    /** @param corrected the text searched instead of what was typed, with {@code reason}; null when as typed */
+    public record ProductMatch(org.jooq.Select<org.jooq.Record1<Long>> ids, String corrected, String reason) {
+    }
+
     public Resolved resolve(ProductBrowse browse) {
         String requested = browse.nameQuery();
         boolean tolerant = browse.activeOnly() && requested != null && !requested.isBlank();

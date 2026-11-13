@@ -1,6 +1,19 @@
 # วิธีรัน Seed และบัญชีสำหรับทดสอบ
 
-Seed ชุดนี้ใส่ข้อมูลตัวอย่างลงทุกตารางในระบบ ได้แก่ 21 บัญชี สินค้าจริง 138 รายการ (7 เกมและอุปกรณ์) 602 listing (การ์ดส่วนใหญ่มีหลายร้าน หลายสภาพ และหลายภาษาให้เลือก การ์ดยอดนิยม 13 ใบมีเกิน 10 รายการ) และ 65 คำสั่งซื้อครบทุกสถานะ รวมถึงการชำระเงิน คืนเงิน คืนสินค้า รีวิว และถอนเงิน รูปการ์ดและสินค้าเป็นรูปจริงที่โหลดเข้า MinIO ในเครื่องของแต่ละคน
+Seed ชุดนี้ใส่ข้อมูลตัวอย่างลงทุกตารางในระบบ ขนาดใกล้เคียงเว็บขายการ์ดที่เปิดมาราว 9 เดือน
+
+| ข้อมูล | จำนวน |
+| --- | --- |
+| บัญชี | 106 (ร้านที่เปิดขาย 29 ร้าน, ผู้ซื้อ 60+ คน, ใบสมัครผู้ขายรอตรวจ 6 ใบ) |
+| สินค้า | 730 รายการ จาก 85 ชุด ครบ 7 เกม (การ์ดใบเดี่ยว 557, สินค้าซีล 159, อุปกรณ์) |
+| รูปสินค้า | 3–6 รูปต่อการ์ด: รูปทางการ, รูปพิมพ์ญี่ปุ่นหรือ Parallel/Alt Art, ภาพขยายลายการ์ด, มุมเอียงโชว์ฟอยล์ |
+| Listing | 3,064 รายการ ทุกชิ้นมีรูปที่ร้านถ่ายเอง 2–4 รูป (วางบน playmat, ใส่ท็อปโหลดเดอร์, มุมการ์ด, เคสเกรด) |
+| คำสั่งซื้อ | 900 รายการ ย้อนหลัง 9 เดือน ครบทุกสถานะ พร้อมสลิป ใบรับพัสดุ คืนเงิน คืนสินค้า |
+| อื่น ๆ | รีวิว 392, ประมูล 95 (กำลังประมูล 54), ถอนเงิน 206, โค้ดส่วนลด 49, ประวัติราคา 90 วัน, คำค้นยอดนิยม, บันทึกกิจกรรมแอดมิน 3,500+ |
+
+ทุกหน้าของทุกบัญชีที่ใช้งานปกติมีข้อมูล seed ตรวจเองก่อน commit (ดู `99_verify.sql` ข้อ "Every page has something on it") ถ้ามีหน้าไหนว่างจะยกเลิกทั้งหมด
+
+รูปการ์ดและสินค้าเป็นรูปจริงที่โหลดเข้า MinIO ในเครื่องของแต่ละคน ส่วนรูปที่ร้านถ่าย ภาพขยาย สลิป ใบรับพัสดุ และสมุดบัญชีของข้อมูลชุดใหม่ วาดจากข้อมูลตอนรัน seed ใน container ชั่วคราว (`full-seed/render/`) ไม่มีรูปพวกนี้ใน git
 
 > ถ้าเป็นเครื่องใหม่ที่ยังไม่เคยรันโปรเจกต์เลย ให้ทำตาม [SEED_GUIDE.md](SEED_GUIDE.md) ก่อน มีขั้นตั้งค่า `.env` และวิธีเปิดหน้าเว็บ
 
@@ -32,7 +45,7 @@ Windows PowerShell:
 
 หรือจะรัน API ไปเลยก็ได้ (`./gradlew bootRun`) เพราะ API apply migration ตอนสตาร์ทอยู่แล้ว
 
-**3) ต่ออินเทอร์เน็ต** ครั้งแรกต้องโหลดรูปประมาณ 60 MB ครั้งต่อไปไม่ต้องโหลดซ้ำ
+**3) ต่ออินเทอร์เน็ต** ครั้งแรกต้องโหลดรูปประมาณ 200 MB และ image `python:3.12-slim-bookworm` สำหรับวาดรูป ใช้เวลารวมราว 15–25 นาที ครั้งต่อไปรูปที่มีแล้วไม่ต้องโหลดหรือวาดซ้ำ เหลือไม่กี่นาที
 
 ---
 
@@ -85,18 +98,21 @@ SUSPENDED และ CANCELLED โดยรายการ SOLD ผูกกั�
 
 
 ```text
-==> Uploading pictures to MinIO (the first run downloads about 60 MB)
+==> Uploading pictures to MinIO (the first run downloads about 200 MB)
 Seed documents uploaded to pegasus/
-Product pictures: 168 downloaded, 0 already there, 0 placeholder(s)
+Product pictures: 1246 downloaded, 0 already there, 0 placeholder(s)
 ==> Loading the data (one transaction; nothing changes if any check fails)
  accounts | products | printings | listings | cards | orders | ledger_rows | reviews
-       21 |      138 |       239 |      602 |  2313 |     65 |         329 |      25
+      106 |      730 |      1628 |     3064 | 10116 |    900 |        4493 |     392
+==> Drawing shop photos, close-ups and SAMPLE documents (the first run takes several minutes)
+render: 6463 pictures in the data, 6463 to draw (raqm text)
+render: 6463 drawn, 0 failed
 ==> Checking that every picture the data points at is in MinIO
-All 328 pictures are in MinIO.
+All 7525 pictures are in MinIO.
 ```
 
-- **ครั้งถัดไป:** บรรทัดรูปจะเป็น `0 downloaded, 168 already there`
-- **มี `placeholder(s)`:** บางรูปโหลดไม่สำเร็จ ให้รันคำสั่งเดิมอีกรอบ
+- **ครั้งถัดไป:** บรรทัดรูปจะเป็น `0 downloaded, 1246 already there` และ `0 to draw`
+- **มี `placeholder(s)` หรือ `wait for scans`:** บางรูปโหลดไม่สำเร็จ ให้รันคำสั่งเดิมอีกรอบ รูปที่วาดจากรูปนั้นจะถูกวาดใหม่เอง
 - **ถ้ามี error:** seed จะยกเลิกทั้งหมด DB กลับเป็นแบบเดิม ไม่มีข้อมูลค้างครึ่ง ๆ
 
 **หลังรันเสร็จ**
@@ -112,19 +128,38 @@ All 328 pictures are in MinIO.
 
 ล็อกอินด้วย **อีเมล** ส่วน username ใช้ดูหน้าร้านหรือหน้าโปรไฟล์
 
+### ⭐ บัญชีแนะนำสำหรับพรีเซ็น
+
+ข้อมูลเยอะและครบทุกหน้า เปิดโชว์ได้ทันที
+
+> **บัญชีเดียวครบทุกบทบาท: `demo@example.com`** (username `pegasus_demo`) มี role BUYER + SELLER + ADMIN ล็อกอินครั้งเดียวแล้วสลับไปหน้าร้าน (`/seller`) และหน้าแอดมิน (`/admin`) จากเมนูบนหัวเว็บได้ในแท็บเดียว
+> - ฝั่งร้าน (ร้าน Pegasus Demo): listing 79 รายการพร้อมรูป, ออเดอร์ 27 รายการครบทุกสถานะ (มีออเดอร์รอกดเตรียมของและจัดส่ง), คืนสินค้า, รีวิว, ถอนเงิน, ประมูล, โค้ดของร้าน
+> - ฝั่งผู้ซื้อ: ซื้อจากร้านอื่น 31 รายการ, ตะกร้า, wishlist, คอลเลกชัน, คูปอง, กำลังประมูลของร้านอื่น
+> - ฝั่งแอดมิน: เห็นคิวชุดเดียวกับ `admin@example.com`
+> - ข้อจำกัด: ซื้อหรือประมูลของร้านตัวเองไม่ได้ (ระบบกันไว้) ให้ซื้อจากร้านอื่นแทน และเป็นบัญชีเดโมเท่านั้น ระบบจริงไม่ควรให้คนเดียวถือทุกสิทธิ์
+
+| บทบาท | อีเมล | จุดเด่น |
+| --- | --- | --- |
+| แอดมิน | `admin@example.com` | สลิปรอตรวจ 30+ ใบ, คืนเงินและถอนเงินรออนุมัติ, ใบสมัครผู้ขาย 6 ใบ, บันทึกกิจกรรม 3,500+ รายการ, รายงานประจำสัปดาห์ |
+| ผู้ขาย | `cardkingdom@example.com` | ออเดอร์ 46 รายการครบทุกสถานะ, รีวิว 20, ถอนเงินหลายรอบ, ราคาอัตโนมัติ |
+| ผู้ขาย (ร้านใหม่) | `digidestinedshop@example.com` | ออเดอร์ 34 รายการ, คืนสินค้าหลายขั้น, ประมูล, โค้ดส่วนลดของร้าน |
+| ผู้ซื้อ | `kanokwan_ripper@example.com` | ออเดอร์ 15 รายการ, คอลเลกชันหลายสิบใบ, กำลังประมูล, wishlist, ตะกร้า, คูปอง |
+| ผู้ซื้อ | `pongsakorn_cards@example.com` | ออเดอร์ 12 รายการหลายสถานะ, กำลังประมูล, คอลเลกชัน |
+
 ### ผู้ดูแลระบบ
 
 | อีเมล | Username | รหัสผ่าน | บทบาท | ใช้ทดสอบ |
 | --- | --- | --- | --- | --- |
 | `admin@example.com` | `admin` | `Password123!` | ADMIN | ตรวจสลิป, โอนคืนเงิน, อนุมัติถอนเงิน, อนุมัติผู้ขาย, ซ่อนรีวิว, ค่าคอมมิชชั่น, จัดการแคตตาล็อก (เมนู `/admin`) |
 | `support@example.com` | `support_staff` | `Password123!` | SUPPORT | บทบาทฝ่ายช่วยเหลือ (อ่านอย่างเดียว) |
+| `nok.support@example.com` | `support_nok` | `Password123!` | SUPPORT | ฝ่ายช่วยเหลือคนที่สอง |
 
 ### ผู้ขาย (เมนู `/seller`)
 
 | อีเมล | Username | รหัสผ่าน | ร้าน | ใช้ทดสอบ |
 | --- | --- | --- | --- | --- |
-| `store@pegasus.example.com` | `pegasus_official` | `Password123!` | Pegasus Official | สินค้าซีลและอุปกรณ์ 52 รายการ, จัดส่งออเดอร์, ถอนเงินกำลังโอน |
-| `cardkingdom@example.com` | `card_kingdom_th` | `Password123!` | Card Kingdom TH | Pokémon, รับออเดอร์และจัดส่ง 2 รายการ, ราคาอัตโนมัติ, ประวัติสต็อก, ขอถอนเงิน |
+| `store@pegasus.example.com` | `pegasus_official` | `Password123!` | Pegasus Official | สินค้าซีลทุกเกมและอุปกรณ์, จัดส่งออเดอร์, ถอนเงินกำลังโอน |
+| `cardkingdom@example.com` | `card_kingdom_th` | `Password123!` | Card Kingdom TH | Pokémon, ออเดอร์ครบทุกสถานะ, ราคาอัตโนมัติ, ประวัติสต็อก, ขอถอนเงิน |
 | `tcgcorner@example.com` | `tcg_corner` | `Password123!` | TCG Corner | One Piece, อนุมัติหรือปฏิเสธคำขอคืนสินค้า, listing ที่พักขาย |
 | `mintvault@example.com` | `mint_vault` | `Password123!` | Mint Vault | การ์ดเกรด PSA/BGS/CGC, คืนสินค้ารอผู้ซื้อส่งกลับ, ถอนเงินครบทุกสถานะ |
 | `seller@example.com` | `demo_seller` | `Password123!` | Demo Seller Shop | Magic และ Yu-Gi-Oh!, จัดส่งออเดอร์, listing ร่างและที่ปิดแล้ว |
@@ -149,6 +184,113 @@ All 328 pictures are in MinIO.
 | `buyer@example.com` | `demo_buyer` | `Password123!` | ออเดอร์ยังไม่จ่าย (จ่ายได้ภายในราว 45 นาทีหลังรัน seed), คำขอคืนสินค้ารอร้านตอบ |
 | `ploy@example.com` | `ploy_collects` | `Password123!` | ออเดอร์ 2 ร้านในใบเดียว, คืนสินค้ากำลังส่งกลับ, ตะกร้ามีการ์ด PSA 10 |
 | `nattapong@example.com` | `nattapong_tcg` | `Password123!` | คืนเงินที่รอแอดมินโอน, สลิปถูกปฏิเสธ, ตะกร้ามีของจากร้านที่พักร้อน |
+
+### ร้านชุดใหญ่ (22 ร้าน)
+
+ทุกร้านมี listing 35–90 รายการพร้อมรูปที่ร้านถ่าย, ออเดอร์ครบทุกสถานะ (รอชำระ ชำระแล้ว เตรียมของ ส่งแล้ว ถึงแล้ว สำเร็จ ยกเลิก คืนสินค้า), รีวิว, ถอนเงิน, ประมูล, โค้ดส่วนลดของร้าน และของที่เก็บไว้ในสต็อก รหัสผ่าน `Password123!` ทุกบัญชี
+
+| อีเมล | Username | ร้าน | ขายอะไร |
+| --- | --- | --- | --- |
+| `pokeparadise@example.com` | `poke_paradise` | Poke Paradise | Pokémon · การ์ดใบเดี่ยว |
+| `eeveehouse@example.com` | `eevee_house` | Eevee House | Pokémon · การ์ดใบเดี่ยว |
+| `sealedsupply@example.com` | `sealed_supply` | Sealed Supply Co. | ทุกเกม · สินค้าซีล |
+| `gradedgallery@example.com` | `graded_gallery` | Graded Gallery | Pokémon, One Piece · การ์ดเกรด |
+| `strawhatmarket@example.com` | `strawhat_market` | Straw Hat Market | One Piece · การ์ดใบเดี่ยว |
+| `redlinetcg@example.com` | `redline_tcg` | Red Line TCG | One Piece, Dragon Ball FW · การ์ดใบเดี่ยว |
+| `manaforge@example.com` | `mana_forge` | Mana Forge | Magic · การ์ดใบเดี่ยว |
+| `commandercorner@example.com` | `commander_corner` | Commander Corner | Magic · การ์ดใบเดี่ยว |
+| `duelacademybkk@example.com` | `duel_academy_bkk` | Duel Academy BKK | Yu-Gi-Oh! · การ์ดใบเดี่ยว |
+| `millenniumcards@example.com` | `millennium_cards` | Millennium Cards | Yu-Gi-Oh! · การ์ดใบเดี่ยว |
+| `digidestinedshop@example.com` | `digidestined_shop` | DigiDestined Shop | Digimon · การ์ดใบเดี่ยว |
+| `animearenacards@example.com` | `anime_arena_cards` | Anime Arena Cards | Union Arena · การ์ดใบเดี่ยว |
+| `saiyancards@example.com` | `saiyan_cards` | Saiyan Cards | Dragon Ball FW · การ์ดใบเดี่ยว |
+| `chiangmaicardclub@example.com` | `chiangmai_card_club` | Chiang Mai Card Club | Pokémon, One Piece · ใบเดี่ยวและซีล |
+| `phukettcg@example.com` | `phuket_tcg` | Phuket TCG | Pokémon, Magic, Yu-Gi-Oh! · ใบเดี่ยวและซีล |
+| `koratcollectibles@example.com` | `korat_collectibles` | Korat Collectibles | Pokémon, Digimon, Dragon Ball FW · ใบเดี่ยวและซีล |
+| `hatyaihobby@example.com` | `hatyai_hobby` | Hatyai Hobby | One Piece, Union Arena, Pokémon · ใบเดี่ยวและซีล |
+| `khonkaencards@example.com` | `khonkaen_cards` | Khon Kaen Cards | Pokémon · การ์ดใบเดี่ยว |
+| `bangnabooster@example.com` | `bangna_booster` | Bangna Booster | Pokémon, One Piece, Digimon · สินค้าซีล |
+| `rarepullth@example.com` | `rare_pull_th` | Rare Pull Thailand | Pokémon, One Piece, Magic, Yu-Gi-Oh!, Union Arena · การ์ดเกรด |
+| `budgetbinder@example.com` | `budget_binder` | Budget Binder | Pokémon, One Piece, Digimon, Dragon Ball FW · การ์ดราคาประหยัด |
+| `lumpinicollectibles@example.com` | `lumpini_collectibles` | Lumpini Collectibles | Pokémon · การ์ดใบเดี่ยว |
+
+### ใบสมัครผู้ขายที่รอแอดมินตรวจ
+
+| อีเมล | Username | สถานะใบสมัคร |
+| --- | --- | --- |
+| `flipzoneth@example.com` | `flipzone_th` | ส่งแล้ว รอแอดมินเปิดดู |
+| `cardcraftbkk@example.com` | `cardcraft_bkk` | แอดมินกำลังตรวจ |
+| `tinytcg@example.com` | `tiny_tcg` | ส่งแล้ว รอแอดมินเปิดดู |
+| `mysticpulls@example.com` | `mystic_pulls` | แอดมินกำลังตรวจ |
+| `fakeboxseller@example.com` | `fakebox_seller` | ถูกปฏิเสธ (รูปสมุดบัญชีถูกแก้ไข) |
+
+### ผู้ซื้อชุดใหญ่ (56 คน)
+
+ทุกคนมีออเดอร์อย่างน้อย 3 รายการ (มีที่สำเร็จแล้ว), ที่อยู่, ตะกร้า, wishlist, คอลเลกชันที่เปิดโชว์, คูปองที่เก็บไว้ และหลายคนกำลังประมูล บางคนผูกบัญชี Google ไว้ด้วย (ยังล็อกอินด้วยรหัสผ่านได้ตามปกติ)
+
+<details>
+<summary>รายชื่อผู้ซื้อทั้งหมด</summary>
+
+| อีเมล | Username | ชื่อที่แสดง |
+| --- | --- | --- |
+| `somchai_gg@example.com` | `somchai_gg` | สมชาย |
+| `nattapon_gg@example.com` | `nattapon_gg` | Nattapon ป. |
+| `pimchanok_op@example.com` | `pimchanok_op` | พิมพ์ชนก |
+| `kanokwan_ripper@example.com` | `kanokwan_ripper` | Kanokwan น. |
+| `thanawat@example.com` | `thanawat` | Thanawat ว. |
+| `sirinya@example.com` | `sirinya` | ศิริญญา |
+| `pattarapol_th@example.com` | `pattarapol_th` | Pattarapol ก. |
+| `chanida_th@example.com` | `chanida_th` | ชนิดา |
+| `worawut_duel@example.com` | `worawut_duel` | วรวุฒิ |
+| `jirapat_gg@example.com` | `jirapat_gg` | จิรภัทร |
+| `kittipat2025@example.com` | `kittipat2025` | Kittipat ส. |
+| `napat@example.com` | `napat` | ณภัทร |
+| `pornpimol2025@example.com` | `pornpimol2025` | Pornpimol แ. |
+| `theerapat_ripper@example.com` | `theerapat_ripper` | Theerapat ช. |
+| `wanida_duel@example.com` | `wanida_duel` | Wanida ว. |
+| `apichart99@example.com` | `apichart99` | Apichart อ. |
+| `rattana_mtg@example.com` | `rattana_mtg` | Rattana บ. |
+| `sutthipong_binder@example.com` | `sutthipong_binder` | สุทธิพงษ์ |
+| `nicha2025@example.com` | `nicha2025` | ณิชา |
+| `panupong_binder@example.com` | `panupong_binder` | Panupong แ. |
+| `chayanin@example.com` | `chayanin` | Chayanin จ. |
+| `pakorn_cards@example.com` | `pakorn_cards` | Pakorn ศ. |
+| `ploypailin_mtg@example.com` | `ploypailin_mtg` | Ploypailin พ. |
+| `tanakrit_pulls@example.com` | `tanakrit_pulls` | ธนกฤต |
+| `wichuda2025@example.com` | `wichuda2025` | วิชุดา |
+| `korawit_th@example.com` | `korawit_th` | กรวิชญ์ |
+| `benjamas99@example.com` | `benjamas99` | Benjamas เ. |
+| `pongsakorn_cards@example.com` | `pongsakorn_cards` | พงศกร |
+| `suphansa_op@example.com` | `suphansa_op` | สุพรรษา |
+| `naphat_mtg@example.com` | `naphat_mtg` | Naphat เ. |
+| `thitiporn_pulls@example.com` | `thitiporn_pulls` | ฐิติพร |
+| `arthit_th@example.com` | `arthit_th` | อาทิตย์ |
+| `kamonchanok_gg@example.com` | `kamonchanok_gg` | Kamonchanok ร. |
+| `peerapat_th@example.com` | `peerapat_th` | พีรพัฒน์ |
+| `jarunee_pulls@example.com` | `jarunee_pulls` | Jarunee ใ. |
+| `thanakorn_op@example.com` | `thanakorn_op` | Thanakorn ท. |
+| `pichaya_tcg@example.com` | `pichaya_tcg` | Pichaya พ. |
+| `weerawat99@example.com` | `weerawat99` | Weerawat ส. |
+| `sasithorn_gg@example.com` | `sasithorn_gg` | Sasithorn ศ. |
+| `kongpob2025@example.com` | `kongpob2025` | Kongpob แ. |
+| `natcha_th@example.com` | `natcha_th` | ณัชชา |
+| `chatchai_gg@example.com` | `chatchai_gg` | Chatchai ว. |
+| `onanong_collects@example.com` | `onanong_collects` | Onanong อ. |
+| `tawan@example.com` | `tawan` | Tawan บ. |
+| `praew_ripper@example.com` | `praew_ripper` | Praew อ. |
+| `boss99@example.com` | `boss99` | บอส |
+| `fah20@example.com` | `fah20` | Fah แ. |
+| `mint_binder@example.com` | `mint_binder` | Mint จ. |
+| `beam_pulls@example.com` | `beam_pulls` | Beam ศ. |
+| `ice_collects@example.com` | `ice_collects` | ไอซ์ |
+| `nut_tcg@example.com` | `nut_tcg` | Nut บ. |
+| `palm_cards@example.com` | `palm_cards` | Palm ส. |
+| `earth_pkm@example.com` | `earth_pkm` | เอิร์ธ |
+| `gun99@example.com` | `gun99` | Gun เ. |
+| `june2025@example.com` | `june2025` | จูน |
+| `film_th@example.com` | `film_th` | Film ป. |
+
+</details>
 
 ### บัญชีที่ตั้งใจให้ล็อกอินไม่ได้
 
@@ -193,6 +335,8 @@ All 328 pictures are in MinIO.
   - พัสดุที่ส่งแล้วถูกปิดออเดอร์อัตโนมัติเมื่อครบ 7 วันนับจากวันส่ง
 - **อยากได้สถานะเริ่มต้นใหม่:** รันอีกครั้งพร้อม `-Reset`
 - **รูปจริงไม่ได้เก็บใน git:** สคริปต์โหลดจากเว็บของผู้ผลิตเข้า MinIO ในเครื่อง ส่วนสลิป สมุดบัญชี ใบรับพัสดุ และรูปหลักฐานคืนสินค้า เป็นภาพจำลองที่มีลายน้ำ "ตัวอย่าง / SAMPLE"
+- **รูปที่วาดตอนรัน seed:** รูปที่ร้านถ่าย (playmat, ท็อปโหลดเดอร์, มุมการ์ด, เคสเกรดที่มีคำว่า DEMO บนป้าย), ภาพขยายและมุมเอียงบนหน้าสินค้า และเอกสาร SAMPLE ของข้อมูลชุดใหม่ วาดด้วย `full-seed/render/render.py` ใน container `python:3.12-slim-bookworm` ที่สร้างแล้วลบทิ้งเอง ฟอนต์ Sarabun (OFL) อยู่ใน `render/fonts/`
+- **ข้อมูลชุดใหญ่สร้างจาก generator:** ไฟล์ที่ลงท้าย `b_*_more.sql`, `06z_replay.sql`, `11_activity.sql` และรายการรูปท้าย `image-sources.txt` สร้างจากราคาตลาดและข้อมูลการ์ดจริง ณ วันที่ทำ ถ้าต้องแก้ข้อมูลให้แก้ไฟล์ SQL ตรง ๆ
 
 ---
 
@@ -207,6 +351,8 @@ All 328 pictures are in MinIO.
 | `password authentication failed` ตอนรัน Gradle หรือ API | พอร์ต 5432 ชนกับ PostgreSQL ในเครื่อง ตั้ง `DB_PORT=5436` และแก้ `DB_URL` ใน `.env` ให้ใช้พอร์ตเดียวกัน |
 | เว็บไม่มีรูป หรือเห็นรูป "ยังโหลดรูปไม่สำเร็จ" | รัน seed อีกรอบ (ไม่ใส่ `--skip-images`) และเช็ก `MINIO_PUBLIC_ENDPOINT=http://localhost:9000` ใน `.env` |
 | ล็อกอินแล้วข้อมูลแปลก ๆ | ออกจากระบบหรือล้างข้อมูลเว็บไซต์ แล้วล็อกอินใหม่ |
+| `drawing the pictures failed` | ขั้นวาดรูปต้องใช้อินเทอร์เน็ต (pip) ต่อเน็ตแล้วรันคำสั่งเดิมพร้อม `-Reset` อีกรอบ รูปที่วาดแล้วจะไม่วาดซ้ำ |
+| `Missing from MinIO` ตามด้วยรายการ `seed/gen/...` | ขั้นวาดรูปไม่ครบ รันอีกครั้ง (ไม่ใส่ `--skip-images`) |
 
 
 ## Auction demo data (TCG-626)

@@ -33,7 +33,7 @@ class SecurityConfigCorsTest {
                 "traceparent",
                 "tracestate",
                 "baggage");
-        assertThat(corsConfig.getExposedHeaders()).contains("X-Cart-Session");
+        assertThat(corsConfig.getExposedHeaders()).contains("X-Cart-Session", "Retry-After");
         assertThat(corsConfig.getAllowCredentials()).isTrue();
     }
 }
