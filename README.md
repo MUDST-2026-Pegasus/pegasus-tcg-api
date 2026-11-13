@@ -87,7 +87,7 @@ Copy `.env.example` rather than committing `.env`. The important values are:
 Every request under `/api/v1/**` shares a fixed 60-second budget per client address,
 including guest traffic, signed-in users and rejected authentication attempts.
 `API_RATE_LIMIT_PER_MINUTE` defaults to `300`. Auth and promotion limits are additional,
-independent budgets; password-forgot requests also count toward the auth budget.
+independent budgets.
 All three configured limits must be positive.
 
 Exceeding a budget returns HTTP `429` with the existing `ApiResult` error code
