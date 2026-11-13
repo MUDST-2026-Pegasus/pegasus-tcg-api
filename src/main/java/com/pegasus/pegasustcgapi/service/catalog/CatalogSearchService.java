@@ -106,17 +106,32 @@ public class CatalogSearchService {
      */
     public PageResponse<ProductSummaryResponse> search(ProductBrowse browse) {
         requirePriceRange(browse.minPrice(), browse.maxPrice());
+        Resolved resolved = resolve(browse);
+        PageResponse<ProductSummaryResponse> page = searchAs(resolved.browse(), resolved.text(), resolved.fuzzy());
+        return resolved.corrected() == null ? page : page.withCorrectedQuery(resolved.corrected(), resolved.reason());
+    }
 
+    /**
+     * What a search for {@code browse} actually runs (TCG-779): the text as typed when
+     * something contains it, else a known alias (โปเกมอน → Pokemon, which may narrow the
+     * games), then it spelled right, then typed on the other keyboard layout. The results,
+     * the sidebar counts and the shop tab all go through this, so they agree.
+     *
+     * @param corrected the replacement text when there is one, with {@code reason}
+     *                  TYPO, KEYBOARD_LAYOUT or ALIAS
+     */
+    public record Resolved(ProductBrowse browse, String text, boolean fuzzy, String corrected, String reason) {
+    }
+
+    public Resolved resolve(ProductBrowse browse) {
         String requested = browse.nameQuery();
         boolean tolerant = browse.activeOnly() && requested != null && !requested.isBlank();
-        PageResponse<ProductSummaryResponse> found = searchAs(browse, requested, tolerant);
+        Resolved asTyped = new Resolved(browse, requested, tolerant, null, null);
         if (!tolerant || products.count(query(browse, requested, false)) > 0) {
-            return found;
+            return asTyped;
         }
 
-        // Nothing contains the text as typed: try a known alias (โปเกมอน → Pokemon), then it spelled right,
-        // then typed on the other keyboard layout.
-        PageResponse<ProductSummaryResponse> corrected = viaAlias(browse, requested.trim());
+        Resolved corrected = viaAlias(browse, requested.trim());
         if (corrected != null) {
             return corrected;
         }
@@ -125,7 +140,7 @@ public class CatalogSearchService {
             return corrected;
         }
         String switched = SearchText.switchKeyboard(requested);
-        if (found.totalItems() == 0 && switched != null) {
+        if (switched != null && products.count(query(browse, requested, true)) == 0) {
             List<String> tries = new ArrayList<>(List.of(switched));
             tries.addAll(corrections(switched));
             corrected = firstHit(browse, tries, "KEYBOARD_LAYOUT");
@@ -133,7 +148,7 @@ public class CatalogSearchService {
                 return corrected;
             }
         }
-        return found;
+        return asTyped;
     }
 
     /**
@@ -141,7 +156,7 @@ public class CatalogSearchService {
      * matches (same normalising, or one edit away from four letters on). An alias
      * tied to a game only applies within that game, and narrows an all-games search to it.
      */
-    private PageResponse<ProductSummaryResponse> viaAlias(ProductBrowse browse, String requested) {
+    private Resolved viaAlias(ProductBrowse browse, String requested) {
         if (aliases == null) {
             return null;
         }
@@ -185,7 +200,7 @@ public class CatalogSearchService {
         if (products.count(query(narrowed, expanded, true)) == 0) {
             return null;
         }
-        return searchAs(narrowed, expanded, true).withCorrectedQuery(expanded, "ALIAS");
+        return new Resolved(narrowed, expanded, true, expanded, "ALIAS");
     }
 
     private static SearchAliasRepository.Alias closestAlias(String normalized, List<SearchAliasRepository.Alias> all) {
@@ -202,17 +217,17 @@ public class CatalogSearchService {
         return best;
     }
 
-    private PageResponse<ProductSummaryResponse> firstHit(ProductBrowse browse, List<String> tries, String reason) {
+    private Resolved firstHit(ProductBrowse browse, List<String> tries, String reason) {
         for (String attempt : tries) {
             if (products.count(query(browse, attempt, false)) > 0) {
-                return searchAs(browse, attempt, true).withCorrectedQuery(attempt, reason);
+                return new Resolved(browse, attempt, true, attempt, reason);
             }
         }
         return null;
     }
 
     /**
-     * Each word of four or more letters that no searchable name contains is swapped
+     * Each word of four or more characters, with at least one letter, that no searchable name contains is swapped
      * for the closest one (1 edit under five letters, 2 from five); the rest stay as
      * typed, so "charzard ex" becomes "charizard ex". Up to three variants, best first.
      */
@@ -222,7 +237,8 @@ public class CatalogSearchService {
         boolean any = false;
         for (String word : words) {
             List<String> closest = List.of();
-            if (word.codePointCount(0, word.length()) >= 4) {
+            // A card number with no match is not a typo of another card's number (020/189 ≠ 230/182).
+            if (word.codePointCount(0, word.length()) >= 4 && word.codePoints().anyMatch(Character::isLetter)) {
                 List<String> candidates = products.correctionCandidates(word);
                 String normalized = SearchText.normalize(word);
                 boolean known = candidates.stream().flatMap(c -> List.of(c.split("\\s+")).stream())
@@ -281,9 +297,9 @@ public class CatalogSearchService {
                 browse.onSale());
     }
 
-    /** The query a search page's counts run over: the text as typed, matched fuzzily like the results. */
-    private ProductSearchQuery query(ProductBrowse browse) {
-        return query(browse, browse.nameQuery(), browse.activeOnly());
+    /** The query a search page's counts run over: the same text, games and fuzziness as its results. */
+    private ProductSearchQuery query(Resolved resolved) {
+        return query(resolved.browse(), resolved.text(), resolved.fuzzy());
     }
 
     /**
@@ -292,7 +308,7 @@ public class CatalogSearchService {
      */
     public SearchFacetsResponse facets(ProductBrowse browse) {
         requirePriceRange(browse.minPrice(), browse.maxPrice());
-        ProductSearchQuery query = query(browse);
+        ProductSearchQuery query = query(resolve(browse));
         SearchFacetRepository.Totals totals = facets.totals(query);
         return new SearchFacetsResponse(
                 facets.games(query).stream().map(c -> new SearchFacetsResponse.Option(
@@ -317,7 +333,7 @@ public class CatalogSearchService {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, "sort must be MATCHES or RATING");
         }
         Paging paging = Paging.of(browse.page(), browse.size());
-        ProductSearchQuery query = query(browse);
+        ProductSearchQuery query = query(resolve(browse));
         OffsetDateTime now = OffsetDateTime.now(clock);
         List<SearchFacetRepository.Shop> shops = facets.shops(query, minRating, byRating, paging.size(),
                 paging.offset(), now);
@@ -334,6 +350,28 @@ public class CatalogSearchService {
                         .map(p -> new SearchShopResponse.Preview(p.productId(), signed(imageKeys.get(p.productId()))))
                         .toList())).toList();
         return PageResponse.of(items, paging.page(), paging.size(), facets.countShops(query, minRating, now));
+    }
+
+    /**
+     * What the search box dropdown needs from one resolved search (TCG-774), without the
+     * rest of a results page: in-stock product rows, how many products the results page
+     * will show, games and categories with counts, and the shops selling most of them.
+     */
+    public record SuggestData(PageResponse<ProductSummaryResponse> page, long totalProducts,
+            List<SearchFacetRepository.Count> games, List<SearchFacetRepository.Count> categories,
+            List<SearchFacetRepository.Shop> shops) {
+    }
+
+    public SuggestData suggestData(ProductBrowse browse, int productRows, int shopRows) {
+        Resolved resolved = resolve(browse);
+        ProductBrowse inStock = resolved.browse().withPage(0, productRows).inStock();
+        PageResponse<ProductSummaryResponse> page = searchAs(inStock, resolved.text(), resolved.fuzzy());
+        if (resolved.corrected() != null) {
+            page = page.withCorrectedQuery(resolved.corrected(), resolved.reason());
+        }
+        ProductSearchQuery all = query(resolved);
+        return new SuggestData(page, products.count(all), facets.games(all), facets.categories(all),
+                facets.shops(all, null, false, shopRows, 0, OffsetDateTime.now(clock)));
     }
 
     /** @param query already normalised; candidates and their words are compared normalised too */
@@ -457,6 +495,11 @@ public class CatalogSearchService {
                             offer != null && offer.onSale());
                 })
                 .toList();
+    }
+
+    /** A shop's avatar as a short-lived download URL, as the shop tab sends it. */
+    public String signedAvatar(String avatarKey) {
+        return signed(avatarKey);
     }
 
     private String signed(String imageKey) {
