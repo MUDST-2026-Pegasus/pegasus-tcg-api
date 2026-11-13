@@ -83,39 +83,44 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
             cart.addItem(buyer, null, new CartItemRequest(listing.id(), 1));
         }
 
-        ExecutorService pool = Executors.newFixedThreadPool(buyerCount);
-        CountDownLatch ready = new CountDownLatch(buyerCount);
-        CountDownLatch start = new CountDownLatch(1);
-
         AtomicInteger successes = new AtomicInteger();
         Queue<ErrorCode> errors = new ConcurrentLinkedQueue<>();
-        List<Future<?>> futures = new ArrayList<>();
+        ExecutorService pool = Executors.newFixedThreadPool(buyerCount);
+        try {
+            CountDownLatch ready = new CountDownLatch(buyerCount);
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<?>> futures = new ArrayList<>();
 
-        for (int i = 0; i < buyerCount; i++) {
-            final AuthPrincipal buyer = buyers.get(i);
-            final String key = "race-chk-" + data.tag() + "-" + i;
-            futures.add(pool.submit(() -> {
-                ready.countDown();
-                try {
-                    start.await();
-                    checkout.checkout(buyer, key, null, null);
-                    successes.incrementAndGet();
-                } catch (ConflictException e) {
-                    errors.add(e.errorCode());
-                } catch (Exception e) {
-                    // unexpected
-                }
-                return null;
-            }));
+            for (int i = 0; i < buyerCount; i++) {
+                final AuthPrincipal buyer = buyers.get(i);
+                final String key = "race-chk-" + data.tag() + "-" + i;
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    try {
+                        if (start.await(30, TimeUnit.SECONDS)) {
+                            checkout.checkout(buyer, key, null, null);
+                            successes.incrementAndGet();
+                        }
+                    } catch (ConflictException e) {
+                        errors.add(e.errorCode());
+                    } catch (Exception e) {
+                        // unexpected
+                    }
+                    return null;
+                }));
+            }
+
+            boolean allReady = ready.await(30, TimeUnit.SECONDS);
+            assertThat(allReady).as("All worker threads must reach ready latch").isTrue();
+            start.countDown();
+
+            for (Future<?> f : futures) {
+                f.get(30, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdown();
+            pool.awaitTermination(5, TimeUnit.SECONDS);
         }
-
-        ready.await();
-        start.countDown();
-
-        for (Future<?> f : futures) {
-            f.get(30, TimeUnit.SECONDS);
-        }
-        pool.shutdown();
 
         // 1. Assert exactly 2 successes, 8 graceful conflict failures
         assertThat(successes.get()).as("Exactly 2 buyers must secure the stock").isEqualTo(2);
@@ -153,41 +158,47 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
         var order = checkout.checkout(buyer, "collide-" + data.tag(), null, null);
         long salesOrderId = order.orderId();
 
-        ExecutorService pool = Executors.newFixedThreadPool(2);
-        CountDownLatch ready = new CountDownLatch(2);
-        CountDownLatch start = new CountDownLatch(1);
-
         AtomicInteger cancelSuccesses = new AtomicInteger();
         AtomicInteger paySuccesses = new AtomicInteger();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CountDownLatch ready = new CountDownLatch(2);
+            CountDownLatch start = new CountDownLatch(1);
 
-        Future<?> cancelFuture = pool.submit(() -> {
-            ready.countDown();
-            try {
-                start.await();
-                orders.cancelBuyerOrder(buyer, salesOrderId, new CancelOrderRequest("Fast cancel"));
-                cancelSuccesses.incrementAndGet();
-            } catch (Exception ignored) {
-            }
-            return null;
-        });
+            Future<?> cancelFuture = pool.submit(() -> {
+                ready.countDown();
+                try {
+                    if (start.await(30, TimeUnit.SECONDS)) {
+                        orders.cancelBuyerOrder(buyer, salesOrderId, new CancelOrderRequest("Fast cancel"));
+                        cancelSuccesses.incrementAndGet();
+                    }
+                } catch (Exception ignored) {
+                }
+                return null;
+            });
 
-        Future<?> payFuture = pool.submit(() -> {
-            ready.countDown();
-            try {
-                start.await();
-                payments.payMock(buyer, salesOrderId);
-                paySuccesses.incrementAndGet();
-            } catch (Exception ignored) {
-            }
-            return null;
-        });
+            Future<?> payFuture = pool.submit(() -> {
+                ready.countDown();
+                try {
+                    if (start.await(30, TimeUnit.SECONDS)) {
+                        payments.payMock(buyer, salesOrderId);
+                        paySuccesses.incrementAndGet();
+                    }
+                } catch (Exception ignored) {
+                }
+                return null;
+            });
 
-        ready.await();
-        start.countDown();
+            boolean allReady = ready.await(30, TimeUnit.SECONDS);
+            assertThat(allReady).as("All worker threads must reach ready latch").isTrue();
+            start.countDown();
 
-        cancelFuture.get(30, TimeUnit.SECONDS);
-        payFuture.get(30, TimeUnit.SECONDS);
-        pool.shutdown();
+            cancelFuture.get(30, TimeUnit.SECONDS);
+            payFuture.get(30, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdown();
+            pool.awaitTermination(5, TimeUnit.SECONDS);
+        }
 
         // In the collision race between cancel and pay:
         // Case A: cancel commits first -> order CANCELLED, stock released. Pay then fails.
@@ -252,38 +263,43 @@ class ConcurrencyRaceReconciliationTest extends PostgresIntegrationTest {
         oracle.assertWalletEquation(sellerWalletId);
 
         // Two concurrent threads each attempt to request payout of full withdrawableAmount
-        ExecutorService pool = Executors.newFixedThreadPool(2);
-        CountDownLatch ready = new CountDownLatch(2);
-        CountDownLatch start = new CountDownLatch(1);
-
         AtomicInteger successes = new AtomicInteger();
         AtomicInteger failures = new AtomicInteger();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CountDownLatch ready = new CountDownLatch(2);
+            CountDownLatch start = new CountDownLatch(1);
 
-        List<Future<?>> futures = new ArrayList<>();
-        for (int i = 0; i < 2; i++) {
-            futures.add(pool.submit(() -> {
-                ready.countDown();
-                try {
-                    start.await();
-                    payouts.request(seller.userId(), withdrawableAmount);
-                    successes.incrementAndGet();
-                } catch (ConflictException e) {
-                    if (e.errorCode() == ErrorCode.INSUFFICIENT_BALANCE) {
-                        failures.incrementAndGet();
+            List<Future<?>> futures = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    try {
+                        if (start.await(30, TimeUnit.SECONDS)) {
+                            payouts.request(seller.userId(), withdrawableAmount);
+                            successes.incrementAndGet();
+                        }
+                    } catch (ConflictException e) {
+                        if (e.errorCode() == ErrorCode.INSUFFICIENT_BALANCE) {
+                            failures.incrementAndGet();
+                        }
+                    } catch (Exception ignored) {
                     }
-                } catch (Exception ignored) {
-                }
-                return null;
-            }));
-        }
+                    return null;
+                }));
+            }
 
-        ready.await();
-        start.countDown();
+            boolean allReady = ready.await(30, TimeUnit.SECONDS);
+            assertThat(allReady).as("All worker threads must reach ready latch").isTrue();
+            start.countDown();
 
-        for (Future<?> f : futures) {
-            f.get(30, TimeUnit.SECONDS);
+            for (Future<?> f : futures) {
+                f.get(30, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdown();
+            pool.awaitTermination(5, TimeUnit.SECONDS);
         }
-        pool.shutdown();
 
         // Exactly 1 payout request can succeed, 1 must fail with INSUFFICIENT_BALANCE
         assertThat(successes.get()).as("Exactly 1 concurrent payout request succeeds").isEqualTo(1);
