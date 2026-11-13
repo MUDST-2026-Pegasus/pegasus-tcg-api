@@ -28,6 +28,7 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
             ApiPaths.AUTH + "/login",
             ApiPaths.AUTH + "/google",
             ApiPaths.AUTH + "/register",
+            ApiPaths.AUTH + "/password/forgot",
             ApiPaths.AUTH + "/password/reset",
             ApiPaths.AUTH + "/password/change");
 

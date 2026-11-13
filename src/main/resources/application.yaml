@@ -91,6 +91,9 @@ management:
       probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
 
 pegasus:
+  api:
+    # Shared budget for /api/v1/** per client address, per application instance.
+    rate-limit-per-minute: ${API_RATE_LIMIT_PER_MINUTE:300}
   search:
     # word_similarity a name must reach to show up as a fuzzy match (TCG-772)
     fuzzy-threshold: 0.45
