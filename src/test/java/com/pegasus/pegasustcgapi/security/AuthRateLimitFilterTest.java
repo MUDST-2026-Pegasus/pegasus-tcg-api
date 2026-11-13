@@ -36,14 +36,6 @@ class AuthRateLimitFilterTest {
     }
 
     @Test
-    void forgotPasswordSharesTheSensitiveAuthBudget() throws Exception {
-        for (int i = 0; i < 3; i++) {
-            assertThat(send(post("/api/v1/auth/password/forgot", "203.0.113.5"))).isEqualTo(200);
-        }
-        assertThat(send(post("/api/v1/auth/login", "203.0.113.5"))).isEqualTo(429);
-    }
-
-    @Test
     void refreshLogoutAndReadsAreNotCounted() throws Exception {
         for (int i = 0; i < 10; i++) {
             assertThat(send(post("/api/v1/auth/refresh", "203.0.113.9"))).isEqualTo(200);

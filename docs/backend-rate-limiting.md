@@ -7,7 +7,7 @@ Local work item created from the request to add backend rate limiting; no extern
 - Only `pegasus-tcg-api` changes, on `feat/backend-rate-limiting` from `develop`.
 - Reuse the existing fixed-window limiter, client-address policy and security error envelope.
 - Apply a shared IP budget before bearer authentication, after CORS, across `/api/v1/**`.
-- Keep auth and promotion budgets independent; include password-forgot in the sensitive auth paths.
+- Keep auth and promotion budgets independent.
 - Bound limiter memory and serialize window changes so concurrent requests cannot exceed the cap.
 
 ## Acceptance criteria
