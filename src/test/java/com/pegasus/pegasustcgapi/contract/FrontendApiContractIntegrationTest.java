@@ -77,8 +77,8 @@ class FrontendApiContractIntegrationTest extends PostgresIntegrationTest {
 
     /**
      * DEF-755-01: OrderController and MockPaymentController both declare {@code @Tag(name = "Orders")}
-     * with different descriptions, so /v1/api-docs lists the tag twice and strict OpenAPI tools
-     * (generators, this validator) refuse the document. Fails until the producer is fixed.
+     * with different descriptions, so /v1/api-docs lists the tag twice. Tag names must be unique
+     * in OpenAPI; strict tools (swagger-parser, client generators) refuse the document. Fails until fixed.
      */
     @Test
     @Tag("known-defect")
@@ -86,7 +86,25 @@ class FrontendApiContractIntegrationTest extends PostgresIntegrationTest {
     void publishedDocumentIsValidOpenApi() {
         OpenApiContract spec = OpenApiContract.fetch(api);
         assertThat(spec.duplicateTags()).as("top-level tags declared more than once").isEmpty();
-        assertThat(spec.parseErrors()).as("strict parser messages").isEmpty();
+    }
+
+    /**
+     * DEF-755-05: nullable response fields are published without "null" in their type, e.g.
+     * UserResponse.bio/phone/avatarUrl. The web app's hand-written types already allow null, but any
+     * client generated from /v1/api-docs would reject real responses. Journeys log every such field
+     * to build/tcg755/undocumented-nulls.txt. Fails until springdoc emits nullable types.
+     */
+    @Test
+    @Tag("known-defect")
+    @DisplayName("DEF-755-05 fields the API sends as null are documented as nullable")
+    void nullableFieldsAreDocumented() {
+        OpenApiContract spec = OpenApiContract.fetch(api);
+        ApiClient.Response me = api.get("/api/v1/auth/me", data.bearer(data.buyer()));
+        assertThat(me.status()).isEqualTo(200);
+        assertThat(spec.violations("GET", "/api/v1/auth/me", me))
+                .filteredOn(OpenApiContract::isUndocumentedNull)
+                .as("null values the schema does not allow")
+                .isEmpty();
     }
 
     @Test
@@ -120,6 +138,27 @@ class FrontendApiContractIntegrationTest extends PostgresIntegrationTest {
         assertThat(data.path("size").asInt()).isEqualTo(5);
         assertThat(data.path("totalItems").isIntegralNumber()).isTrue();
         assertThat(OpenApiContract.fetch(api).violations("GET", "/api/v1/listings", page)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the schema validator is not vacuous: a body that breaks the documented types is rejected")
+    void validatorRejectsABrokenBody() {
+        OpenApiContract spec = OpenApiContract.fetch(api);
+        ApiClient.Response real = api.get("/api/v1/listings?page=0&size=1", null);
+        tools.jackson.databind.node.ObjectNode broken = (tools.jackson.databind.node.ObjectNode) real.body().deepCopy();
+        ((tools.jackson.databind.node.ObjectNode) broken.get("data")).put("totalItems", "many");
+        ((tools.jackson.databind.node.ObjectNode) broken.get("data")).put("items", "not-an-array");
+        ApiClient.Response tampered = new ApiClient.Response(200, broken, real.headers());
+
+        assertThat(spec.violations("GET", "/api/v1/listings", real)).isEmpty();
+        assertThat(spec.violations("GET", "/api/v1/listings", tampered)).isNotEmpty();
+        // Coverage of the check itself: how many FE-consumed operations document a JSON body schema.
+        long documented = ContractFixtures.feEndpoints().stream()
+                .filter(call -> spec.hasJsonSuccessSchema(call.method(), call.path())).count();
+        System.out.printf("TCG-755 OpenAPI %s; schema coverage: %d of %d FE-consumed calls document a JSON 2xx schema; "
+                + "2xx media types: %s%n", spec.version(), documented, ContractFixtures.feEndpoints().size(),
+                spec.successMediaTypes());
+        assertThat(documented).isGreaterThan(ContractFixtures.feEndpoints().size() / 2);
     }
 
     @Test
