@@ -10,6 +10,7 @@ import static com.pegasus.pegasustcgapi.jooq.tables.SellerOrder.SELLER_ORDER;
 import static com.pegasus.pegasustcgapi.jooq.tables.SellerVerification.SELLER_VERIFICATION;
 import static com.pegasus.pegasustcgapi.jooq.tables.Wallet.WALLET;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.pegasus.pegasustcgapi.dto.cart.CartItemRequest;
 import com.pegasus.pegasustcgapi.dto.order.CancelOrderRequest;
@@ -39,6 +40,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * [TCG-756 / QA-03-B] Full Transaction Matrix Lifecycle Integration Tests with SQL Reconciliation Oracle.
@@ -58,6 +60,7 @@ class OrderLifecycleReconciliationTest extends PostgresIntegrationTest {
     @Autowired private PayoutAccountRepository payoutAccounts;
     @Autowired private WalletLedgerService walletLedgerService;
     @Autowired private PendingPaymentTimeoutScheduler timeoutScheduler;
+    @Autowired private TransactionTemplate transactions;
 
     private ReconciliationOracle oracle() {
         return new ReconciliationOracle(dsl);
@@ -519,5 +522,79 @@ class OrderLifecycleReconciliationTest extends PostgresIntegrationTest {
         oracle.assertEscrowReconciliation(sellerOrderId);
         oracle.assertOrderIntegrity(salesOrderId);
         oracle.assertGlobalReferentialIntegrity();
+    }
+
+    @Test
+    @DisplayName("Lifecycle 8: Negative Proof — Synthetic Orphan Ledger References (SELLER_ORDER, PAYMENT, REFUND) Are Caught and Rejected")
+    void negativeOrphanLedgerReference_detectedAndRejectedByOracle() {
+        var oracle = oracle();
+        var seller = data.seller();
+        long testWalletId = transactions.execute(status -> walletLedgerService.ensureSellerWallet(seller.userId()));
+
+        // 1. Negative test for SELLER_ORDER orphan reference
+        transactions.executeWithoutResult(status -> {
+            try {
+                dsl.insertInto(LEDGER_ENTRY)
+                        .set(LEDGER_ENTRY.WALLET_ID, testWalletId)
+                        .set(LEDGER_ENTRY.ENTRY_TYPE, "SELLER_EARNING")
+                        .set(LEDGER_ENTRY.DIRECTION, "CREDIT")
+                        .set(LEDGER_ENTRY.AMOUNT, new BigDecimal("10.00"))
+                        .set(LEDGER_ENTRY.BALANCE_AFTER, new BigDecimal("10.00"))
+                        .set(LEDGER_ENTRY.REFERENCE_TYPE, "SELLER_ORDER")
+                        .set(LEDGER_ENTRY.REFERENCE_ID, 999_999_991L)
+                        .execute();
+
+                assertThatThrownBy(() -> oracle.assertScopedOrphanReferences(List.of(testWalletId)))
+                        .isInstanceOf(AssertionError.class)
+                        .hasMessageContaining("orphan ledger entries");
+            } finally {
+                status.setRollbackOnly();
+            }
+        });
+
+        // 2. Negative test for PAYMENT orphan reference
+        transactions.executeWithoutResult(status -> {
+            try {
+                dsl.insertInto(LEDGER_ENTRY)
+                        .set(LEDGER_ENTRY.WALLET_ID, testWalletId)
+                        .set(LEDGER_ENTRY.ENTRY_TYPE, "PAYMENT_IN")
+                        .set(LEDGER_ENTRY.DIRECTION, "CREDIT")
+                        .set(LEDGER_ENTRY.AMOUNT, new BigDecimal("20.00"))
+                        .set(LEDGER_ENTRY.BALANCE_AFTER, new BigDecimal("20.00"))
+                        .set(LEDGER_ENTRY.REFERENCE_TYPE, "PAYMENT")
+                        .set(LEDGER_ENTRY.REFERENCE_ID, 999_999_992L)
+                        .execute();
+
+                assertThatThrownBy(() -> oracle.assertScopedOrphanReferences(List.of(testWalletId)))
+                        .isInstanceOf(AssertionError.class)
+                        .hasMessageContaining("orphan ledger entries");
+            } finally {
+                status.setRollbackOnly();
+            }
+        });
+
+        // 3. Negative test for REFUND orphan reference
+        transactions.executeWithoutResult(status -> {
+            try {
+                dsl.insertInto(LEDGER_ENTRY)
+                        .set(LEDGER_ENTRY.WALLET_ID, testWalletId)
+                        .set(LEDGER_ENTRY.ENTRY_TYPE, "REFUND_OUT")
+                        .set(LEDGER_ENTRY.DIRECTION, "DEBIT")
+                        .set(LEDGER_ENTRY.AMOUNT, new BigDecimal("15.00"))
+                        .set(LEDGER_ENTRY.BALANCE_AFTER, BigDecimal.ZERO)
+                        .set(LEDGER_ENTRY.REFERENCE_TYPE, "REFUND")
+                        .set(LEDGER_ENTRY.REFERENCE_ID, 999_999_993L)
+                        .execute();
+
+                assertThatThrownBy(() -> oracle.assertScopedOrphanReferences(List.of(testWalletId)))
+                        .isInstanceOf(AssertionError.class)
+                        .hasMessageContaining("orphan ledger entries");
+            } finally {
+                status.setRollbackOnly();
+            }
+        });
+
+        // Post-condition: wallet integrity passes with 0 orphan entries after rollbacks
+        oracle.assertWalletIntegrity(testWalletId);
     }
 }

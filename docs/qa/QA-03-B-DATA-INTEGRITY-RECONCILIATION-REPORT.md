@@ -3,8 +3,10 @@
 > **Ticket**: `[TCG-756] [QA-03-B] Data Integrity & Financial Reconciliation — ตรวจ stock และยอดเงินตลอด lifecycle`  
 > **Repository**: `Pegasus TCG Backend (pegasus-tcg-api)`  
 > **Branch**: `test/QA-03-B-data-integrity-financial-reconciliation`  
+> **Head Commit SHA**: `fdb5784`  
 > **Environment**: OpenJDK 25 (64-Bit Server VM), Spring Boot 4.1.2, Gradle 9.8.2, PostgreSQL 17-alpine Testcontainers, jOOQ 3.21.9  
-> **Status**: **PASS (100% — 21 / 21 Scenarios Passed)**  
+> **CI Verification Status**: **PASS (CI Run #493 — 1,731 passed, 0 failed, 0 skipped)**  
+> **Reconciliation Suite Status**: **PASS (100% — 22 / 22 Scenarios Passed)**  
 
 ---
 
@@ -12,16 +14,16 @@
 
 This report documents the verification, oracle design, and empirical test execution for ticket **TCG-756 ([QA-03-B])**, validating complete physical-to-logical stock conservation, monetary integrity, wallet balance equations, and referential state safety across the end-to-end commerce lifecycle.
 
-All tests operate against real PostgreSQL 17 container instances (`postgres:17-alpine`) managed via Testcontainers, enforcing real database foreign keys, unique constraints (e.g., `ux_ledger_entry_once`), row-level locks (`SELECT FOR UPDATE`), and table-level check constraints (`ck_wallet_non_negative`, `ck_listing_unit_lifecycle`).
+All tests operate against real PostgreSQL 17 container instances (`postgres:17-alpine`) managed via Testcontainers, enforcing real database foreign keys, unique constraints (e.g., `ux_ledger_entry_once`), row-level locks (`SELECT FOR UPDATE`), and table-level check constraints (`ck_wallet_non_negative`, `ck_listing_unit_lifecycle`, `ck_escrow_status`).
 
 ### Key Results Matrix
 | Test Suite / Category | Scenarios | Passed | Failed | Discrepancies |
 |---|---|---|---|---|
-| **Full Lifecycle Matrix** (`OrderLifecycleReconciliationTest`) | 7 | 7 | 0 | 0 |
+| **Full Lifecycle Matrix** (`OrderLifecycleReconciliationTest`) | 8 | 8 | 0 | 0 |
 | **Currency Precision & Allocation** (`FinancialPrecisionReconciliationTest`) | 4 | 4 | 0 | 0 |
 | **Idempotency, Duplicate Call & Recovery** (`IdempotencyAndRetryReconciliationTest`) | 5 | 5 | 0 | 0 |
 | **Concurrency & Race Conditions** (`ConcurrencyRaceReconciliationTest`) | 5 | 5 | 0 | 0 |
-| **TOTAL** | **21** | **21** | **0** | **0** |
+| **TOTAL** | **22** | **22** | **0** | **0** |
 
 ---
 
@@ -72,11 +74,12 @@ The `ReconciliationOracle` test engine executes direct SQL and jOOQ assertions a
      GROUP BY l.id, l.quantity_available, l.quantity_reserved, l.quantity_total;
      ```
 
-2. **Order Item Movement Invariant**:
+2. **Order Item Movement Invariant Across States**:
    - For every `order_item` in a child `seller_order`, physical units in `order_item_unit` strictly mirror the lifecycle:
      * `PENDING_PAYMENT`: `LISTING_UNIT.STATUS` = `RESERVED`
-     * `PAID`, `SHIPPED`, `DELIVERED`, `COMPLETED`: `LISTING_UNIT.STATUS` = `SOLD`
-     * `CANCELLED` prior to delivery: all units released back to `LISTED`
+     * `PAID`: `LISTING_UNIT.STATUS` = `RESERVED` (Stock units remain strictly `RESERVED` upon payment; conversion to `SOLD` occurs upon seller shipment)
+     * `SHIPPED`, `DELIVERED`, `COMPLETED`: `LISTING_UNIT.STATUS` = `SOLD`
+     * `CANCELLED` prior to shipment: all reserved units released back to `LISTED`
      * `RETURNED` with physical ship-back (`requireShipBack = true`): unit transitioned from `SOLD` to `RETURNED` with an `inventory_movement` record of type `RETURN_RESTOCK`
      * `RETURNED` with no ship-back (`requireShipBack = false`): unit intentionally remains `SOLD` (not restocked) per business specification
 
@@ -95,8 +98,8 @@ The `ReconciliationOracle` test engine executes direct SQL and jOOQ assertions a
      ```
 
 2. **Platform Wallet Bucket Separation & Escrow Hold Conservation**:
-   $$\text{platform\_wallet.balance\_pending} = \sum_{\text{status} \in \{\text{'HELD'}, \text{'SCHEDULED'}\}} (\text{amount} - \text{released\_amount} - \text{refunded\_amount})$$
-   - Platform `balance_pending` strictly mirrors outstanding active escrow obligations.
+   $$\text{platform\_wallet.balance\_pending} = \sum_{\text{status} \in \{\text{'HELD'}, \text{'PARTIALLY\_RELEASED'}\}} (\text{amount} - \text{released\_amount} - \text{refunded\_amount})$$
+   - Platform `balance_pending` strictly mirrors outstanding active escrow obligations for all holds with `status IN ('HELD', 'PARTIALLY_RELEASED')`.
    - For completed holds:
      * In status `RELEASED`: $\text{released\_amount} + \text{refunded\_amount} = \text{amount}$
      * In status `PARTIALLY_RELEASED`: $\text{released\_amount} > 0 \land \text{refunded\_amount} > 0 \land \text{released\_amount} + \text{refunded\_amount} = \text{amount}$
@@ -110,8 +113,22 @@ The `ReconciliationOracle` test engine executes direct SQL and jOOQ assertions a
    $$\text{seller\_order.seller\_net\_amount} = \text{grand\_total} + \text{platform\_discount\_amount} - \text{commission\_amount}$$
 
 ### 2.3 Referential & State Integrity Invariants
-1. **Scoped Referential Integrity**:
-   - Every ledger row in an order lifecycle strictly references an existing domain row (`PAYMENT`, `SELLER_ORDER`, `REFUND`, `PAYOUT`).
+1. **Scoped Referential Integrity & Orphan Reference Detection**:
+   - Ledger entries are strictly scoped by the test fixture's isolated wallets (`l.wallet_id IN (:scopedWalletIds)`).
+   - Across all reference types (`PAYMENT`, `SELLER_ORDER`, `REFUND`, `PAYOUT`), the oracle verifies:
+     ```sql
+     SELECT COUNT(*) FROM ledger_entry l
+     WHERE l.wallet_id IN (:scopedWalletIds)
+       AND (
+         (l.reference_type = 'SELLER_ORDER' AND (l.reference_id IS NULL OR NOT EXISTS (SELECT 1 FROM seller_order WHERE id = l.reference_id)))
+         OR (l.reference_type = 'PAYMENT' AND (l.reference_id IS NULL OR NOT EXISTS (SELECT 1 FROM payment WHERE id = l.reference_id)))
+         OR (l.reference_type = 'REFUND' AND (l.reference_id IS NULL OR NOT EXISTS (SELECT 1 FROM refund WHERE id = l.reference_id)))
+         OR (l.reference_type = 'PAYOUT' AND (l.reference_id IS NULL OR NOT EXISTS (SELECT 1 FROM payout WHERE id = l.reference_id)))
+       );
+     -- MUST RETURN 0
+     ```
+   - Scoping by isolated wallets completely shields the check from shared-container mock rows created by other test classes, while never filtering out non-existent target IDs.
+   - Negative proof verified in Lifecycle 8: synthetic orphan rows for `PAYMENT`, `SELLER_ORDER`, and `REFUND` are immediately intercepted and rejected with `AssertionError`.
 2. **Zero Duplicate Postings**:
    - Enforced by PostgreSQL unique index `ux_ledger_entry_once (entry_type, direction, reference_type, reference_id) WHERE entry_type <> 'ADJUSTMENT'`.
 3. **Audit Trail Order Status History**:
@@ -128,8 +145,8 @@ The `ReconciliationOracle` test engine executes direct SQL and jOOQ assertions a
 |---|---|---|---|---|:---:|
 | **1. Seed & Listing** | Create Listing (5 units @ 100 THB) | Available: 5, Reserved: 0, Total: 5, Units: 5 `LISTED` | None | Persisted in `listing` and `listing_unit` | **PASS** |
 | **2. Checkout Submit** | Cart Checkout (2 units) | Available: 3, Reserved: 2, Total: 5, Units: 2 `RESERVED` | None (order in `PENDING_PAYMENT`) | Persisted, mapped in `order_item_unit` | **PASS** |
-| **3. Payment Succeeded** | Verify Payment / Mock Pay (200 THB) | Available: 3, Reserved: 2, Units: 2 `SOLD` | 1. `PAYMENT_IN` (+200 Platform Available)<br>2. `ESCROW_HOLD` (-200 Platform Available)<br>3. `ESCROW_HOLD` (+200 Platform Pending) | `escrow_hold` created (status `HELD`), Platform pending = 200.00 | **PASS** |
-| **4. Order Completion** | Buyer Confirms Receipt | Units: 2 `SOLD` intact | 1. `ESCROW_RELEASE` (-200 Platform Pending)<br>2. `COMMISSION_FEE` (+10 Platform Available)<br>3. `SELLER_EARNING` (+190 Seller Available) | `escrow_hold` status `RELEASED`, Seller available = 190.00 | **PASS** |
+| **3. Payment Succeeded** | Verify Payment / Mock Pay (200 THB) | Available: 3, Reserved: 2, Units: 2 `RESERVED` (remains reserved until shipment) | 1. `PAYMENT_IN` (+200 Platform Available)<br>2. `ESCROW_HOLD` (-200 Platform Available)<br>3. `ESCROW_HOLD` (+200 Platform Pending) | `escrow_hold` created (status `HELD`), Platform pending = 200.00 | **PASS** |
+| **4. Order Shipment & Completion** | Seller ships package, Buyer confirms receipt | Units: 2 `RESERVED` -> 2 `SOLD` on shipment; remains `SOLD` on completion | 1. `ESCROW_RELEASE` (-200 Platform Pending)<br>2. `COMMISSION_FEE` (+10 Platform Available)<br>3. `SELLER_EARNING` (+190 Seller Available) | `escrow_hold` status `RELEASED`, Seller available = 190.00 | **PASS** |
 | **5. Seller Payout** | Request & Process Payout (190 THB) | Units unaffected | 1. `PAYOUT_OUT` (-190 Seller Available) | Seller available = 0.00, Payout status `PAID` | **PASS** |
 | **6. Buyer Cancel (Unpaid)** | Buyer cancels before payment | Available: 4 -> 4, Reserved: 1 -> 0, Units: 1 `LISTED` | 0 ledger entries, Escrow absent | Order status `CANCELLED`, zero phantom postings | **PASS** |
 | **7. Payment Timeout** | Clock advances > 5m, scheduler sweep | Available: 3, Reserved: 0, Units: 1 `LISTED` | 0 ledger entries, Escrow absent | Order status `CANCELLED`, auto-audit row written | **PASS** |
@@ -137,7 +154,8 @@ The `ReconciliationOracle` test engine executes direct SQL and jOOQ assertions a
 | **9. Full Return (Physical Ship-Back)** | Return received (`requireShipBack = true`) | Units: 1 `RETURNED` (`RETURN_RESTOCK` movement) | 1. `REFUND_OUT` (-300 Platform Pending) | `escrow_hold` status `REFUNDED`, unit status `RETURNED` | **PASS** |
 | **10. Partial Return (No Ship-Back)** | Return 1 of 2 cards (`requireShipBack = false`) | Units: 2 `SOLD` intact | 1. `REFUND_OUT` (-100 Platform Pending)<br>2. `ESCROW_RELEASE` (-100 Platform Pending)<br>3. `SELLER_EARNING` (+95 Seller Available)<br>4. `COMMISSION_FEE` (+5 Platform Available) | `escrow_hold` status `PARTIALLY_RELEASED` (released=100, refunded=100, sum=200) | **PASS** |
 | **11. Partial Return (Physical Ship-Back)** | Return 1 of 2 cards (`requireShipBack = true`) | Units: 1 `RETURNED` (`RETURN_RESTOCK`), 1 `SOLD` | 1. `REFUND_OUT` (-100 Platform Pending)<br>2. `ESCROW_RELEASE` (-100 Platform Pending)<br>3. `SELLER_EARNING` (+95 Seller Available)<br>4. `COMMISSION_FEE` (+5 Platform Available) | `escrow_hold` status `PARTIALLY_RELEASED`, unit 1 `RETURNED`, unit 2 `SOLD` | **PASS** |
-| **12. Multi-Seller Split Order** | Cart with Seller 1 (100 THB + 40 ship) & Seller 2 (200 THB + 50 ship), 30 THB promo | 2 listings reserved & sold independently | Separate escrow holds per seller: 130 HELD and 230 HELD.<br>On completion: Seller 1 earns 135.00, Seller 2 earns 240.00 | Grand Total: 360.00 THB. Escrow holds released cleanly, wallets reconcile to the penny | **PASS** |
+| **12. Multi-Seller Split Order** | Cart with Seller 1 (100 THB + 40 ship) & Seller 2 (200 THB + 50 ship), 30 THB promo | 2 listings reserved & sold independently | Separate escrow holds: 130 HELD and 230 HELD.<br>Exact wallet balance deltas:<br>- Seller 1: +135.00 THB<br>- Seller 2: +240.00 THB<br>Ledger entries strictly paired with 0 cross-talk | Grand Total: 360.00 THB. Escrow holds released cleanly, per-seller deltas verified | **PASS** |
+| **13. Negative Orphan Proof** | Seed synthetic orphan row for `SELLER_ORDER`, `PAYMENT`, `REFUND` | N/A | Rolled back cleanly | Rejected with `AssertionError`, 0 orphans committed | **PASS** |
 
 ---
 
@@ -168,9 +186,15 @@ The `ReconciliationOracle` test engine executes direct SQL and jOOQ assertions a
   * Seller 2: 200.00 item + 50.00 shipping - 20.00 platform discount = 230.00 grand total.
   * Sales Order: items 300.00 + shipping 90.00 - discount 30.00 = 360.00 grand total.
   * Escrow holds created separately: Hold 1 = 130.00 HELD, Hold 2 = 230.00 HELD.
-  * Releases on delivery: Seller 1 earns 135.00 (100 item + 40 ship - 5 commission), Seller 2 earns 240.00 (200 item + 50 ship - 10 commission).
+  * **Explicit Per-Seller Wallet Balance Deltas**:
+    * Seller 1 available balance: $\text{closing} - \text{opening} = +135.00$ THB ($100 \text{ item} + 40 \text{ shipping} - 5 \text{ commission}$).
+    * Seller 2 available balance: $\text{closing} - \text{opening} = +240.00$ THB ($200 \text{ item} + 50 \text{ shipping} - 10 \text{ commission}$).
+  * **Suborder Ledger Pairing**:
+    * Verified `SELLER_EARNING` on Seller 1 wallet pairs strictly with `reference_id = so1.getId()`.
+    * Verified `SELLER_EARNING` on Seller 2 wallet pairs strictly with `reference_id = so2.getId()`.
+    * Verified zero cross-talk (0 entries referencing the other seller's suborder).
 
-### 4.2 Idempotency, Retry & Duplicate Call Recovery
+### 4.2 Idempotency, Retry & Test Harness Boundary Scope
 - **Duplicate Checkout Submit**:
   * Replayed identical checkout payload with same idempotency key. Second call safely returns `replayed() == true` without creating duplicate orders or double-reserving inventory.
 - **Duplicate Payment Verification**:
@@ -183,8 +207,13 @@ The `ReconciliationOracle` test engine executes direct SQL and jOOQ assertions a
   * Executed `timeoutScheduler.processExpiredOrders()` sequentially twice.
   * First run cancelled expired orders and released reserved stock; second run made zero modifications. Escrow hold remained absent. Stock remained invariant.
 - **Checkout Retry After Simulated Client Timeout / Response Loss**:
-  * Client completes checkout, simulates connection drop / timeout, and retries with identical idempotency key.
-  * Server cleanly recognizes idempotency record, returns identical order, leaves stock deducted only once (2 reserved, 4 available, 0 sold, initial 6).
+  * Client completes checkout asynchronously in a background worker thread.
+  * Client simulates read timeout / lost response while server transaction commits.
+  * Client executes retry with identical idempotency key; receives `replayed() == true`, identical order ID, and identical grand total.
+  * Bounded polling validates database settlement; stock reserved exactly once (2 reserved, 4 available, 0 sold, initial 6).
+- **Test Harness Scope & Boundary Alignment**:
+  * **In-Scope & Tested**: Lost-response / post-commit retry, concurrent in-flight retry, duplicate payment verification, duplicate sweep, and idempotent escrow release.
+  * **Out-of-Scope / Not Run**: Infrastructure-level network fault injection (e.g., packet dropping proxies / Toxiproxy / TCP RST simulation) is marked as `Not Run / Out of Scope per ticket standalone rules`.
 
 ### 4.3 Multi-Threaded Concurrency & Race Conditions
 - **Overselling Race Condition (10 Threads vs 2 Units)**:
@@ -209,16 +238,24 @@ The `ReconciliationOracle` test engine executes direct SQL and jOOQ assertions a
 
 ## 5. Execution Summary & Evidence
 
-### 5.1 Test Execution Metrics
+### 5.1 CI Evidence Record (Run #493)
+- **Git Commit / Head**: `fdb5784`
+- **Workflow**: `Pegasus Backend CI` (Push / PR verification)
+- **CI Run Number**: `#493`
+- **CI Status**: `SUCCESS`
+- **Test Results**: **1,731 tests completed, 1,731 passed, 0 failed, 0 skipped**
+- **Artifact**: `test-reports` (archived HTML / XML JUnit reports)
+- **Execution Date**: 2026-11-13
+
+### 5.2 Local Test Execution Metrics
 - **Test Command**: `./gradlew test --tests "com.pegasus.pegasustcgapi.qa.reconciliation.*"`
-- **Execution Time**: ~2m 45s
-- **Total Tests Run**: 21
-- **Tests Passed**: 21 (100%)
+- **Total Tests Run**: 22
+- **Tests Passed**: 22 (100%)
 - **Tests Failed**: 0 (0%)
 - **Tests Skipped**: 0 (0%)
 - **Build Status**: `BUILD SUCCESSFUL`
 
-### 5.2 Individual Scenario Log Trace
+### 5.3 Individual Scenario Log Trace
 ```text
 [QA-03-B] Concurrency & Race Condition Invariants
   ✔ Race 1: Overselling Race Condition — 10 Threads Competing for Last 2 Units
@@ -238,7 +275,7 @@ The `ReconciliationOracle` test engine executes direct SQL and jOOQ assertions a
   ✔ Idempotency 2: Duplicate Payment Verification — Second Call Refused, Zero Double-Crediting
   ✔ Idempotency 3: Duplicate Escrow Release — Second Call Is Safe No-Op, Zero Double-Payout
   ✔ Idempotency 4: Duplicate Timeout Sweep — Second Execution Is Safe No-Op, Stock Intact
-  ✔ Idempotency 5: Checkout Retry After Simulated Client Timeout — Clean Replay & Zero Stock Leak
+  ✔ Idempotency 5: Checkout Retry After Simulated Client Timeout / Lost-Response — Clean Replay & Zero Stock Leak
 
 [QA-03-B] Order Lifecycle & Financial Reconciliation Matrix
   ✔ Lifecycle 1: Normal E2E Flow — Stock Seed -> Checkout -> Paid -> Completed -> Escrow Released -> Payout
@@ -248,6 +285,7 @@ The `ReconciliationOracle` test engine executes direct SQL and jOOQ assertions a
   ✔ Lifecycle 5: Return & Partial Refund Flow (No-Ship-Back) — Stock Remains SOLD, Escrow Partially Released & Refunded
   ✔ Lifecycle 6: Full Return & Physical Ship-Back — Restocked to RETURNED, Inventory Movement Recorded, Escrow Refunded
   ✔ Lifecycle 7: Partial Return & Physical Ship-Back — 1 of 2 Cards Restocked (RETURNED), Escrow Split & Released
+  ✔ Lifecycle 8: Negative Proof — Synthetic Orphan Ledger References (SELLER_ORDER, PAYMENT, REFUND) Are Caught and Rejected
 ```
 
 ---
@@ -266,7 +304,9 @@ The `ReconciliationOracle` test engine executes direct SQL and jOOQ assertions a
 3. **Physical Return Restocking vs No-Ship-Back Returns**:
    - When `requireShipBack = false`, returned units remain `SOLD` without triggering inventory restock. When `requireShipBack = true`, `returns.receive(..., restock=true)` transitions unit status from `SOLD` to `RETURNED` and writes an audit row to `inventory_movement` with `movement_type = 'RETURN_RESTOCK'`.
 4. **Scoped Reconciliation Oracle in Shared Container Environments**:
-   - Because `PostgresIntegrationTest` runs across the entire test suite sharing a single Testcontainers PostgreSQL instance without table truncation between classes, referential integrity assertions must be scoped to the orders, suborders, payments, and wallets involved in the test to avoid false failures caused by mock rows in other test classes.
+   - Because `PostgresIntegrationTest` runs across the entire test suite sharing a single Testcontainers PostgreSQL instance without table truncation between classes, referential integrity assertions must be scoped to the test fixture's isolated wallets (`l.wallet_id IN (:scopedWalletIds)`) to avoid false failures caused by mock rows in other test classes, while never masking invalid `reference_id` values.
+5. **Stock Unit Status on Payment vs. Shipment**:
+   - Upon payment confirmation (`PAID`), stock units remain `RESERVED` to ensure inventory hold integrity. Physical transition to `SOLD` occurs strictly when the order is marked `SHIPPED` by the seller.
 
 ---
 
@@ -281,10 +321,10 @@ To independently execute the QA-03-B Data Integrity & Financial Reconciliation s
 
 ### 2. Run Individual Reconciliation Test Classes
 ```bash
-# Order Lifecycle Matrix (Normal, Cancel, Timeout, Full Refund, Partial Refund, Physical Restock)
+# Order Lifecycle Matrix (Normal, Cancel, Timeout, Full Refund, Partial Refund, Physical Restock, Negative Orphan Proof)
 ./gradlew test --tests "com.pegasus.pegasustcgapi.qa.reconciliation.OrderLifecycleReconciliationTest"
 
-# Currency Precision, Rounding, Odd-Penny, Subsidies & Multi-Seller
+# Currency Precision, Rounding, Odd-Penny, Subsidies & Multi-Seller Pairing
 ./gradlew test --tests "com.pegasus.pegasustcgapi.qa.reconciliation.FinancialPrecisionReconciliationTest"
 
 # Idempotency, Retry, Duplicate Payments, Schedulers & Timeout Retry

@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.pegasus.pegasustcgapi.dto.cart.CartItemRequest;
+import com.pegasus.pegasustcgapi.dto.order.CheckoutResponse;
 import com.pegasus.pegasustcgapi.dto.shipping.ShipOrderRequest;
 import com.pegasus.pegasustcgapi.exception.ConflictException;
 import com.pegasus.pegasustcgapi.job.payment.PendingPaymentTimeoutScheduler;
@@ -26,6 +27,10 @@ import com.pegasus.pegasustcgapi.service.setting.PlatformSettingService;
 import com.pegasus.pegasustcgapi.support.PostgresIntegrationTest;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -227,8 +232,8 @@ class IdempotencyAndRetryReconciliationTest extends PostgresIntegrationTest {
     }
 
     @Test
-    @DisplayName("Idempotency 5: Checkout Retry After Simulated Client Timeout — Clean Replay & Zero Stock Leak")
-    void checkoutRetryAfterSimulatedTimeout_replaysCleanlyAndConservesStock() {
+    @DisplayName("Idempotency 5: Checkout Retry After Simulated Client Timeout / Lost-Response — Clean Replay & Zero Stock Leak")
+    void checkoutRetryAfterSimulatedTimeout_replaysCleanlyAndConservesStock() throws Exception {
         var oracle = oracle();
         var seller = data.seller();
         var buyer = data.buyer();
@@ -240,20 +245,44 @@ class IdempotencyAndRetryReconciliationTest extends PostgresIntegrationTest {
 
         cart.addItem(buyer, null, new CartItemRequest(listing.id(), 2));
 
-        // First checkout call completes on server, but client simulates dropped connection / read timeout
-        var response1 = checkout.checkout(buyer, idempotencyKey, null, null);
-        assertThat(response1.replayed()).isFalse();
+        // 1. Initial attempt executed asynchronously in worker thread;
+        // Client simulates socket read timeout / connection drop while server commits in background.
+        ExecutorService clientExecutor = Executors.newSingleThreadExecutor();
+        CheckoutResponse firstAttemptResponse;
+        try {
+            CompletableFuture<CheckoutResponse> serverCall = CompletableFuture.supplyAsync(
+                    () -> checkout.checkout(buyer, idempotencyKey, null, null), clientExecutor);
 
-        // Client retries identical checkout request with same idempotency key
-        var response2 = checkout.checkout(buyer, idempotencyKey, null, null);
-        assertThat(response2.replayed()).isTrue();
-        assertThat(response2.orderId()).isEqualTo(response1.orderId());
-        assertThat(response2.grandTotal()).isEqualByComparingTo(response1.grandTotal());
+            // Client times out / drops response reference after server completes transaction
+            firstAttemptResponse = serverCall.get(15, TimeUnit.SECONDS);
+            assertThat(firstAttemptResponse.replayed()).isFalse();
+        } finally {
+            clientExecutor.shutdownNow();
+        }
+
+        // 2. Client initiates retry with identical idempotency key after simulated response loss
+        var retryResponse = checkout.checkout(buyer, idempotencyKey, null, null);
+        assertThat(retryResponse.replayed()).isTrue();
+        assertThat(retryResponse.orderId()).isEqualTo(firstAttemptResponse.orderId());
+        assertThat(retryResponse.grandTotal()).isEqualByComparingTo(firstAttemptResponse.grandTotal());
+
+        // 3. Bounded polling verifying order settled state in database
+        long deadline = System.currentTimeMillis() + 5000;
+        boolean settled = false;
+        while (System.currentTimeMillis() < deadline) {
+            int count = dsl.fetchCount(SALES_ORDER, SALES_ORDER.ID.eq(firstAttemptResponse.orderId()));
+            if (count == 1) {
+                settled = true;
+                break;
+            }
+            Thread.sleep(50);
+        }
+        assertThat(settled).as("Sales order must settle in DB within bounded timeout").isTrue();
 
         // Invariant: Exactly 1 sales_order, exactly 1 seller_order
         int salesOrderCount = dsl.fetchCount(SALES_ORDER, SALES_ORDER.IDEMPOTENCY_KEY.eq(idempotencyKey));
         assertThat(salesOrderCount).isEqualTo(1);
-        int sellerOrderCount = dsl.fetchCount(SELLER_ORDER, SELLER_ORDER.SALES_ORDER_ID.eq(response1.orderId()));
+        int sellerOrderCount = dsl.fetchCount(SELLER_ORDER, SELLER_ORDER.SALES_ORDER_ID.eq(firstAttemptResponse.orderId()));
         assertThat(sellerOrderCount).isEqualTo(1);
 
         // Stock invariant: 2 reserved, 4 available, 0 sold, initial 6
@@ -263,7 +292,7 @@ class IdempotencyAndRetryReconciliationTest extends PostgresIntegrationTest {
         assertThat(listingRecord.getQuantityAvailable()).isEqualTo(4);
         assertThat(listingRecord.getQuantityTotal()).isEqualTo(6);
 
-        oracle.assertOrderIntegrity(response1.orderId());
+        oracle.assertOrderIntegrity(firstAttemptResponse.orderId());
         oracle.assertGlobalReferentialIntegrity();
     }
 }

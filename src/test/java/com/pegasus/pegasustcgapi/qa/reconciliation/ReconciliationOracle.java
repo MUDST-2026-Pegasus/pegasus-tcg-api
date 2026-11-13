@@ -22,6 +22,8 @@ import com.pegasus.pegasustcgapi.jooq.tables.records.SalesOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.SellerOrderRecord;
 import com.pegasus.pegasustcgapi.jooq.tables.records.WalletRecord;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -425,36 +427,31 @@ public class ReconciliationOracle {
             assertOrderStatusHistorySequence(soId, null);
         }
 
-        // 2. Zero orphan ledger entries for this order's references
-        if (!paymentIds.isEmpty()) {
-            int orphanPaymentLedgers = dsl.fetchCount(
-                    DSL.selectFrom(LEDGER_ENTRY)
-                            .where(LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYMENT"))
-                            .and(LEDGER_ENTRY.REFERENCE_ID.in(paymentIds))
-                            .andNotExists(DSL.selectOne().from(PAYMENT).where(PAYMENT.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))
-            );
-            assertThat(orphanPaymentLedgers).as("0 orphan ledger entries for PAYMENT in order #%d", salesOrderId).isZero();
+        // 2. Collect scoped isolated wallets involved in this order (sellers and buyer)
+        List<Long> sellerUserIds = dsl.select(SELLER_PROFILE.USER_ID)
+                .from(SELLER_ORDER)
+                .join(SELLER_PROFILE).on(SELLER_ORDER.SELLER_PROFILE_ID.eq(SELLER_PROFILE.ID))
+                .where(SELLER_ORDER.SALES_ORDER_ID.eq(salesOrderId))
+                .fetch(SELLER_PROFILE.USER_ID);
+
+        List<Long> scopedWalletIds = new ArrayList<>(dsl.select(WALLET.ID)
+                .from(WALLET)
+                .where(WALLET.USER_ID.in(sellerUserIds))
+                .fetch(WALLET.ID));
+
+        Long buyerUserId = dsl.select(SALES_ORDER.BUYER_ID)
+                .from(SALES_ORDER)
+                .where(SALES_ORDER.ID.eq(salesOrderId))
+                .fetchOne(SALES_ORDER.BUYER_ID);
+        if (buyerUserId != null) {
+            scopedWalletIds.addAll(dsl.select(WALLET.ID)
+                    .from(WALLET)
+                    .where(WALLET.USER_ID.eq(buyerUserId))
+                    .fetch(WALLET.ID));
         }
 
-        if (!suborderIds.isEmpty()) {
-            int orphanOrderLedgers = dsl.fetchCount(
-                    DSL.selectFrom(LEDGER_ENTRY)
-                            .where(LEDGER_ENTRY.REFERENCE_TYPE.eq("SELLER_ORDER"))
-                            .and(LEDGER_ENTRY.REFERENCE_ID.in(suborderIds))
-                            .andNotExists(DSL.selectOne().from(SELLER_ORDER).where(SELLER_ORDER.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))
-            );
-            assertThat(orphanOrderLedgers).as("0 orphan ledger entries for SELLER_ORDER in order #%d", salesOrderId).isZero();
-        }
-
-        if (!refundIds.isEmpty()) {
-            int orphanRefundLedgers = dsl.fetchCount(
-                    DSL.selectFrom(LEDGER_ENTRY)
-                            .where(LEDGER_ENTRY.REFERENCE_TYPE.eq("REFUND"))
-                            .and(LEDGER_ENTRY.REFERENCE_ID.in(refundIds))
-                            .andNotExists(DSL.selectOne().from(REFUND).where(REFUND.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))
-            );
-            assertThat(orphanRefundLedgers).as("0 orphan ledger entries for REFUND in order #%d", salesOrderId).isZero();
-        }
+        // Assert 0 orphan ledger entries across scoped wallets
+        assertScopedOrphanReferences(scopedWalletIds);
 
         // 3. Zero duplicate financial postings for these references
         var duplicateOrderPostings = dsl.select(LEDGER_ENTRY.ENTRY_TYPE, LEDGER_ENTRY.DIRECTION,
@@ -477,12 +474,6 @@ public class ReconciliationOracle {
                 .where(WALLET.KIND.eq("PLATFORM")).fetchSingle(WALLET.ID);
         assertWalletEquation(platformWalletId);
 
-        List<Long> sellerUserIds = dsl.select(SELLER_PROFILE.USER_ID)
-                .from(SELLER_ORDER)
-                .join(SELLER_PROFILE).on(SELLER_ORDER.SELLER_PROFILE_ID.eq(SELLER_PROFILE.ID))
-                .where(SELLER_ORDER.SALES_ORDER_ID.eq(salesOrderId))
-                .fetch(SELLER_PROFILE.USER_ID);
-
         for (Long sUid : sellerUserIds) {
             dsl.select(WALLET.ID).from(WALLET).where(WALLET.USER_ID.eq(sUid))
                     .fetchOptional(WALLET.ID)
@@ -491,22 +482,43 @@ public class ReconciliationOracle {
     }
 
     /**
+     * Checks that all ledger entries associated with the given scoped wallets have valid
+     * references in their corresponding target tables (SELLER_ORDER, PAYMENT, REFUND, PAYOUT).
+     */
+    public void assertScopedOrphanReferences(Collection<Long> walletIds) {
+        if (walletIds == null || walletIds.isEmpty()) {
+            return;
+        }
+
+        int orphanEntries = dsl.fetchCount(
+                DSL.selectFrom(LEDGER_ENTRY)
+                        .where(LEDGER_ENTRY.WALLET_ID.in(walletIds))
+                        .and(
+                                (LEDGER_ENTRY.REFERENCE_TYPE.eq("SELLER_ORDER")
+                                        .and(LEDGER_ENTRY.REFERENCE_ID.isNull()
+                                                .orNotExists(DSL.selectOne().from(SELLER_ORDER).where(SELLER_ORDER.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))))
+                                .or(LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYMENT")
+                                        .and(LEDGER_ENTRY.REFERENCE_ID.isNull()
+                                                .orNotExists(DSL.selectOne().from(PAYMENT).where(PAYMENT.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))))
+                                .or(LEDGER_ENTRY.REFERENCE_TYPE.eq("REFUND")
+                                        .and(LEDGER_ENTRY.REFERENCE_ID.isNull()
+                                                .orNotExists(DSL.selectOne().from(REFUND).where(REFUND.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))))
+                                .or(LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYOUT")
+                                        .and(LEDGER_ENTRY.REFERENCE_ID.isNull()
+                                                .orNotExists(DSL.selectOne().from(PAYOUT).where(PAYOUT.ID.eq(LEDGER_ENTRY.REFERENCE_ID)))))
+                        )
+        );
+        assertThat(orphanEntries)
+                .as("0 orphan ledger entries for scoped wallets %s", walletIds)
+                .isZero();
+    }
+
+    /**
      * Scoped referential and ledger integrity for a specific wallet and its transactions.
      */
     public void assertWalletIntegrity(long walletId) {
         assertWalletEquation(walletId);
-
-        int orphanEntries = dsl.fetchCount(
-                DSL.selectFrom(LEDGER_ENTRY)
-                        .where(LEDGER_ENTRY.WALLET_ID.eq(walletId))
-                        .and(
-                                (LEDGER_ENTRY.REFERENCE_TYPE.eq("SELLER_ORDER").andNotExists(DSL.selectOne().from(SELLER_ORDER).where(SELLER_ORDER.ID.eq(LEDGER_ENTRY.REFERENCE_ID))))
-                                        .or(LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYMENT").andNotExists(DSL.selectOne().from(PAYMENT).where(PAYMENT.ID.eq(LEDGER_ENTRY.REFERENCE_ID))))
-                                        .or(LEDGER_ENTRY.REFERENCE_TYPE.eq("REFUND").andNotExists(DSL.selectOne().from(REFUND).where(REFUND.ID.eq(LEDGER_ENTRY.REFERENCE_ID))))
-                                        .or(LEDGER_ENTRY.REFERENCE_TYPE.eq("PAYOUT").andNotExists(DSL.selectOne().from(PAYOUT).where(PAYOUT.ID.eq(LEDGER_ENTRY.REFERENCE_ID))))
-                        )
-        );
-        assertThat(orphanEntries).as("0 orphan ledger entries for wallet #%d", walletId).isZero();
+        assertScopedOrphanReferences(List.of(walletId));
     }
 
     /**

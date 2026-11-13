@@ -39,6 +39,7 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * [TCG-756] [QA-03-B] Currency Precision, Rounding, Discount Allocation &amp; Conservation Tests.
@@ -53,6 +54,7 @@ class FinancialPrecisionReconciliationTest extends PostgresIntegrationTest {
     @Autowired private PromotionRepository promotionRepo;
     @Autowired private WalletLedgerService walletLedgerService;
     @Autowired private ShippingOptionService shipping;
+    @Autowired private TransactionTemplate transactions;
 
     private ReconciliationOracle oracle() {
         return new ReconciliationOracle(dsl);
@@ -318,6 +320,14 @@ class FinancialPrecisionReconciliationTest extends PostgresIntegrationTest {
                 false, false, null, false, null,
                 OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(30), null));
 
+        // Ensure seller wallets exist and record opening available balances
+        long seller1WalletId = transactions.execute(status -> walletLedgerService.ensureSellerWallet(seller1.userId()));
+        long seller2WalletId = transactions.execute(status -> walletLedgerService.ensureSellerWallet(seller2.userId()));
+        BigDecimal s1OpeningAvailable = dsl.select(WALLET.BALANCE_AVAILABLE).from(WALLET)
+                .where(WALLET.ID.eq(seller1WalletId)).fetchSingle(WALLET.BALANCE_AVAILABLE);
+        BigDecimal s2OpeningAvailable = dsl.select(WALLET.BALANCE_AVAILABLE).from(WALLET)
+                .where(WALLET.ID.eq(seller2WalletId)).fetchSingle(WALLET.BALANCE_AVAILABLE);
+
         cart.addItem(buyer, null, new CartItemRequest(l1.id(), 1));
         cart.addItem(buyer, null, new CartItemRequest(l2.id(), 1));
 
@@ -391,12 +401,76 @@ class FinancialPrecisionReconciliationTest extends PostgresIntegrationTest {
         oracle.assertEscrowReconciliation(so1.getId());
         oracle.assertEscrowReconciliation(so2.getId());
 
-        // Check wallet balances and integrity
-        long seller1WalletId = dsl.select(WALLET.ID).from(WALLET)
-                .where(WALLET.USER_ID.eq(seller1.userId())).fetchSingle(WALLET.ID);
-        long seller2WalletId = dsl.select(WALLET.ID).from(WALLET)
-                .where(WALLET.USER_ID.eq(seller2.userId())).fetchSingle(WALLET.ID);
+        // Check wallet balance deltas for each specific seller (Item 2)
+        BigDecimal s1ClosingAvailable = dsl.select(WALLET.BALANCE_AVAILABLE).from(WALLET)
+                .where(WALLET.ID.eq(seller1WalletId)).fetchSingle(WALLET.BALANCE_AVAILABLE);
+        BigDecimal s2ClosingAvailable = dsl.select(WALLET.BALANCE_AVAILABLE).from(WALLET)
+                .where(WALLET.ID.eq(seller2WalletId)).fetchSingle(WALLET.BALANCE_AVAILABLE);
+
+        assertThat(s1ClosingAvailable.subtract(s1OpeningAvailable))
+                .as("Seller 1 wallet balance must increase by exactly 135.00 THB")
+                .isEqualByComparingTo("135.00");
+        assertThat(s2ClosingAvailable.subtract(s2OpeningAvailable))
+                .as("Seller 2 wallet balance must increase by exactly 240.00 THB")
+                .isEqualByComparingTo("240.00");
+
+        // Explicitly assert exact pairing of (wallet_id, reference_type, reference_id, entry_type, direction, amount)
+        var s1EarningEntry = dsl.selectFrom(LEDGER_ENTRY)
+                .where(LEDGER_ENTRY.WALLET_ID.eq(seller1WalletId))
+                .and(LEDGER_ENTRY.REFERENCE_TYPE.eq("SELLER_ORDER"))
+                .and(LEDGER_ENTRY.REFERENCE_ID.eq(so1.getId()))
+                .and(LEDGER_ENTRY.ENTRY_TYPE.eq("SELLER_EARNING"))
+                .fetchSingle();
+        assertThat(s1EarningEntry.getDirection()).isEqualTo("CREDIT");
+        assertThat(s1EarningEntry.getAmount()).isEqualByComparingTo("135.00");
+
+        var s2EarningEntry = dsl.selectFrom(LEDGER_ENTRY)
+                .where(LEDGER_ENTRY.WALLET_ID.eq(seller2WalletId))
+                .and(LEDGER_ENTRY.REFERENCE_TYPE.eq("SELLER_ORDER"))
+                .and(LEDGER_ENTRY.REFERENCE_ID.eq(so2.getId()))
+                .and(LEDGER_ENTRY.ENTRY_TYPE.eq("SELLER_EARNING"))
+                .fetchSingle();
+        assertThat(s2EarningEntry.getDirection()).isEqualTo("CREDIT");
+        assertThat(s2EarningEntry.getAmount()).isEqualByComparingTo("240.00");
+
+        // Verify zero cross-talk (Seller 1 wallet has 0 entries referencing Seller 2 order, and vice versa)
+        int s1CrossTalk = dsl.fetchCount(LEDGER_ENTRY,
+                LEDGER_ENTRY.WALLET_ID.eq(seller1WalletId).and(LEDGER_ENTRY.REFERENCE_ID.eq(so2.getId())));
+        int s2CrossTalk = dsl.fetchCount(LEDGER_ENTRY,
+                LEDGER_ENTRY.WALLET_ID.eq(seller2WalletId).and(LEDGER_ENTRY.REFERENCE_ID.eq(so1.getId())));
+        assertThat(s1CrossTalk).as("Zero cross-talk: Seller 1 wallet has no references to Seller 2 suborder").isZero();
+        assertThat(s2CrossTalk).as("Zero cross-talk: Seller 2 wallet has no references to Seller 1 suborder").isZero();
+
+        // Platform wallet commission and release pairings per suborder
         long platformWalletId = walletLedgerService.platformWalletId();
+        var s1Commission = dsl.selectFrom(LEDGER_ENTRY)
+                .where(LEDGER_ENTRY.WALLET_ID.eq(platformWalletId))
+                .and(LEDGER_ENTRY.REFERENCE_TYPE.eq("SELLER_ORDER"))
+                .and(LEDGER_ENTRY.REFERENCE_ID.eq(so1.getId()))
+                .and(LEDGER_ENTRY.ENTRY_TYPE.eq("COMMISSION_FEE"))
+                .fetchSingle();
+        assertThat(s1Commission.getAmount()).isEqualByComparingTo("5.00");
+
+        var s2Commission = dsl.selectFrom(LEDGER_ENTRY)
+                .where(LEDGER_ENTRY.WALLET_ID.eq(platformWalletId))
+                .and(LEDGER_ENTRY.REFERENCE_TYPE.eq("SELLER_ORDER"))
+                .and(LEDGER_ENTRY.REFERENCE_ID.eq(so2.getId()))
+                .and(LEDGER_ENTRY.ENTRY_TYPE.eq("COMMISSION_FEE"))
+                .fetchSingle();
+        assertThat(s2Commission.getAmount()).isEqualByComparingTo("10.00");
+
+        // Suborder level financial allocation assertions
+        assertThat(so1.getItemsSubtotal()).isEqualByComparingTo("100.00");
+        assertThat(so1.getShippingFee()).isEqualByComparingTo("40.00");
+        assertThat(so1.getPlatformDiscountAmount()).isEqualByComparingTo("10.00");
+        assertThat(so1.getCommissionAmount()).isEqualByComparingTo("5.00");
+        assertThat(so1.getSellerNetAmount()).isEqualByComparingTo("135.00");
+
+        assertThat(so2.getItemsSubtotal()).isEqualByComparingTo("200.00");
+        assertThat(so2.getShippingFee()).isEqualByComparingTo("50.00");
+        assertThat(so2.getPlatformDiscountAmount()).isEqualByComparingTo("20.00");
+        assertThat(so2.getCommissionAmount()).isEqualByComparingTo("10.00");
+        assertThat(so2.getSellerNetAmount()).isEqualByComparingTo("240.00");
 
         oracle.assertWalletEquation(seller1WalletId);
         oracle.assertWalletEquation(seller2WalletId);
