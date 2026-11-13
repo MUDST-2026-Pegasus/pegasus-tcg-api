@@ -1,0 +1,4 @@
+# FE calls with no published operation, each tracked as a TCG-755 defect.
+# method	path	defect	note
+POST	/auth/password/forgot	DEF-755-02	FE authApi.forgotPassword/useForgotPassword call it; BE PasswordController has only /reset and /change. No page uses the hook yet.
+GET	/checkout/orders/{p}	DEF-755-03	FE checkoutApi.getOrderDetails is never called; BE has no such route (order detail is GET /orders/{id}).

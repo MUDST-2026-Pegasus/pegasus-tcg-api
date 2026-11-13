@@ -78,7 +78,20 @@ dependencies {
     testImplementation 'io.cucumber:cucumber-spring'
     testImplementation 'io.cucumber:cucumber-junit-platform-engine'
     testImplementation 'org.junit.platform:junit-platform-suite'
+    // TCG-755: validates real responses against the published /v1/api-docs. Pinned on purpose.
+    testImplementation 'com.atlassian.oai:swagger-request-validator-core:2.44.9'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// TCG-755: swagger-request-validator brings the javax swagger-core 2.2.x, whose classes share
+// packages with springdoc's swagger-*-jakarta and shadow them (/v1/api-docs then fails with
+// NoSuchMethodError). On the test classpath, use the jakarta artifacts springdoc already ships.
+configurations.matching { it.name.startsWith('test') }.configureEach {
+    resolutionStrategy.dependencySubstitution {
+        ['swagger-annotations', 'swagger-models', 'swagger-core'].each { name ->
+            substitute module("io.swagger.core.v3:${name}") using module("io.swagger.core.v3:${name}-jakarta:2.2.55") because 'TCG-755: keep springdoc\'s jakarta swagger on the test classpath'
+        }
+    }
 }
 
 // Resolve DB settings the same way the app does: real env var, selected file, then default.
@@ -166,12 +179,26 @@ tasks.named('compileJava') {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    // TCG-755: tests that pin an open product defect fail on purpose; they run in crossModuleTest.
+    useJUnitPlatform { excludeTags 'known-defect' }
     systemProperty 'file.encoding', 'UTF-8'
     // CI gates must represent an executed suite, not a cached result.
     outputs.cacheIf { !System.getenv('CI') }
     outputs.upToDateWhen { !System.getenv('CI') }
     finalizedBy tasks.named('jacocoTestReport')
+}
+
+// TCG-755: FE/BE contract and cross-module journeys only, against Testcontainers Postgres
+// (and MinIO). Same JVM settings as `test`; these classes also run inside `test`.
+tasks.register('crossModuleTest', Test) {
+    description = 'Runs the @Tag("cross-module") contract and journey integration tests (TCG-755)'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeEngines 'junit-jupiter'; includeTags 'cross-module' }
+    systemProperty 'file.encoding', 'UTF-8'
+    outputs.upToDateWhen { false }
+    testLogging { events 'passed', 'skipped', 'failed'; exceptionFormat 'full' }
 }
 
 jacoco {
