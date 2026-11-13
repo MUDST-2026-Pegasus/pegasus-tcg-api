@@ -33,11 +33,24 @@ public record ProductSummaryResponse(
         String primaryImageUrl,
         int variantCount,
         BigDecimal lowestPrice,
-        int listingCount) {
+        int listingCount,
+        BigDecimal highestPrice,
+        BigDecimal lowestRegularPrice,
+        int sellerCount,
+        boolean onSale) {
 
     public static ProductSummaryResponse of(
             CatalogProduct product, String primaryImageUrl, int variantCount,
             BigDecimal lowestPrice, int listingCount) {
+        return of(product, primaryImageUrl, variantCount, lowestPrice, listingCount, lowestPrice, lowestPrice,
+                listingCount > 0 ? 1 : 0, false);
+    }
+
+    /** With the market spread: the dearest listing, the price before any sale, and how many shops sell it. */
+    public static ProductSummaryResponse of(
+            CatalogProduct product, String primaryImageUrl, int variantCount,
+            BigDecimal lowestPrice, int listingCount, BigDecimal highestPrice, BigDecimal lowestRegularPrice,
+            int sellerCount, boolean onSale) {
 
         return new ProductSummaryResponse(
                 product.id(),
@@ -54,6 +67,10 @@ public record ProductSummaryResponse(
                 primaryImageUrl,
                 variantCount,
                 lowestPrice,
-                listingCount);
+                listingCount,
+                highestPrice,
+                lowestRegularPrice,
+                sellerCount,
+                onSale);
     }
 }

@@ -17,6 +17,11 @@ import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository;
 import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository.Offer;
 import com.pegasus.pegasustcgapi.repository.pricing.ProductMarketRepository.TrendingRow;
 import com.pegasus.pegasustcgapi.repository.catalog.ProductSearchQuery;
+import com.pegasus.pegasustcgapi.repository.catalog.SearchAliasRepository;
+import com.pegasus.pegasustcgapi.repository.catalog.SearchFacetRepository;
+import com.pegasus.pegasustcgapi.dto.catalog.SearchFacetsResponse;
+import com.pegasus.pegasustcgapi.dto.catalog.SearchShopResponse;
+import com.pegasus.pegasustcgapi.repository.catalog.SearchText;
 import com.pegasus.pegasustcgapi.storage.StorageService;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -60,6 +65,8 @@ public class CatalogSearchService {
     private final GameService games;
     private final StorageService storage;
     private final Clock clock;
+    private SearchAliasRepository aliases;
+    private SearchFacetRepository facets;
 
     public CatalogSearchService(
             CatalogProductRepository products,
@@ -79,6 +86,16 @@ public class CatalogSearchService {
         this.clock = clock;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    void setAliases(SearchAliasRepository aliases) {
+        this.aliases = aliases;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setFacets(SearchFacetRepository facets) {
+        this.facets = facets;
+    }
+
     /**
      * One page of the catalogue. {@code activeOnly} is true for the public
      * catalogue; an admin passes false, because a product that was deactivated by
@@ -89,61 +106,284 @@ public class CatalogSearchService {
      */
     public PageResponse<ProductSummaryResponse> search(ProductBrowse browse) {
         requirePriceRange(browse.minPrice(), browse.maxPrice());
-
-        PageResponse<ProductSummaryResponse> exact = searchExact(browse);
-        String requested = browse.nameQuery();
-        if (!browse.activeOnly() || requested == null || requested.isBlank() || exact.totalItems() > 0
-                || !requested.trim().matches("[A-Za-z0-9][A-Za-z0-9 /#.'_-]*")) {
-            return exact;
-        }
-
-        for (String correction : closestTerms(requested.trim(), products.correctionCandidates(requested.trim()))) {
-            ProductBrowse corrected = new ProductBrowse(browse.gameIds(), browse.categoryId(), browse.cardSetId(),
-                    browse.productType(), correction, browse.rawParameters(), browse.sort(), browse.activeOnly(),
-                    browse.inStockOnly(), browse.conditions(), browse.minPrice(), browse.maxPrice(),
-                    browse.page(), browse.size());
-            PageResponse<ProductSummaryResponse> found = searchExact(corrected);
-            if (found.totalItems() > 0) {
-                return found.withCorrectedQuery(correction);
-            }
-        }
-        return exact;
+        Resolved resolved = resolve(browse);
+        PageResponse<ProductSummaryResponse> page = searchAs(resolved.browse(), resolved.text(), resolved.fuzzy());
+        return resolved.corrected() == null ? page : page.withCorrectedQuery(resolved.corrected(), resolved.reason());
     }
 
-    private PageResponse<ProductSummaryResponse> searchExact(ProductBrowse browse) {
+    /**
+     * What a search for {@code browse} actually runs (TCG-779): the text as typed when
+     * something contains it, else a known alias (โปเกมอน → Pokemon, which may narrow the
+     * games), then it spelled right, then typed on the other keyboard layout. The results,
+     * the sidebar counts and the shop tab all go through this, so they agree.
+     *
+     * @param corrected the replacement text when there is one, with {@code reason}
+     *                  TYPO, KEYBOARD_LAYOUT or ALIAS
+     */
+    public record Resolved(ProductBrowse browse, String text, boolean fuzzy, String corrected, String reason) {
+    }
 
+    public Resolved resolve(ProductBrowse browse) {
+        String requested = browse.nameQuery();
+        boolean tolerant = browse.activeOnly() && requested != null && !requested.isBlank();
+        Resolved asTyped = new Resolved(browse, requested, tolerant, null, null);
+        if (!tolerant || products.count(query(browse, requested, false)) > 0) {
+            return asTyped;
+        }
+
+        Resolved corrected = viaAlias(browse, requested.trim());
+        if (corrected != null) {
+            return corrected;
+        }
+        corrected = firstHit(browse, corrections(requested.trim()), "TYPO");
+        if (corrected != null) {
+            return corrected;
+        }
+        String switched = SearchText.switchKeyboard(requested);
+        if (switched != null && products.count(query(browse, requested, true)) == 0) {
+            List<String> tries = new ArrayList<>(List.of(switched));
+            tries.addAll(corrections(switched));
+            corrected = firstHit(browse, tries, "KEYBOARD_LAYOUT");
+            if (corrected != null) {
+                return corrected;
+            }
+        }
+        return asTyped;
+    }
+
+    /**
+     * The whole query, or else each word, swapped for the target of an alias it
+     * matches (same normalising, or one edit away from four letters on). An alias
+     * tied to a game only applies within that game, and narrows an all-games search to it.
+     */
+    private Resolved viaAlias(ProductBrowse browse, String requested) {
+        if (aliases == null) {
+            return null;
+        }
+        List<SearchAliasRepository.Alias> usable = aliases.all().stream()
+                .filter(a -> a.gameId() == null || browse.gameIds().isEmpty() || browse.gameIds().contains(a.gameId()))
+                .toList();
+        if (usable.isEmpty()) {
+            return null;
+        }
+        List<SearchAliasRepository.Alias> used = new ArrayList<>();
+        String phrase = SearchText.normalize(requested);
+        SearchAliasRepository.Alias whole = closestAlias(phrase, usable);
+        String expanded;
+        if (whole != null) {
+            used.add(whole);
+            expanded = whole.target();
+        } else {
+            StringBuilder words = new StringBuilder();
+            for (String word : requested.split("\\s+")) {
+                SearchAliasRepository.Alias match = closestAlias(SearchText.normalize(word), usable);
+                if (match != null) {
+                    used.add(match);
+                }
+                words.append(words.isEmpty() ? "" : " ").append(match == null ? word : match.target());
+            }
+            expanded = words.toString();
+        }
+        if (used.isEmpty()) {
+            return null;
+        }
+        Set<Short> games = browse.gameIds();
+        if (games.isEmpty()) {
+            Set<Short> tied = new java.util.HashSet<>();
+            used.forEach(a -> { if (a.gameId() != null) tied.add(a.gameId()); });
+            games = tied;
+        }
+        ProductBrowse narrowed = new ProductBrowse(games, browse.categoryId(), browse.cardSetId(),
+                browse.productType(), browse.nameQuery(), browse.rawParameters(), browse.sort(), browse.activeOnly(),
+                browse.inStockOnly(), browse.conditions(), browse.minPrice(), browse.maxPrice(), browse.page(),
+                browse.size(), browse.saleStatus(), browse.onSale());
+        if (products.count(query(narrowed, expanded, true)) == 0) {
+            return null;
+        }
+        return new Resolved(narrowed, expanded, true, expanded, "ALIAS");
+    }
+
+    private static SearchAliasRepository.Alias closestAlias(String normalized, List<SearchAliasRepository.Alias> all) {
+        SearchAliasRepository.Alias best = null;
+        int bestDistance = 2;
+        for (SearchAliasRepository.Alias alias : all) {
+            int limit = normalized.codePointCount(0, normalized.length()) >= 4 ? 1 : 0;
+            int distance = editDistance(normalized, alias.aliasNorm(), limit);
+            if (distance <= limit && distance < bestDistance) {
+                best = alias;
+                bestDistance = distance;
+            }
+        }
+        return best;
+    }
+
+    private Resolved firstHit(ProductBrowse browse, List<String> tries, String reason) {
+        for (String attempt : tries) {
+            if (products.count(query(browse, attempt, false)) > 0) {
+                return new Resolved(browse, attempt, true, attempt, reason);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Each word of four or more characters, with at least one letter, that no searchable name contains is swapped
+     * for the closest one (1 edit under five letters, 2 from five); the rest stay as
+     * typed, so "charzard ex" becomes "charizard ex". Up to three variants, best first.
+     */
+    private List<String> corrections(String requested) {
+        String[] words = requested.split("\\s+");
+        List<List<String>> options = new ArrayList<>();
+        boolean any = false;
+        for (String word : words) {
+            List<String> closest = List.of();
+            // A card number with no match is not a typo of another card's number (020/189 ≠ 230/182).
+            if (word.codePointCount(0, word.length()) >= 4 && word.codePoints().anyMatch(Character::isLetter)) {
+                List<String> candidates = products.correctionCandidates(word);
+                String normalized = SearchText.normalize(word);
+                boolean known = candidates.stream().flatMap(c -> List.of(c.split("\\s+")).stream())
+                        .anyMatch(term -> SearchText.normalize(term).equals(normalized));
+                if (!known) {
+                    closest = closestTerms(normalized, candidates);
+                }
+            }
+            any |= !closest.isEmpty();
+            options.add(closest);
+        }
+        if (!any) {
+            return List.of();
+        }
+        List<String> variants = new ArrayList<>();
+        for (int rank = 0; rank < 3; rank++) {
+            StringBuilder variant = new StringBuilder();
+            for (int i = 0; i < words.length; i++) {
+                List<String> closest = options.get(i);
+                variant.append(i == 0 ? "" : " ")
+                        .append(closest.isEmpty() ? words[i] : closest.get(Math.min(rank, closest.size() - 1)));
+            }
+            if (!variants.contains(variant.toString())) {
+                variants.add(variant.toString());
+            }
+        }
+        return variants;
+    }
+
+    private PageResponse<ProductSummaryResponse> searchAs(ProductBrowse browse, String nameQuery, boolean fuzzy) {
         Paging paging = Paging.of(browse.page(), browse.size());
-        ProductSearchQuery query = new ProductSearchQuery(
+        ProductSearchQuery query = query(browse, nameQuery, fuzzy);
+        List<CatalogProduct> found = products.search(query);
+        return PageResponse.of(summarise(found, browse.conditions()), paging.page(), paging.size(),
+                products.count(query));
+    }
+
+    private ProductSearchQuery query(ProductBrowse browse, String nameQuery, boolean fuzzy) {
+        Paging paging = Paging.of(browse.page(), browse.size());
+        return new ProductSearchQuery(
                 browse.gameIds(), browse.categoryId(), browse.cardSetId(), browse.productType(),
-                browse.nameQuery(),
+                nameQuery,
                 typedAttributes(browse.gameIds(), browse.rawParameters()),
                 browse.activeOnly(),
                 browse.inStockOnly(),
                 browse.conditions(),
                 browse.minPrice(),
                 browse.maxPrice(),
-                parseSort(browse.sort() == null && browse.nameQuery() != null && !browse.nameQuery().isBlank()
+                parseSort(browse.sort() == null && nameQuery != null && !nameQuery.isBlank()
                         ? "relevance" : browse.sort()),
                 paging.size(),
                 paging.offset(),
                 OffsetDateTime.now(clock),
-                browse.saleStatus());
-
-        List<CatalogProduct> found = products.search(query);
-        return PageResponse.of(summarise(found, browse.conditions()), paging.page(), paging.size(),
-                products.count(query));
+                browse.saleStatus(),
+                fuzzy,
+                browse.onSale());
     }
 
-    private static List<String> closestTerms(String requested, List<String> candidates) {
-        String query = requested.toLowerCase(Locale.ROOT);
-        int maxDistance = query.length() < 5 ? 1 : 2;
+    /** The query a search page's counts run over: the same text, games and fuzziness as its results. */
+    private ProductSearchQuery query(Resolved resolved) {
+        return query(resolved.browse(), resolved.text(), resolved.fuzzy());
+    }
+
+    /**
+     * Sidebar counts and tab totals for a search page (TCG-775). Each group is
+     * counted without its own filter, so the other options still show what they hold.
+     */
+    public SearchFacetsResponse facets(ProductBrowse browse) {
+        requirePriceRange(browse.minPrice(), browse.maxPrice());
+        ProductSearchQuery query = query(resolve(browse));
+        SearchFacetRepository.Totals totals = facets.totals(query);
+        return new SearchFacetsResponse(
+                facets.games(query).stream().map(c -> new SearchFacetsResponse.Option(
+                        c.id(), c.name(), null, c.count())).toList(),
+                facets.categories(query).stream().map(c -> new SearchFacetsResponse.Option(
+                        c.id(), c.name(), c.parentId(), c.count())).toList(),
+                facets.conditions(query).stream().map(c -> new SearchFacetsResponse.ConditionCount(
+                        c.name(), c.count())).toList(),
+                products.count(query.onSale()),
+                new SearchFacetsResponse.Totals(products.count(query), totals.shops(), totals.listings()));
+    }
+
+    /**
+     * Shops selling what {@code browse} finds (TCG-775 shop tab).
+     *
+     * @param minRating null for any
+     * @param sort      MATCHES (default) or RATING
+     */
+    public PageResponse<SearchShopResponse> shops(ProductBrowse browse, BigDecimal minRating, String sort) {
+        boolean byRating = "RATING".equalsIgnoreCase(sort);
+        if (sort != null && !byRating && !"MATCHES".equalsIgnoreCase(sort)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "sort must be MATCHES or RATING");
+        }
+        Paging paging = Paging.of(browse.page(), browse.size());
+        ProductSearchQuery query = query(resolve(browse));
+        OffsetDateTime now = OffsetDateTime.now(clock);
+        List<SearchFacetRepository.Shop> shops = facets.shops(query, minRating, byRating, paging.size(),
+                paging.offset(), now);
+        Map<Long, List<SearchFacetRepository.Preview>> previews = new HashMap<>();
+        facets.previews(query, shops.stream().map(SearchFacetRepository.Shop::sellerId).toList())
+                .forEach(p -> previews.computeIfAbsent(p.sellerId(), k -> new ArrayList<>()).add(p));
+        Map<Long, String> imageKeys = images.primaryKeysOf(previews.values().stream()
+                .flatMap(List::stream).map(SearchFacetRepository.Preview::productId).distinct().toList());
+
+        List<SearchShopResponse> items = shops.stream().map(shop -> new SearchShopResponse(
+                shop.username(), shop.displayName(), signed(shop.avatarKey()), shop.ratingAvg(),
+                shop.ratingCount(), shop.matchCount(), shop.lowestPrice(),
+                previews.getOrDefault(shop.sellerId(), List.of()).stream()
+                        .map(p -> new SearchShopResponse.Preview(p.productId(), signed(imageKeys.get(p.productId()))))
+                        .toList())).toList();
+        return PageResponse.of(items, paging.page(), paging.size(), facets.countShops(query, minRating, now));
+    }
+
+    /**
+     * What the search box dropdown needs from one resolved search (TCG-774), without the
+     * rest of a results page: in-stock product rows, how many products the results page
+     * will show, games and categories with counts, and the shops selling most of them.
+     */
+    public record SuggestData(PageResponse<ProductSummaryResponse> page, long totalProducts,
+            List<SearchFacetRepository.Count> games, List<SearchFacetRepository.Count> categories,
+            List<SearchFacetRepository.Shop> shops) {
+    }
+
+    public SuggestData suggestData(ProductBrowse browse, int productRows, int shopRows) {
+        Resolved resolved = resolve(browse);
+        ProductBrowse inStock = resolved.browse().withPage(0, productRows).inStock();
+        PageResponse<ProductSummaryResponse> page = searchAs(inStock, resolved.text(), resolved.fuzzy());
+        if (resolved.corrected() != null) {
+            page = page.withCorrectedQuery(resolved.corrected(), resolved.reason());
+        }
+        ProductSearchQuery all = query(resolved);
+        return new SuggestData(page, products.count(all), facets.games(all), facets.categories(all),
+                facets.shops(all, null, false, shopRows, 0, OffsetDateTime.now(clock)));
+    }
+
+    /** @param query already normalised; candidates and their words are compared normalised too */
+    private static List<String> closestTerms(String query, List<String> candidates) {
+        int maxDistance = query.codePointCount(0, query.length()) < 5 ? 1 : 2;
         Map<String, Integer> distances = new HashMap<>();
         for (String candidate : candidates) {
             for (String term : candidate.split("\\s+")) {
-                int distance = editDistance(query, term.toLowerCase(Locale.ROOT), maxDistance);
+                int distance = editDistance(query, SearchText.normalize(term), maxDistance);
                 if (distance > 0 && distance <= maxDistance) distances.merge(term, distance, Math::min);
             }
-            int distance = editDistance(query, candidate.toLowerCase(Locale.ROOT), maxDistance);
+            int distance = editDistance(query, SearchText.normalize(candidate), maxDistance);
             if (distance > 0 && distance <= maxDistance) distances.merge(candidate, distance, Math::min);
         }
         return distances.entrySet().stream()
@@ -248,9 +488,18 @@ public class CatalogSearchService {
                             signed(imageKeys.get(product.id())),
                             variantCounts.getOrDefault(product.id(), 0),
                             offer == null ? null : offer.lowestPrice(),
-                            offer == null ? 0 : offer.listingCount());
+                            offer == null ? 0 : offer.listingCount(),
+                            offer == null ? null : offer.highestPrice(),
+                            offer == null ? null : offer.lowestRegularPrice(),
+                            offer == null ? 0 : offer.sellerCount(),
+                            offer != null && offer.onSale());
                 })
                 .toList();
+    }
+
+    /** A shop's avatar as a short-lived download URL, as the shop tab sends it. */
+    public String signedAvatar(String avatarKey) {
+        return signed(avatarKey);
     }
 
     private String signed(String imageKey) {

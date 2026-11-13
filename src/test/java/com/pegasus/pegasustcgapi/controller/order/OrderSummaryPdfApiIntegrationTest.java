@@ -78,10 +78,12 @@ class OrderSummaryPdfApiIntegrationTest extends PostgresIntegrationTest {
         String sellerText = pdfText(sellerPdf);
         String adminText = pdfText(adminPdf);
         assertThat(buyerText).contains("Buyer copy").doesNotContain("Platform commission", "0812345678");
-        assertThat(sellerText).contains("Seller copy", "Platform commission");
-        assertThat(adminText).contains("Internal admin copy");
+        assertThat(sellerText).contains("Seller copy", "Platform commission", "Somchai Jaidee", "0812345678", "PDF seller one card")
+                .doesNotContain("PDF seller two card");
+        assertThat(adminText).contains("Internal admin copy", "Platform commission", "PDF seller one card")
+                .doesNotContain("Platform commission (5%)", "PDF seller two card", "0812345678");
         for (String text : new String[] {buyerText, sellerText, adminText}) {
-            assertThat(text).contains("PEGASUS")
+            assertThat(text).contains("PEGASUS", "This order summary is not a receipt or tax invoice.")
                     .doesNotContain("DELIVERY OVERVIEW", "FULFILLMENT & PAYOUT", "RISK & AUDIT", "DOCUMENT NOTE");
         }
         assertThat(buyerPdf.header("content-disposition").orElse("")).contains("order-summary-" + orderNumber + ".pdf");

@@ -174,16 +174,6 @@ public class UserRepository {
     }
 
     /**
-     * Counts the attempt in the database rather than in memory, so the limit holds
-     * across instances.
-     *
-     * <p>Commits in its own transaction: the caller rejects the login by throwing,
-     * and that rollback would otherwise erase the very attempt being counted —
-     * leaving the lockout unreachable.
-     *
-     * @param lockedUntil {@code null} while the account is still under the limit.
-     */
-    /**
      * Counts a login attempt before its password is checked, in one statement, and
      * says which attempt it is.
      *
