@@ -62,7 +62,8 @@ SELECT v.username, pg_temp.uid(v.username) AS user_id FROM (VALUES
         ('earth_pkm'),
         ('gun99'),
         ('june2025'),
-        ('film_th')
+        ('film_th'),
+        ('pegasus_demo')
        ) AS v(username);
 
 CREATE FUNCTION pg_temp.scan_stem(p_key text) RETURNS text

@@ -67,7 +67,12 @@ BEGIN
         price := start_p; lead_id := NULL; last_b := NULL;
         FOR k IN 1..nbids LOOP
             bidder := bidders[1 + (i * 7 + k * 3 + (k % 2) * 5) % array_length(bidders, 1)];
-            IF bidder = last_b THEN bidder := bidders[1 + (i + k * 11) % array_length(bidders, 1)]; END IF;
+            IF bidder = last_b OR bidder = pg_temp.seller_user(card.seller_profile_id) THEN
+                bidder := bidders[1 + (i + k * 11) % array_length(bidders, 1)];
+            END IF;
+            IF bidder = last_b OR bidder = pg_temp.seller_user(card.seller_profile_id) THEN
+                bidder := bidders[1 + (i + k * 13 + 1) % array_length(bidders, 1)];
+            END IF;
             price := CASE WHEN k = 1 THEN start_p ELSE price + step * (1 + (k + i) % 3) END;
             t := started + (least(ends, anchor) - started) * (k::numeric / (nbids + 1));
             INSERT INTO auction_bid (auction_id, bidder_id, amount, status, idempotency_key, created_at)
