@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.2.0](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/compare/v1.1.0...v1.2.0) (2026-11-13)
+
+
+### Features
+
+* add backend API rate limiting ([bc97b4c](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/bc97b4c8bb876dc09c5cf15717f8bb5d78c564ff))
+* **no-ticket:** search a seller's storefront with the catalogue search ([5c0e881](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/5c0e881b5b14ae2633c3e89d079c76942f626fd2))
+* **no-ticket:** storefront search (q) using the catalogue search ([c3e1c04](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/c3e1c048d03d6d266fed338fef1ae2dcfd2e59f6))
+* **seed:** add one demo account with buyer, seller and admin roles ([11a7314](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/11a7314db0108f26b1a1163cb2e9f694f48e3bd5))
+* **seed:** add one demo account with buyer, seller and admin roles ([ba69655](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/ba696557ef72d4d5be8c7e450800ca353c22c8a4))
+* **seed:** grow the full seed into a presentation-size marketplace ([24710f3](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/24710f3ec1331a6a4cc0ba4a32b352248c22f78e))
+* **seed:** grow the full seed into a presentation-size marketplace ([eca7fdb](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/eca7fdb164e7351f13395e86529340916edb14b6))
+* **TCG-XXX:** add backend API rate limiting ([a16551e](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/a16551e38d6a9957ddc0cf1c40e86c647745bc80))
+
+
+### Bug Fixes
+
+* remove unused password-forgot rate limit ([e14a720](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/e14a72010efd6cf1169b757bb0f49cc86324f46d))
+* **TCG-XXX:** remove unused password-forgot rate limit ([6943369](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/69433692ba0fe514b0e75e3a93f6b319b0c75414))
+
 ## [1.1.0](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/compare/v1.0.0...v1.1.0) (2026-11-13)
 
 
