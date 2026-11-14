@@ -180,6 +180,18 @@ Two orders change on their own after loading, as real ones would: the most recen
 
 The seed's sources are in `src/test/resources/db/full-seed/`: numbered SQL files run in one transaction, `image-sources.txt` lists the real pictures and where they come from, `images/` holds the hand-made SAMPLE documents of the older part, and `render/` draws the rest (`render-manifest.sql` lists what to draw).
 
+### Small demo data for testers
+
+A smaller set for checking each role by hand: one admin, two shops, two buyers and one shop waiting for approval; Pokemon and One Piece only (62 products, 37 listings); 11 orders that went through payment, escrow, shipping, completion, a refund and payouts. Each role has something waiting: a slip to approve, a seller application, a payout request, a new order to accept and a parcel to confirm. Every account signs in with `Password123!`.
+
+**It always empties the database first**, then loads in one transaction that rolls back if any check fails:
+
+```bash
+make seed-demo
+```
+
+or `bash scripts/seed-demo.sh`, or `powershell -ExecutionPolicy Bypass -File scripts\seed-demo.ps1`. The Thai guide with the accounts and what to try is [DEMO_SEED.md](DEMO_SEED.md). Its files are in `src/test/resources/db/demo-seed/`; the reset, catalogue, replay engine and picture scripts are shared with `full-seed/`.
+
 ## Build and Run with Docker (full stack)
 
 You can run the entire backend infrastructure — PostgreSQL, MinIO, **and** the Spring Boot application — with a single command using Docker Compose. The Dockerfile performs a multi-stage build that runs Gradle inside an isolated build container, so **you do not need Java or Gradle installed on your host machine**.
