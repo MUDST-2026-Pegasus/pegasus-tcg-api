@@ -8,7 +8,7 @@
         codegen compile \
         env check deps bootjar \
         docker-build docker-run docker-stop \
-        swagger api-docs seed-catalog seed-home seed-full test-swagger
+        swagger api-docs seed-catalog seed-home seed-full seed-demo test-swagger
 
 # ── Tool aliases ──────────────────────────────────────────────
 ifeq ($(OS),Windows_NT)
@@ -144,4 +144,15 @@ ifeq ($(OS),Windows_NT)
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/seed-full.ps1 $(if $(filter 1,$(RESET)),-Reset,)
 else
 	bash scripts/seed-full.sh $(if $(filter 1,$(RESET)),--reset,)
+endif
+
+# ── Small demo data for testers ──────────────────────────────
+
+# Admin, two shops, two buyers; Pokemon and One Piece; a few real orders.
+# ALWAYS wipes the database first. Guide: DEMO_SEED.md
+seed-demo: ## Wipe the DB and load the small tester data set (Pokemon + One Piece, a few orders) (Command: scripts/seed-demo.sh or scripts/seed-demo.ps1)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/seed-demo.ps1
+else
+	bash scripts/seed-demo.sh
 endif
