@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/compare/v1.2.0...v1.3.0) (2026-11-14)
+
+
+### Features
+
+* **seed:** add small demo seed for testers (admin, seller, buyer) ([01f3862](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/01f3862987f8f3e11270c86db9f50c430c86046c))
+* **seed:** add small demo seed for testers (admin, seller, buyer) ([cbe5482](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/commit/cbe5482992458cc6d90b79ac3468544259a01283))
+
 ## [1.2.0](https://github.com/MUDST-2026-Pegasus/pegasus-tcg-api/compare/v1.1.0...v1.2.0) (2026-11-13)
 
 
