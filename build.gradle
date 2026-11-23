@@ -5,17 +5,17 @@ buildscript {
     dependencies {
         // Flyway resolves database modules from its own classloader, so the
         // Postgres support has to sit on the buildscript classpath.
-        classpath 'org.flywaydb:flyway-database-postgresql:13.12.1'
+        classpath 'org.flywaydb:flyway-database-postgresql:13.13.0'
         classpath 'org.postgresql:postgresql:42.7.14'
     }
 }
 
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '4.1.2'
+    id 'org.springframework.boot' version '4.2.0'
     id 'io.spring.dependency-management' version '1.1.7'
-    id 'org.flywaydb.flyway' version '13.12.1'
-    id 'org.jooq.jooq-codegen-gradle' version '3.21.9'
+    id 'org.flywaydb.flyway' version '13.13.0'
+    id 'org.jooq.jooq-codegen-gradle' version '3.21.10'
     id 'jacoco'
 }
 
@@ -49,8 +49,8 @@ dependencies {
     implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
     implementation 'io.micrometer:micrometer-registry-prometheus'
     // Spring Boot 4 auto-instruments JDBC with Micrometer observations and spans.
-    implementation 'net.ttddyy.observation:datasource-micrometer-spring-boot:2.3.0'
-    implementation 'org.bouncycastle:bcprov-jdk18on:1.86'
+    implementation 'net.ttddyy.observation:datasource-micrometer-spring-boot:2.3.1'
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.87'
     // Generates the signed-in user's order-summary PDF without a web-rendering runtime.
     implementation 'org.apache.pdfbox:pdfbox:3.0.8'
     // Object storage. Talks S3 to MinIO in compose.yaml.
@@ -73,7 +73,7 @@ dependencies {
     testImplementation 'org.testcontainers:testcontainers-postgresql'
     // Acceptance tests: the Gherkin features under src/test/resources/features, run
     // through the JUnit Platform suite in acceptance/CucumberTestRunner.
-    testImplementation platform('io.cucumber:cucumber-bom:8.0.4')
+    testImplementation platform('io.cucumber:cucumber-bom:8.1.0')
     testImplementation 'io.cucumber:cucumber-java'
     testImplementation 'io.cucumber:cucumber-spring'
     testImplementation 'io.cucumber:cucumber-junit-platform-engine'
